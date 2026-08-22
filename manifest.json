@@ -6,7 +6,11 @@
   "js": "index.js",
   "css": "style.css",
   "author": "Development build",
-  "version": "0.1.0-dev.0",
+  "version": "0.1.0-dev.1",
+  "i18n": {
+    "zh-cn": "locales/zh-cn.json",
+    "zh-tw": "locales/zh-tw.json"
+  },
   "hooks": {
     "activate": "init"
   }

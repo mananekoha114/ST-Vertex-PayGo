@@ -1,3 +1,4 @@
+import { createLocalizer } from './src/i18n.js';
 import { createRequestHook } from './src/request-hook.js';
 import { createServerClient } from './src/server-client.js';
 import { createPayGoUi } from './src/ui.js';
@@ -14,7 +15,7 @@ function notify(kind, message) {
     }
 }
 
-async function waitForVertexControls(timeoutMs = 10_000) {
+async function waitForVertexControls(timeoutMs = 10_000, localize = createLocalizer()) {
     if (document.getElementById('vertexai_region') && document.getElementById('model_vertexai_select')) {
         return;
     }
@@ -22,7 +23,7 @@ async function waitForVertexControls(timeoutMs = 10_000) {
     await new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
             observer.disconnect();
-            reject(new Error('Timed out waiting for SillyTavern Vertex AI controls.'));
+            reject(new Error(localize('vertex_paygo.error.controls_timeout')));
         }, timeoutMs);
         const observer = new MutationObserver(() => {
             if (document.getElementById('vertexai_region') && document.getElementById('model_vertexai_select')) {
@@ -40,11 +41,16 @@ export async function init() {
     initialized = true;
 
     try {
-        await waitForVertexControls();
         const context = globalThis.SillyTavern?.getContext?.();
+        const localize = createLocalizer(
+            typeof context?.translate === 'function'
+                ? (fallback, key) => context.translate(fallback, key)
+                : undefined,
+        );
         if (!context) {
-            throw new Error('SillyTavern public extension context is unavailable.');
+            throw new Error(localize('vertex_paygo.error.context_unavailable'));
         }
+        await waitForVertexControls(10_000, localize);
 
         const serverClient = createServerClient({
             fetchImpl: globalThis.fetch.bind(globalThis),
@@ -55,6 +61,7 @@ export async function init() {
             serverClient,
             notifyError: message => notify('error', message),
             notifyWarning: message => notify('warning', message),
+            localize,
         });
 
         const requestHook = createRequestHook({
@@ -63,6 +70,7 @@ export async function init() {
             origin: globalThis.location.origin,
             notifyError: message => notify('error', message),
             notifyWarning: message => notify('warning', message),
+            localize,
         });
 
         const eventName = context.eventTypes.CHAT_COMPLETION_SETTINGS_READY;

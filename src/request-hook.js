@@ -1,4 +1,5 @@
 import { PROTOCOL_VERSION, SERVER_ROUTES, VERTEX_SOURCE } from './constants.js';
+import { createLocalizer, localizeError, localizeSupport, localizeValidation } from './i18n.js';
 import { requiresPlugin, validatePluginState } from './state-machine.js';
 
 export function createEphemeralSecret() {
@@ -65,6 +66,7 @@ export function createRequestHook({
     notifyWarning = () => {},
     logger = console,
     secretFactory = createEphemeralSecret,
+    localize = createLocalizer(),
 }) {
     if (typeof stateProvider !== 'function') {
         throw new TypeError('stateProvider must be a function.');
@@ -89,8 +91,7 @@ export function createRequestHook({
 
         try {
             if (existingReverseProxy) {
-                const message = 'Vertex PayGo tiers are incompatible with a custom Vertex reverse proxy.';
-                notifyError(`${message} Disable one of them before generating.`);
+                notifyError(localize('vertex_paygo.hook.proxy_conflict'));
                 logger.error('[Vertex PayGo] Request blocked: CUSTOM_REVERSE_PROXY_CONFLICT');
                 return;
             }
@@ -101,19 +102,20 @@ export function createRequestHook({
                 region: generateData.vertexai_region,
             });
             if (!validation.ok) {
-                notifyError(validation.message);
+                notifyError(localizeValidation(localize, validation, state));
                 logger.error('[Vertex PayGo] Request blocked:', validation.code, validation.message);
                 return;
             }
             if (validation.warning) {
-                notifyWarning(validation.warning);
+                notifyWarning(localizeSupport(localize, validation.support, state.tier));
             }
 
             const prepared = await serverClient.prepare(buildPreparePayload(generateData, validation.state));
             applyPreparedProxy(generateData, prepared);
         } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            notifyError(`${message} The request was blocked and was not sent to Vertex AI.`);
+            notifyError(localize('vertex_paygo.hook.request_blocked', {
+                message: localizeError(localize, error),
+            }));
             logger.error('[Vertex PayGo] Failed to prepare request; failure sink retained.', error);
         }
     };

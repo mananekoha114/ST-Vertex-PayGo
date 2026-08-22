@@ -98,17 +98,23 @@ test('prepare failure retains the failure sink and reports a visible error', asy
 });
 
 test('invalid tier/region state is blocked before prepare', async () => {
+    const errors = [];
     let prepares = 0;
     const data = vertexData({ vertexai_region: 'us-central1' });
     const hook = createRequestHook({
         stateProvider: () => ({ tier: TIER.FLEX, paygoOnly: false }),
         serverClient: { prepare: async () => prepares++ },
         origin: ORIGIN,
+        notifyError: message => errors.push(message),
+        localize: (key, parameters = {}) => key === 'vertex_paygo.validation.global_required'
+            ? `${parameters.tier} 必须使用 global`
+            : key === 'vertex_paygo.tier.flex' ? 'Flex（灵活）' : key,
         logger: { error() {} },
     });
     await hook(data);
     assert.equal(prepares, 0);
     assert.match(data.reverse_proxy, /\/rejected$/);
+    assert.equal(errors[0], 'Flex（灵活） 必须使用 global');
 });
 
 test('pre-existing custom Vertex reverse proxy conflicts fail closed', async () => {

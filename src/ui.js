@@ -1,4 +1,11 @@
 import { DEFAULT_STATE, TIER, VERTEX_SOURCE } from './constants.js';
+import {
+    createLocalizer,
+    getTierLabel,
+    localizeError,
+    localizeSupport,
+    localizeValidation,
+} from './i18n.js';
 import { getModelPolicy, getTierSupport } from './model-policy.js';
 import {
     attachStateToProfile,
@@ -17,12 +24,6 @@ import {
     validatePluginState,
 } from './state-machine.js';
 
-const TIER_LABEL = Object.freeze({
-    [TIER.STANDARD]: 'Standard',
-    [TIER.FLEX]: 'Flex',
-    [TIER.PRIORITY]: 'Priority',
-});
-
 function createElement(tag, attributes = {}, text = '') {
     const element = document.createElement(tag);
     for (const [name, value] of Object.entries(attributes)) {
@@ -38,46 +39,74 @@ function createElement(tag, attributes = {}, text = '') {
     return element;
 }
 
-function buildControls() {
+function buildControls(localize) {
     const root = createElement('section', { id: 'vertex-paygo-settings', class: 'vertex-paygo-settings' });
-    root.append(createElement('h4', {}, 'Vertex AI PayGo'));
+    root.append(createElement('h4', { 'data-i18n': 'vertex_paygo.title' }, localize('vertex_paygo.title')));
 
     const tierRow = createElement('div', { class: 'vertex-paygo-row flex-container' });
-    const tierLabel = createElement('label', { for: 'vertex-paygo-tier' }, 'Service tier:');
+    const tierLabel = createElement(
+        'label',
+        { for: 'vertex-paygo-tier', 'data-i18n': 'vertex_paygo.service_tier' },
+        localize('vertex_paygo.service_tier'),
+    );
     const tierSelect = createElement('select', { id: 'vertex-paygo-tier', class: 'text_pole' });
     for (const tier of Object.values(TIER)) {
-        tierSelect.append(createElement('option', { value: tier }, TIER_LABEL[tier]));
+        const key = `vertex_paygo.tier.${tier}`;
+        tierSelect.append(createElement('option', { value: tier, 'data-i18n': key }, localize(key)));
     }
     tierRow.append(tierLabel, tierSelect);
 
     const paygoLabel = createElement('label', { class: 'checkbox_label vertex-paygo-only' });
     const paygoOnly = createElement('input', { id: 'vertex-paygo-only', type: 'checkbox' });
-    paygoLabel.append(paygoOnly, document.createTextNode(' Use PayGo only (bypass Provisioned Throughput)'));
+    const paygoText = createElement(
+        'span',
+        { 'data-i18n': 'vertex_paygo.paygo_only' },
+        localize('vertex_paygo.paygo_only'),
+    );
+    paygoLabel.append(paygoOnly, paygoText);
 
     const guidance = createElement(
         'small',
-        { class: 'vertex-paygo-guidance' },
-        'Flex may add significant latency and is intended for non-real-time work. Flex and Priority currently require the global endpoint.',
+        { class: 'vertex-paygo-guidance', 'data-i18n': 'vertex_paygo.guidance' },
+        localize('vertex_paygo.guidance'),
     );
     const policyStatus = createElement('small', { class: 'vertex-paygo-status', 'aria-live': 'polite' });
 
     const serverRow = createElement('div', { class: 'vertex-paygo-server-row' });
-    const serverStatus = createElement('small', { class: 'vertex-paygo-server-status', 'aria-live': 'polite' }, 'Server Plugin: checking…');
-    const retryButton = createElement('button', { type: 'button', class: 'menu_button vertex-paygo-retry' }, 'Retry');
+    const serverStatus = createElement(
+        'small',
+        {
+            class: 'vertex-paygo-server-status',
+            'aria-live': 'polite',
+        },
+        localize('vertex_paygo.server.checking'),
+    );
+    const retryButton = createElement(
+        'button',
+        { type: 'button', class: 'menu_button vertex-paygo-retry', 'data-i18n': 'vertex_paygo.retry' },
+        localize('vertex_paygo.retry'),
+    );
     serverRow.append(serverStatus, retryButton);
 
     root.append(tierRow, paygoLabel, guidance, policyStatus, serverRow);
     return { root, tierSelect, paygoOnly, policyStatus, serverStatus, retryButton };
 }
 
-export function createPayGoUi({ context, serverClient, notifyError = () => {}, notifyWarning = () => {} }) {
+export function createPayGoUi({
+    context,
+    serverClient,
+    notifyError = () => {},
+    notifyWarning = () => {},
+    localize,
+}) {
+    localize ??= createLocalizer((fallback, key) => context?.translate?.(fallback, key));
     const regionInput = document.getElementById('vertexai_region');
     const modelSelect = document.getElementById('model_vertexai_select');
     if (!(regionInput instanceof HTMLInputElement) || !(modelSelect instanceof HTMLSelectElement)) {
-        throw new Error('SillyTavern Vertex AI controls were not found.');
+        throw new Error(localize('vertex_paygo.error.controls_missing'));
     }
 
-    const controls = buildControls();
+    const controls = buildControls(localize);
     const regionContainer = regionInput.closest('.flex-container.flexFlowColumn') ?? regionInput.parentElement;
     regionContainer.after(controls.root);
 
@@ -85,7 +114,7 @@ export function createPayGoUi({ context, serverClient, notifyError = () => {}, n
     let lastModel = String(context.chatCompletionSettings.vertexai_model || modelSelect.value || '');
     let transitionPending = false;
     let revertingModel = false;
-    let healthState = { status: 'checking', message: 'Server Plugin: checking…' };
+    let healthState = { status: 'checking', message: localize('vertex_paygo.server.checking') };
     let reconcileSequence = 0;
 
     const popup = context.Popup;
@@ -107,7 +136,9 @@ export function createPayGoUi({ context, serverClient, notifyError = () => {}, n
         state = normalizeState(nextState);
         if (persist) {
             void Promise.resolve(writePersistedState(context, state)).catch(error => {
-                notifyError(`Could not persist the PayGo setting: ${error instanceof Error ? error.message : String(error)}`);
+                notifyError(localize('vertex_paygo.error.persist', {
+                    error: error instanceof Error ? error.message : String(error),
+                }));
             });
         }
         render();
@@ -126,31 +157,35 @@ export function createPayGoUi({ context, serverClient, notifyError = () => {}, n
         controls.policyStatus.classList.remove('vertex-paygo-status--warning', 'vertex-paygo-status--error');
 
         if (!policy.isGemini) {
-            controls.policyStatus.textContent = 'PayGo routing is excluded for non-Gemini Vertex models.';
+            controls.policyStatus.textContent = localize('vertex_paygo.status.non_gemini');
             controls.policyStatus.classList.add('vertex-paygo-status--error');
             return;
         }
 
         const support = state.tier === TIER.STANDARD ? null : getTierSupport(policy.model, state.tier);
         if (support?.level === 'unverified') {
-            controls.policyStatus.textContent = support.reason;
+            controls.policyStatus.textContent = localizeSupport(localize, support, state.tier);
             controls.policyStatus.classList.add('vertex-paygo-status--warning');
             return;
         }
 
         const validation = validatePluginState({ state, model: policy.model, region: getRegion() });
         if (!validation.ok) {
-            controls.policyStatus.textContent = `Blocked: ${validation.message}`;
+            controls.policyStatus.textContent = localize('vertex_paygo.status.blocked', {
+                message: localizeValidation(localize, validation, state),
+            });
             controls.policyStatus.classList.add('vertex-paygo-status--error');
             return;
         }
 
         if (state.tier === TIER.STANDARD && !state.paygoOnly) {
-            controls.policyStatus.textContent = 'Native Standard route; the Server Plugin is not used.';
+            controls.policyStatus.textContent = localize('vertex_paygo.status.native_standard');
         } else if (state.tier === TIER.STANDARD) {
-            controls.policyStatus.textContent = 'Standard PayGo-only routing will bypass Provisioned Throughput.';
+            controls.policyStatus.textContent = localize('vertex_paygo.status.standard_paygo_only');
         } else {
-            controls.policyStatus.textContent = `${TIER_LABEL[state.tier]} PayGo will use the global endpoint.`;
+            controls.policyStatus.textContent = localize('vertex_paygo.status.tier_global', {
+                tier: getTierLabel(localize, state.tier),
+            });
         }
     }
 
@@ -166,9 +201,9 @@ export function createPayGoUi({ context, serverClient, notifyError = () => {}, n
         const flexOption = controls.tierSelect.querySelector(`option[value="${TIER.FLEX}"]`);
         const priorityOption = controls.tierSelect.querySelector(`option[value="${TIER.PRIORITY}"]`);
         flexOption.disabled = !policy.flex.allowed;
-        flexOption.title = policy.flex.reason;
+        flexOption.title = localizeSupport(localize, policy.flex, TIER.FLEX);
         priorityOption.disabled = !policy.priority.allowed;
-        priorityOption.title = policy.priority.reason;
+        priorityOption.title = localizeSupport(localize, policy.priority, TIER.PRIORITY);
 
         controls.root.dataset.active = String(isVertexSelected());
         controls.root.dataset.serverStatus = healthState.status;
@@ -179,12 +214,13 @@ export function createPayGoUi({ context, serverClient, notifyError = () => {}, n
     }
 
     async function showTierRegionConflict(tier, decision) {
+        const tierLabel = getTierLabel(localize, tier);
         return await popup.show.confirm(
-            `${TIER_LABEL[tier]} PayGo requires global`,
-            `The current Vertex AI region is “${decision.decline.region}”. Choose whether to switch both the service tier and region, or keep the current region with Standard.`,
+            localize('vertex_paygo.popup.tier_region.title', { tier: tierLabel }),
+            localize('vertex_paygo.popup.tier_region.body', { region: decision.decline.region }),
             {
-                okButton: `Use ${TIER_LABEL[tier]} and global`,
-                cancelButton: 'Keep region and Standard',
+                okButton: localize('vertex_paygo.popup.tier_region.accept', { tier: tierLabel }),
+                cancelButton: localize('vertex_paygo.popup.tier_region.decline'),
                 defaultResult: popupResult.NEGATIVE,
             },
         );
@@ -196,7 +232,7 @@ export function createPayGoUi({ context, serverClient, notifyError = () => {}, n
         const decision = resolveTierSelection({ state, requestedTier, region: getRegion(), model: getModel() });
 
         if (decision.type === 'reject') {
-            notifyError(decision.support.reason);
+            notifyError(localizeSupport(localize, decision.support, requestedTier));
             render();
             return;
         }
@@ -224,7 +260,7 @@ export function createPayGoUi({ context, serverClient, notifyError = () => {}, n
     function onPaygoOnlyChanged() {
         const policy = getModelPolicy(getModel());
         if (!policy.isGemini && controls.paygoOnly.checked) {
-            notifyError('PayGo-only routing is available only for Gemini models.');
+            notifyError(localize('vertex_paygo.error.paygo_only_gemini'));
             controls.paygoOnly.checked = false;
             return;
         }
@@ -242,12 +278,13 @@ export function createPayGoUi({ context, serverClient, notifyError = () => {}, n
         transitionPending = true;
         render();
         try {
+            const tierLabel = getTierLabel(localize, state.tier);
             const result = await popup.show.confirm(
-                'Regional endpoints use Standard',
-                `${TIER_LABEL[state.tier]} PayGo currently requires global. Keep the new region with Standard, or keep global with the current tier.`,
+                localize('vertex_paygo.popup.region.title'),
+                localize('vertex_paygo.popup.region.body', { tier: tierLabel }),
                 {
-                    okButton: 'Use new region and Standard',
-                    cancelButton: `Keep global and ${TIER_LABEL[state.tier]}`,
+                    okButton: localize('vertex_paygo.popup.region.accept'),
+                    cancelButton: localize('vertex_paygo.popup.region.decline', { tier: tierLabel }),
                     defaultResult: popupResult.NEGATIVE,
                 },
             );
@@ -290,14 +327,14 @@ export function createPayGoUi({ context, serverClient, notifyError = () => {}, n
         render();
         try {
             const reason = decision.code === 'PAYGO_REQUIRES_GEMINI'
-                ? 'PayGo routing is restricted to Gemini models.'
-                : decision.support?.reason || 'The selected model does not support this PayGo tier.';
+                ? localize('vertex_paygo.popup.model.reason_gemini')
+                : localize('vertex_paygo.popup.model.reason_unsupported');
             const result = await popup.show.confirm(
-                'Model and PayGo tier conflict',
-                `${reason} Use the new model with native Standard, or restore the previous model and keep the PayGo setting.`,
+                localize('vertex_paygo.popup.model.title'),
+                localize('vertex_paygo.popup.model.body', { reason }),
                 {
-                    okButton: 'Use new model and Standard',
-                    cancelButton: 'Restore previous model',
+                    okButton: localize('vertex_paygo.popup.model.accept'),
+                    cancelButton: localize('vertex_paygo.popup.model.decline'),
                     defaultResult: popupResult.NEGATIVE,
                 },
             );
@@ -317,17 +354,21 @@ export function createPayGoUi({ context, serverClient, notifyError = () => {}, n
     }
 
     async function refreshHealth() {
-        healthState = { status: 'checking', message: 'Server Plugin: checking…' };
+        healthState = { status: 'checking', message: localize('vertex_paygo.server.checking') };
         render();
         try {
             const health = await serverClient.checkHealth();
             const version = health.pluginVersion ? ` ${health.pluginVersion}` : '';
-            healthState = { status: 'ready', message: `Server Plugin${version}: ready`, detail: 'Protocol v1, loopback HTTP transport' };
+            healthState = {
+                status: 'ready',
+                message: localize('vertex_paygo.server.ready', { version }),
+                detail: localize('vertex_paygo.server.ready_detail'),
+            };
         } catch (error) {
             healthState = {
                 status: 'unavailable',
-                message: 'Server Plugin: unavailable',
-                detail: error instanceof Error ? error.message : String(error),
+                message: localize('vertex_paygo.server.unavailable'),
+                detail: localizeError(localize, error),
             };
         }
         render();
@@ -366,12 +407,13 @@ export function createPayGoUi({ context, serverClient, notifyError = () => {}, n
         transitionPending = true;
         render();
         try {
+            const validationMessage = localizeValidation(localize, validation, state);
             const result = await popup.show.confirm(
-                'Saved PayGo setting is incompatible',
-                `${validation.message} Switch this connection to native Standard, or keep the saved setting blocked until you change the model.`,
+                localize('vertex_paygo.popup.saved.title'),
+                localize('vertex_paygo.popup.saved.body', { message: validationMessage }),
                 {
-                    okButton: 'Use Standard',
-                    cancelButton: 'Keep blocked setting',
+                    okButton: localize('vertex_paygo.popup.saved.accept'),
+                    cancelButton: localize('vertex_paygo.popup.saved.decline'),
                     defaultResult: popupResult.NEGATIVE,
                 },
             );

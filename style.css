@@ -1,0 +1,57 @@
+#vertex-paygo-settings.vertex-paygo-settings {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    margin: 0.75rem 0;
+    padding: 0.75rem;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--SmartThemeBlurTintColor) 75%, transparent);
+}
+
+#vertex-paygo-settings .vertex-paygo-row {
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+#vertex-paygo-settings .vertex-paygo-row select {
+    min-width: 9rem;
+}
+
+#vertex-paygo-settings .vertex-paygo-only {
+    justify-content: flex-start;
+    margin: 0;
+}
+
+#vertex-paygo-settings .vertex-paygo-guidance,
+#vertex-paygo-settings .vertex-paygo-status,
+#vertex-paygo-settings .vertex-paygo-server-status {
+    display: block;
+    line-height: 1.35;
+}
+
+#vertex-paygo-settings .vertex-paygo-status--warning {
+    color: var(--warning-color, #e7b55e);
+}
+
+#vertex-paygo-settings .vertex-paygo-status--error,
+#vertex-paygo-settings[data-server-status="unavailable"] .vertex-paygo-server-status {
+    color: var(--error-color, #ef7777);
+}
+
+#vertex-paygo-settings[data-server-status="ready"] .vertex-paygo-server-status {
+    color: var(--success-color, #72d49b);
+}
+
+#vertex-paygo-settings .vertex-paygo-server-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+#vertex-paygo-settings .vertex-paygo-retry {
+    min-width: auto;
+    padding: 0.25rem 0.6rem;
+}

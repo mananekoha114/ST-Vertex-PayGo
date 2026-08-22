@@ -1,0 +1,9 @@
+{
+  "name": "st-vertex-paygo",
+  "version": "0.1.0-dev.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  }
+}

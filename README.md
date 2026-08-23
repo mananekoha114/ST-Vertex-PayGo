@@ -6,6 +6,10 @@
 
 > 当前版本兼容 SillyTavern 1.18.x。它是非官方扩展，与 SillyTavern、Google 或 Google Cloud 没有隶属或认可关系。
 
+__此扩展不能在TauriTavern中使用，此扩展不能在TauriTavern中使用，此扩展不能在TauriTavern中使用__
+
+TauriTavern自带附加参数功能，请在那里面的自定义请求头中按照官方文档的要求填入对应的请求头
+
 ## 功能
 
 - 在 SillyTavern 的 Vertex AI 设置下增加 Standard、Flex 和 Priority 选择。
@@ -31,6 +35,7 @@
 ```text
 SillyTavern/plugins/ST-Vertex-PayGo-Server/
 ```
+之后确认在SillyTavern/config.yaml中`enableServerPlugins`为true
 启动 SillyTavern，在扩展程序/安装扩展程序里面输入此仓库的URL进行前端安装
 
 两个项目都没有需要单独安装的运行时 npm 依赖。重新启动 SillyTavern 后，在 Vertex AI 设置中应看到“Vertex AI PayGo”区域，并且“服务端插件”状态应显示为就绪。
@@ -78,7 +83,7 @@ PayGo-only 可以与 Flex 或 Priority 同时启用。Vertex AI 最终决定请�
 
 ### 服务端插件显示不可用
 
-确认服务器插件位于 `SillyTavern/plugins/ST-Vertex-PayGo-Server`，SillyTavern 使用的是 1.18.0，并在安装后完整重启了服务端。
+确认服务器插件位于 `SillyTavern/plugins/ST-Vertex-PayGo-Server`，SillyTavern 使用的是 1.18.0，并在安装后完整重启了服务端，且在SillyTavern/config.yaml中`enableServerPlugins`为true。
 
 ### Flex 或 Priority 无法选择
 

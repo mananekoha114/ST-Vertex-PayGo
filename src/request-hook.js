@@ -72,6 +72,8 @@ export function createRequestHook({
         throw new TypeError('stateProvider must be a function.');
     }
 
+    const shownWarningKeys = new Set();
+
     return async function onChatCompletionSettingsReady(generateData) {
         if (generateData?.chat_completion_source !== VERTEX_SOURCE) {
             return;
@@ -107,7 +109,11 @@ export function createRequestHook({
                 return;
             }
             if (validation.warning) {
-                notifyWarning(localizeSupport(localize, validation.support, state.tier));
+                const warningKey = `${validation.support?.level ?? 'warning'}:${String(generateData.model ?? '').trim().toLowerCase()}`;
+                if (!shownWarningKeys.has(warningKey)) {
+                    shownWarningKeys.add(warningKey);
+                    notifyWarning(localizeSupport(localize, validation.support, state.tier));
+                }
             }
 
             const prepared = await serverClient.prepare(buildPreparePayload(generateData, validation.state));

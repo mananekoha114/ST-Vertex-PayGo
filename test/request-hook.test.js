@@ -117,6 +117,30 @@ test('invalid tier/region state is blocked before prepare', async () => {
     assert.equal(errors[0], 'Flex（灵活） 必须使用 global');
 });
 
+test('unverified model warning is shown only once per model in a page session', async () => {
+    const warnings = [];
+    let prepares = 0;
+    const hook = createRequestHook({
+        stateProvider: () => ({ tier: TIER.FLEX, paygoOnly: false }),
+        serverClient: {
+            prepare: async () => {
+                prepares += 1;
+                return { proxyUrl: 'http://127.0.0.1:32145/proxy/ticket', proxySecret: 'secret' };
+            },
+        },
+        origin: ORIGIN,
+        notifyWarning: message => warnings.push(message),
+    });
+
+    await hook(vertexData({ model: 'gemini-9.0-future' }));
+    await hook(vertexData({ model: 'gemini-9.0-future' }));
+    await hook(vertexData({ model: 'gemini-9.1-future' }));
+
+    assert.equal(prepares, 3);
+    assert.equal(warnings.length, 2);
+    assert.equal(warnings[0], warnings[1]);
+});
+
 test('pre-existing custom Vertex reverse proxy conflicts fail closed', async () => {
     const errors = [];
     let prepares = 0;

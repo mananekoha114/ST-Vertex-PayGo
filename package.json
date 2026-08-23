@@ -1,7 +1,13 @@
 {
   "name": "st-vertex-paygo",
   "version": "0.1.0-dev.1",
+  "description": "SillyTavern extension for Vertex AI Standard, Flex, and Priority PayGo service tiers",
   "private": true,
+  "license": "MPL-2.0",
+  "author": {
+    "name": "Mana Nekoha",
+    "url": "https://github.com/mananekoha114"
+  },
   "type": "module",
   "scripts": {
     "test": "node --test"

@@ -134,6 +134,4 @@ node --test
 
 ## 开源协议
 
-Copyright © 2026 [Mana Nekoha](https://github.com/mananekoha114)（@mananekoha114）
-
 本项目采用 [Mozilla Public License 2.0 (MPL-2.0)](LICENSE) 开源协议。修改并分发本项目代码时，请遵守 MPL 2.0 相关的开源与署名要求。

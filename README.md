@@ -4,7 +4,7 @@
 
 本仓库是浏览器端扩展，必须与独立的 `ST-Vertex-PayGo-Server` Server Plugin 配套使用，才能发送 Flex、Priority 或 PayGo-only 请求。Standard 且未启用 PayGo-only 时仍使用 SillyTavern 原生 Vertex AI 请求，不经过 Server Plugin。
 
-> 当前为开发版本，兼容目标是 SillyTavern 1.18.x。它是非官方扩展，与 SillyTavern、Google 或 Google Cloud 没有隶属或认可关系。
+> 当前版本兼容 SillyTavern 1.18.x。它是非官方扩展，与 SillyTavern、Google 或 Google Cloud 没有隶属或认可关系。
 
 ## 功能
 

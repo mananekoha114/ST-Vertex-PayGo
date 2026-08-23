@@ -1,12 +1,12 @@
 {
-  "display_name": "Vertex AI PayGo Tiers (Development Build)",
+  "display_name": "Vertex AI PayGo Tiers",
   "loading_order": 50,
   "requires": [],
   "optional": [],
   "js": "index.js",
   "css": "style.css",
   "author": "Mana Nekoha (@mananekoha114)",
-  "version": "0.1.0-dev.1",
+  "version": "0.1.0",
   "i18n": {
     "zh-cn": "locales/zh-cn.json",
     "zh-tw": "locales/zh-tw.json"

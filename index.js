@@ -89,3 +89,26 @@ export async function init() {
 export function getControllerForDebug() {
     return controller;
 }
+
+export function installLegacyActivationFallback({
+    documentRef = globalThis.document,
+    activate = init,
+    logger = console,
+} = {}) {
+    if (!documentRef || typeof activate !== 'function') return false;
+
+    const run = () => {
+        Promise.resolve()
+            .then(activate)
+            .catch(error => logger.error('[Vertex PayGo] Legacy activation fallback failed.', error));
+    };
+
+    if (documentRef.readyState === 'loading') {
+        documentRef.addEventListener('DOMContentLoaded', run, { once: true });
+    } else {
+        run();
+    }
+    return true;
+}
+
+installLegacyActivationFallback();

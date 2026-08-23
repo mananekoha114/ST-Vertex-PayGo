@@ -17,12 +17,12 @@ test('health handshake requires protocol v1 and loopback transport', async () =>
     const client = createServerClient({
         fetchImpl: async (url, options) => {
             request = { url, options };
-            return jsonResponse({ ok: true, pluginId: 'vertex-paygo', protocolVersion: 1, transport: 'loopback-http', pluginVersion: '0.1.0' });
+            return jsonResponse({ ok: true, pluginId: 'vertex-paygo', protocolVersion: 1, transport: 'loopback-http', pluginVersion: '0.2.0' });
         },
         getRequestHeaders: () => ({ 'X-CSRF-Token': 'test' }),
     });
     const health = await client.checkHealth();
-    assert.equal(health.pluginVersion, '0.1.0');
+    assert.equal(health.pluginVersion, '0.2.0');
     assert.equal(request.url, '/api/plugins/vertex-paygo/health');
     assert.equal(request.options.headers['X-CSRF-Token'], 'test');
 });

@@ -9,6 +9,7 @@ import {
 import { getModelPolicy, getTierSupport } from './model-policy.js';
 import {
     attachStateToProfile,
+    getActiveProfile,
     normalizeImportedPreset,
     normalizeExportedPreset,
     readPersistedState,
@@ -37,6 +38,21 @@ function createElement(tag, attributes = {}, text = '') {
         element.textContent = text;
     }
     return element;
+}
+
+export function resolveVertexModel({ profile, inputValue, settingsValue, selectValue } = {}) {
+    const profileOwnsModel = profile?.mode === 'cc'
+        && profile?.api === VERTEX_SOURCE
+        && !profile?.exclude?.includes('model');
+    const candidates = [
+        profileOwnsModel ? profile.model : '',
+        inputValue,
+        settingsValue,
+        selectValue,
+    ];
+    return candidates
+        .map(value => typeof value === 'string' ? value.trim() : '')
+        .find(Boolean) ?? '';
 }
 
 function buildControls(localize) {
@@ -102,6 +118,7 @@ export function createPayGoUi({
     localize ??= createLocalizer((fallback, key) => context?.translate?.(fallback, key));
     const regionInput = document.getElementById('vertexai_region');
     const modelSelect = document.getElementById('model_vertexai_select');
+    const modelInput = document.getElementById('vertexai_model_id');
     if (!(regionInput instanceof HTMLInputElement) || !(modelSelect instanceof HTMLSelectElement)) {
         throw new Error(localize('vertex_paygo.error.controls_missing'));
     }
@@ -121,7 +138,12 @@ export function createPayGoUi({
     const popupResult = context.POPUP_RESULT;
 
     function getModel() {
-        return String(context.chatCompletionSettings.vertexai_model || modelSelect.value || '');
+        return resolveVertexModel({
+            profile: getActiveProfile(context),
+            inputValue: modelInput instanceof HTMLInputElement ? modelInput.value : '',
+            settingsValue: context.chatCompletionSettings.vertexai_model,
+            selectValue: modelSelect.value,
+        });
     }
 
     function getRegion() {
@@ -302,7 +324,8 @@ export function createPayGoUi({
     }
 
     async function onModelChanged(model) {
-        const nextModel = String(model ?? getModel());
+        const emittedModel = typeof model === 'string' ? model.trim() : '';
+        const nextModel = emittedModel || getModel();
         if (!isVertexSelected()) {
             render();
             return;
@@ -342,10 +365,15 @@ export function createPayGoUi({
             if (result === popupResult.AFFIRMATIVE || !previousModel || previousModel === nextModel) {
                 applyState(decision.accept.state);
             } else {
-                revertingModel = true;
                 lastModel = previousModel;
-                modelSelect.value = previousModel;
-                modelSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                if (modelInput instanceof HTMLInputElement) {
+                    modelInput.value = previousModel;
+                    modelInput.dispatchEvent(new Event('input', { bubbles: true }));
+                } else {
+                    revertingModel = true;
+                    modelSelect.value = previousModel;
+                    modelSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                }
             }
         } finally {
             transitionPending = false;
@@ -429,6 +457,7 @@ export function createPayGoUi({
     controls.tierSelect.addEventListener('change', onTierChanged);
     controls.paygoOnly.addEventListener('change', onPaygoOnlyChanged);
     regionInput.addEventListener('change', onRegionChanged);
+    modelInput?.addEventListener('change', () => onModelChanged(modelInput.value));
     controls.retryButton.addEventListener('click', refreshHealth);
 
     const events = context.eventTypes;

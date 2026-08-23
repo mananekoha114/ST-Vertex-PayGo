@@ -1,10 +1,10 @@
 # ST Vertex AI PayGo
 
-为 SillyTavern 的 Google Vertex AI 连接补充 Standard、Flex 和 Priority PayGo 服务层级选择。
+为 SillyTavern 及其兼容分支 [Luker](https://github.com/funnycups/Luker) 的 Google Vertex AI 连接补充 Standard、Flex 和 Priority PayGo 服务层级选择。
 
-本仓库是浏览器端扩展，必须与独立的 `ST-Vertex-PayGo-Server` 服务器插件配套使用，才能发送 Flex、Priority 或 PayGo-only 请求。Standard 且未启用 PayGo-only 时仍使用 SillyTavern 原生 Vertex AI 请求，不经过服务器插件修改。
+本仓库是浏览器端扩展，必须与独立的 `ST-Vertex-PayGo-Server` 服务器插件配套使用，才能发送 Flex、Priority 或 PayGo-only 请求。Standard 且未启用 PayGo-only 时仍使用宿主原生 Vertex AI 请求，不经过服务器插件修改。
 
-> 当前版本兼容 SillyTavern 1.18.x。它是非官方扩展，与 SillyTavern、Google 或 Google Cloud 没有隶属或认可关系。
+> 当前版本已验证兼容 SillyTavern 1.16.0、1.17.0、1.18.0，以及 Luker 2.7.0 的 release 分支。它是非官方扩展，与 SillyTavern、Luker、Google 或 Google Cloud 没有隶属或认可关系。
 
 __此扩展不能在TauriTavern中使用，此扩展不能在TauriTavern中使用，此扩展不能在TauriTavern中使用__
 
@@ -12,37 +12,37 @@ TauriTavern自带附加参数功能，请在那里面的自定义请求头中按
 
 ## 功能
 
-- 在 SillyTavern 的 Vertex AI 设置下增加 Standard、Flex 和 Priority 选择。
+- 在宿主的 Vertex AI 设置下增加 Standard、Flex 和 Priority 选择。
 - 提供 PayGo-only 开关，用于绕过预配吞吐量并仅使用 PayGo，不过普通用户没人买预配额玩酒馆吧。
 - Flex 和 Priority 要求必须使用 `global`；切换层级或区域时会通过确认框保持配置一致。
 - 仅对原生 `gemini-*` 模型启用 PayGo 路由，不影响其他 Vertex AI 模型。
 - 内置截至2026年8月22日的模型支持列表。未知的新 Gemini 模型会显示警告，但仍交由 Vertex AI 做最终验证。
 - 设置会随当前 Vertex AI 连接配置保存；没有活动连接配置时，保存到当前 Chat Completion 预设。
-- 跟随 SillyTavern 界面语言，当前提供简体中文和繁体中文（繁体中文是GPT敲的）。
+- 跟随宿主界面语言，当前提供简体中文和繁体中文（繁体中文是GPT敲的）。
 - 检查配套服务器插件的状态，并在准备代理失败时拦截请求，避免静默退回原生 Vertex AI 路径。
 
 ## 环境要求
 
-- SillyTavern 1.18.x。
-- 已在 SillyTavern 中配置并验证可用的 Vertex AI 快速模式Key或完整服务账号认证。
+- SillyTavern 1.16.0 或更高版本，或者 Luker 2.7.0 release 分支。
+- 已在当前宿主中配置并验证可用的 Vertex AI 快速模式Key或完整服务账号认证。
 - 配套的 `ST-Vertex-PayGo-Server` 插件。
 - 服务器插件 所在环境使用 Node.js 20 或更高版本。
 
 ## 安装
 
-关闭 SillyTavern，然后将ST-Vertex-PayGo-Server放到以下目录：
+关闭 SillyTavern 或 Luker，然后将ST-Vertex-PayGo-Server放到宿主根目录下的以下位置：
 
 ```text
-SillyTavern/plugins/ST-Vertex-PayGo-Server/
+<宿主根目录>/plugins/ST-Vertex-PayGo-Server/
 ```
-之后确认在SillyTavern/config.yaml中`enableServerPlugins`为true
-启动 SillyTavern，在扩展程序/安装扩展程序里面输入此仓库的URL进行前端安装
+之后确认在宿主的`config.yaml`中`enableServerPlugins`为true。
+启动 SillyTavern 或 Luker，在扩展程序/安装扩展程序里面输入此仓库的URL进行前端安装。
 
-两个项目都没有需要单独安装的运行时 npm 依赖。重新启动 SillyTavern 后，在 Vertex AI 设置中应看到“Vertex AI PayGo”区域，并且“服务端插件”状态应显示为就绪。
+两个项目都没有需要单独安装的运行时 npm 依赖。重新启动宿主后，在 Vertex AI 设置中应看到“Vertex AI PayGo”区域，并且“服务端插件”状态应显示为就绪。
 
 ## 使用
 
-1. 在 SillyTavern 的插头里选择聊天补全和 Google Vertex AI。
+1. 在宿主的插头里选择聊天补全和 Google Vertex AI。
 2. 配置 Vertex AI 认证、模型和区域，并先确认原生 Standard 请求可以正常工作。
 3. 在新增的“Vertex AI PayGo”区域中选择服务层级。
 4. 使用 Flex 或 Priority 时接受切换到 `global`，或手动将 Vertex AI 区域设为 `global`。
@@ -52,7 +52,7 @@ SillyTavern/plugins/ST-Vertex-PayGo-Server/
 
 | 设置 | 请求路径 | 说明 |
 | --- | --- | --- |
-| Standard，PayGo-only 关闭 | SillyTavern 原生 Vertex AI | 不调用 服务器插件。 |
+| Standard，PayGo-only 关闭 | 宿主原生 Vertex AI | 不调用 服务器插件。 |
 | Standard，PayGo-only 开启 | 服务器插件 | 添加 PayGo-only 请求头，绕过预配吞吐量。 |
 | Flex | 服务器插件 | 要求 `global`，添加 Flex 请求头，并允许较长的服务端等待时间。 |
 | Priority | 服务器插件 | 要求 `global`，添加 Priority 请求头。 |
@@ -66,13 +66,13 @@ PayGo-only 可以与 Flex 或 Priority 同时启用。Vertex AI 最终决定请�
 - 当前列表内明确支持所选层级的模型可以直接使用。
 - 已知只属于另一个层级的模型会被禁止使用当前层级，并提示切换回原来的模型或使用 Standard。
 - 尚未出现在模型列表中的新 Gemini 模型会显示“未验证”警告，但请求仍可发送，由 Vertex AI 返回最终结果。
-- 非 Gemini 模型只使用 SillyTavern 原生请求，因为 Google 官方没有给这些模型开放类型切换。
+- 非 Gemini 模型只使用宿主原生请求，因为 Google 官方没有给这些模型开放类型切换。
 
 模型列表位于 `src/model-policy.js`，后续更新支持列表时应同时更新快照日期和测试。
 
 ## 安全行为
 
-- 扩展不会在浏览器中处理或保存新的 Google 凭据；认证仍由 SillyTavern 管理。
+- 扩展不会在浏览器中处理或保存新的 Google 凭据；认证仍由宿主管理。
 - 服务器插件在准备成功后才会放行请求，在准备失败时将直接中止，不会自动改走原生 Vertex AI的请求。
 - 已配置自定义 Vertex 反向代理时，PayGo 路由会直接拒绝请求，避免覆盖现有代理设置。
 - 服务器插件不可用、协议不匹配、区域或模型不合法时，请求不会静默退回原生 Vertex AI。
@@ -83,7 +83,7 @@ PayGo-only 可以与 Flex 或 Priority 同时启用。Vertex AI 最终决定请�
 
 ### 服务端插件显示不可用
 
-确认服务器插件位于 `SillyTavern/plugins/ST-Vertex-PayGo-Server`，SillyTavern 使用的是 1.18.0，并在安装后完整重启了服务端，且在SillyTavern/config.yaml中`enableServerPlugins`为true。
+确认服务器插件位于宿主根目录下的 `plugins/ST-Vertex-PayGo-Server`，宿主属于上方列出的兼容版本，并在安装后完整重启了服务端，且在宿主的`config.yaml`中`enableServerPlugins`为true。
 
 ### Flex 或 Priority 无法选择
 

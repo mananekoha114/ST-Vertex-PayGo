@@ -48,65 +48,6 @@ TauriTavern自带附加参数功能，请在那里面的自定义请求头中按
 4. 使用 Flex 或 Priority 时接受切换到 `global`，或手动将 Vertex AI 区域设为 `global`。
 5. 确认服务器插件状态为就绪后发送请求。
 
-### 路由行为
-
-| 设置 | 请求路径 | 说明 |
-| --- | --- | --- |
-| Standard，PayGo-only 关闭 | 宿主原生 Vertex AI | 不调用 服务器插件。 |
-| Standard，PayGo-only 开启 | 服务器插件 | 添加 PayGo-only 请求头，绕过预配吞吐量。 |
-| Flex | 服务器插件 | 要求 `global`，添加 Flex 请求头，并允许较长的服务端等待时间。 |
-| Priority | 服务器插件 | 要求 `global`，添加 Priority 请求头。 |
-
-PayGo-only 可以与 Flex 或 Priority 同时启用。Vertex AI 最终决定请求的实际调度结果；选择 Priority 不保证响应一定标记为 `ON_DEMAND_PRIORITY`，容量或账号条件不足时降级至 Standard 处理。
-
-## 模型策略
-
-扩展只接受以 `gemini-` 开头的原生 Vertex AI 模型 ID：
-
-- 当前列表内明确支持所选层级的模型可以直接使用。
-- 已知只属于另一个层级的模型会被禁止使用当前层级，并提示切换回原来的模型或使用 Standard。
-- 尚未出现在模型列表中的新 Gemini 模型会显示“未验证”警告，但请求仍可发送，由 Vertex AI 返回最终结果。
-- 非 Gemini 模型只使用宿主原生请求，因为 Google 官方没有给这些模型开放类型切换。
-
-模型列表位于 `src/model-policy.js`，后续更新支持列表时应同时更新快照日期和测试。
-
-## 安全行为
-
-- 扩展不会在浏览器中处理或保存新的 Google 凭据；认证仍由宿主管理。
-- 服务器插件在准备成功后才会放行请求，在准备失败时将直接中止，不会自动改走原生 Vertex AI的请求。
-- 已配置自定义 Vertex 反向代理时，PayGo 路由会直接拒绝请求，避免覆盖现有代理设置。
-- 服务器插件不可用、协议不匹配、区域或模型不合法时，请求不会静默退回原生 Vertex AI。
-
-服务器插件的安全设计和限制请参阅其独立仓库中的 `README.md`。
-
-## 常见问题
-
-### 服务端插件显示不可用
-
-确认服务器插件位于宿主根目录下的 `plugins/ST-Vertex-PayGo-Server`，宿主属于上方列出的兼容版本，并在安装后完整重启了服务端，且在宿主的`config.yaml`中`enableServerPlugins`为true。
-
-### Flex 或 Priority 无法选择
-
-确认当前模型 ID 以 `gemini-` 开头。若模型已知不支持所选层级，对应选项会被禁用；未知的新 Gemini 模型则只会显示警告。
-
-### 切换区域后自动变回 Standard
-
-Flex 和 Priority 目前要求 `global`。当你改用其他区域端点时，扩展会要求在“新区域 + Standard”和“保留 global + 当前层级”之间选择。
-
-### Priority 没有返回 `ON_DEMAND_PRIORITY`
-
-扩展和服务器插件只负责发送 Priority 请求头。Vertex AI 仍会根据模型、项目资格、配额和可用容量决定实际流量类型，因此这不一定表示插件没有发送请求头。
-
-## 开发与测试
-
-本仓库不需要构建步骤。运行测试：
-
-```powershell
-node --test
-```
-
-当前测试覆盖本地化、模型策略、状态转换、预设和连接配置持久化、服务端握手，以及出错即拦截的请求钩子。
-
 ## 许可与署名
 
 Copyright © 2026 [Mana Nekoha](https://github.com/mananekoha114)（@mananekoha114）

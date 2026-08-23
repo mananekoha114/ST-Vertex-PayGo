@@ -33,7 +33,7 @@
   "vertex_paygo.popup.tier_region.accept": "切換至 global 並使用 {tier}",
   "vertex_paygo.popup.tier_region.decline": "保留區域並繼續使用 Standard",
   "vertex_paygo.popup.region.title": "此區域端點必須使用 Standard",
-  "vertex_paygo.popup.region.body": "{tier} PayGo 目前要求使用 global。請選擇是否切換至 Standard 以使用新區域，或留在 global 並繼續使用目前層級。",
+  "vertex_paygo.popup.region.body": "目前使用的 PayGo 層級要求使用 global。請選擇是否切換至 Standard 以使用新區域，或留在 global 並繼續使用 {tier}。",
   "vertex_paygo.popup.region.accept": "使用新輸入的區域",
   "vertex_paygo.popup.region.decline": "留在 global 並繼續使用 {tier}",
   "vertex_paygo.popup.model.reason_gemini": "PayGo 請求僅適用於 Gemini 模型。",

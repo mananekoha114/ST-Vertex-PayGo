@@ -8,14 +8,14 @@
 
 > ⛔ **TauriTavern 用户请注意：**  
 > **请勿在 TauriTavern 中安装此扩展！**  
-> TauriTavern 自带“附加参数”功能，如需使用 PayGo，直接在其自带的自定义请求头（Custom Headers）中填入官方对应的 Header 即可。
+> TauriTavern 自带“附加参数”功能，如需使用 PayGo，直接在其自带的自定义请求头中填入官方对应的 Header 即可。
 
 ---
 
 ## 主要功能
 
 - **无缝集成设置面板**：在酒馆原本的 Vertex AI 配置下方，直接添加 Standard / Flex / Priority 等级切换选项。
-- **PayGo-only 专属开关**：可强制绕过预配吞吐量（Provisioned Throughput），完全使用按量计费（PayGo）。
+- **PayGo-only 专属开关**：可强制绕过预配吞吐量，完全使用按量计费（PayGo）。
 - **智能区域切换提示**：由于 Google 要求 Flex 和 Priority 必须配合 `global` 区域使用，切换层级时扩展会贴心弹窗提示并帮你同步设置。
 - **Gemini 原生模型专属保护**：仅针对官方 `gemini-*` 系列模型启用 PayGo，不影响其他 Vertex AI 模型。
 - **内置模型兼容列表**：内置截止 2026 年 8 月支持的模型名单。遇到未来未知的新 Gemini 模型时会显示提醒，但仍允许发送由 Google 端进行最终校验。
@@ -51,7 +51,7 @@
 
 ### 第二步：安装前端扩展（本项目）
 1. 重新启动 SillyTavern 或 Luker。
-2. 打开酒馆页面，点击顶部 **扩展程序（三块积木图标 🧩） -> 安装扩展程序**。
+2. 打开酒馆页面，点击顶部 **扩展程序（三块积木图标） -> 安装扩展程序**。
 3. 在安装输入框中粘贴本仓库的 Git URL 并点击安装。
 
 ---

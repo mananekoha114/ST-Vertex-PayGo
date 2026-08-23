@@ -29,7 +29,7 @@
   "vertex_paygo.validation.non_gemini": "不能为非Gemini模型启用其他PayGo类型",
   "vertex_paygo.validation.global_required": "{tier} PayGo要求使用global Vertex AI 端点。",
   "vertex_paygo.popup.tier_region.title": "{tier} PayGo要求使用global",
-  "vertex_paygo.popup.tier_region.body": "当前 Vertex AI 地区为“{region}”。请选择是否将地区改为global以切换至{tier}，或保留在当前地区并继续使用Standard。",
+  "vertex_paygo.popup.tier_region.body": "当前 Vertex AI 地区为“{region}”。请选择是否将地区改为global以切换到所需求的类型，或保留在当前地区并继续使用Standard。",
   "vertex_paygo.popup.tier_region.accept": "切换至global并使用{tier}",
   "vertex_paygo.popup.tier_region.decline": "保留地区并继续使用Standard",
   "vertex_paygo.popup.region.title": "此区域端点必须使用Standard",

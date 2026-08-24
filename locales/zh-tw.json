@@ -11,6 +11,7 @@
   "vertex_paygo.server.ready_detail": "協定 v1，本機回送 HTTP 傳輸",
   "vertex_paygo.server.unavailable": "伺服器端外掛：無法使用",
   "vertex_paygo.retry": "重試",
+  "vertex_paygo.status.model_unresolved": "正在等待酒館載入 Vertex AI 模型資訊。",
   "vertex_paygo.status.non_gemini": "Google 暫未為非 Gemini 模型提供其他 PayGo 類型。",
   "vertex_paygo.status.blocked": "已阻止：{message}",
   "vertex_paygo.status.native_standard": "使用酒館原生請求，且不會呼叫伺服器端外掛。",

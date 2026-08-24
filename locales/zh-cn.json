@@ -11,6 +11,7 @@
   "vertex_paygo.server.ready_detail": "协议 v1，回环HTTP传输",
   "vertex_paygo.server.unavailable": "服务端插件：不可用",
   "vertex_paygo.retry": "重试",
+  "vertex_paygo.status.model_unresolved": "正在等待酒馆载入Vertex AI模型信息。",
   "vertex_paygo.status.non_gemini": "非Gemini模型Google暂未提供其他PayGo类型。",
   "vertex_paygo.status.blocked": "已阻止：{message}",
   "vertex_paygo.status.native_standard": "使用酒馆原生的请求且不会调用服务端插件。",

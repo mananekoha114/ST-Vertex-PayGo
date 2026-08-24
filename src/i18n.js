@@ -14,6 +14,7 @@ export const MESSAGES = Object.freeze({
     'vertex_paygo.server.ready_detail': 'Protocol v1, loopback HTTP transport',
     'vertex_paygo.server.unavailable': 'Server Plugin: unavailable',
     'vertex_paygo.retry': 'Retry',
+    'vertex_paygo.status.model_unresolved': 'Waiting for SillyTavern to load the Vertex AI model.',
     'vertex_paygo.status.non_gemini': 'PayGo routing is excluded for non-Gemini Vertex models.',
     'vertex_paygo.status.blocked': 'Blocked: {message}',
     'vertex_paygo.status.native_standard': 'Native Standard route; the Server Plugin is not used.',

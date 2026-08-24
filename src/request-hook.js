@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2026 Mana Nekoha
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ */
+
 import { PROTOCOL_VERSION, SERVER_ROUTES, VERTEX_SOURCE } from './constants.js';
 import { createLocalizer, localizeError, localizeSupport, localizeValidation } from './i18n.js';
 import { requiresPlugin, validatePluginState } from './state-machine.js';

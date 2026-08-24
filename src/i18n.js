@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2026 Mana Nekoha
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ */
+
 import { PROTOCOL_VERSION, REQUIRED_TRANSPORT } from './constants.js';
 import { MODEL_POLICY_SNAPSHOT } from './model-policy.js';
 

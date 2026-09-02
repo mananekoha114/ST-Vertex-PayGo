@@ -8,12 +8,13 @@
 
 import { TIER } from './constants.js';
 
-// Snapshot of the exact model IDs listed by the Google Cloud PayGo pages on
-// 2026-08-22. This is deliberately advisory: new Gemini IDs remain usable but
-// are shown as unverified, while IDs known from the other tier are rejected.
-export const MODEL_POLICY_SNAPSHOT = '2026-08-22';
+// PayGo support snapshot maintained from Google documentation and verified
+// Vertex AI availability on 2026-09-02. New Gemini IDs remain usable but are
+// shown as unverified, while IDs known from the other tier are rejected.
+export const MODEL_POLICY_SNAPSHOT = '2026-09-02';
 
 export const KNOWN_FLEX_MODELS = new Set([
+    'gemini-3.8-flash',
     'gemini-3.7-flash',
     'gemini-3.6-flash',
     'gemini-3.5-flash-lite',
@@ -27,6 +28,7 @@ export const KNOWN_FLEX_MODELS = new Set([
 ]);
 
 export const KNOWN_PRIORITY_MODELS = new Set([
+    'gemini-3.7-flash',
     'gemini-3.6-flash',
     'gemini-3.5-flash-lite',
     'gemini-3.5-flash',
@@ -80,7 +82,7 @@ export function getTierSupport(model, tier) {
             allowed: true,
             level: 'known',
             model: modelId,
-            reason: `Listed by Google for ${tier} PayGo as of ${MODEL_POLICY_SNAPSHOT}.`,
+            reason: `Supported for ${tier} PayGo as of ${MODEL_POLICY_SNAPSHOT}.`,
         };
     }
 

@@ -35,7 +35,7 @@ export const MESSAGES = Object.freeze({
     'vertex_paygo.error.paygo_only_gemini': 'PayGo-only routing is available only for Gemini models.',
     'vertex_paygo.policy.gemini_only': 'PayGo tier controls are available only for native Vertex Gemini model IDs (gemini-*).',
     'vertex_paygo.policy.native_standard': 'Standard uses SillyTavern’s native Vertex AI route unless PayGo-only is enabled.',
-    'vertex_paygo.policy.known': 'Listed by Google for {tier} PayGo as of {date}.',
+    'vertex_paygo.policy.known': 'Supported for {tier} PayGo as of {date}.',
     'vertex_paygo.policy.unsupported': 'This model is in the {date} PayGo snapshot, but not in the {tier} list.',
     'vertex_paygo.policy.unverified': 'This Gemini model is not in the {date} snapshot; Vertex AI will perform the final validation.',
     'vertex_paygo.validation.non_gemini': 'Vertex PayGo routing was requested for a non-Gemini model.',

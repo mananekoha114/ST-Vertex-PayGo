@@ -24,7 +24,7 @@
   "vertex_paygo.error.paygo_only_gemini": "PayGo-only 請求目前僅適用於 Gemini 模型。",
   "vertex_paygo.policy.gemini_only": "PayGo 層級控制僅適用於原生 Gemini 模型 ID（gemini-*）。",
   "vertex_paygo.policy.native_standard": "除非啟用 PayGo-only，否則 Standard 使用酒館原生 Vertex AI 請求。",
-  "vertex_paygo.policy.known": "截至 {date}，Google 已將此模型列入 {tier} PayGo 支援清單。",
+  "vertex_paygo.policy.known": "截至 {date}，此模型支援 {tier} PayGo。",
   "vertex_paygo.policy.unsupported": "此模型列於 {date} 的 PayGo 支援清單中，但不在 {tier} 清單內。",
   "vertex_paygo.policy.unverified": "此 Gemini 模型不在 {date} 的支援清單中；最終支援情況將由 Vertex AI 驗證。",
   "vertex_paygo.validation.non_gemini": "無法為非 Gemini 模型啟用其他 PayGo 類型。",

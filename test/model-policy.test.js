@@ -30,6 +30,14 @@ test('recognizes models listed for each tier', () => {
         { allowed: true, level: 'known' },
     );
     assert.equal(getTierSupport('gemini-2.5-pro', TIER.PRIORITY).level, 'known');
+    assert.equal(getTierSupport('gemini-3.8-flash', TIER.FLEX).level, 'known');
+    assert.equal(getTierSupport('gemini-3.7-flash', TIER.PRIORITY).level, 'known');
+});
+
+test('keeps tier-specific support boundaries for the newest Flash models', () => {
+    const priority = getTierSupport('gemini-3.8-flash', TIER.PRIORITY);
+    assert.equal(priority.allowed, false);
+    assert.equal(priority.level, 'unsupported');
 });
 
 test('disables a model known only for the other tier', () => {

@@ -359,6 +359,38 @@ export function createPayGoUi({
         );
     }
 
+    function commitTierRegionChoice(requestedTier, result) {
+        const latestDecision = resolveTierSelection({
+            state,
+            requestedTier,
+            region: getRegion(),
+            model: getModel(),
+        });
+
+        if (result === popupResult.AFFIRMATIVE) {
+            if (latestDecision.type === 'reject') {
+                notifyError(localizeSupport(localize, latestDecision.support, requestedTier));
+                render();
+                return false;
+            }
+            const selected = latestDecision.type === 'conflict'
+                ? latestDecision.accept
+                : latestDecision;
+            if (selected.region !== getRegion()) setRegion(selected.region);
+            applyState(selected.state);
+            return true;
+        }
+
+        // The negative button promises to keep the current region and use
+        // Standard, even if the live policy changed while the popup was open.
+        const selected = latestDecision.type === 'conflict'
+            ? latestDecision.decline
+            : { state: { ...state, tier: TIER.STANDARD }, region: getRegion() };
+        if (selected.region !== getRegion()) setRegion(selected.region);
+        applyState(selected.state);
+        return true;
+    }
+
     async function onTierChanged() {
         if (transitionPending) {
             reconcileGuard.invalidate();
@@ -387,13 +419,7 @@ export function createPayGoUi({
             await reconcileGuard.settle(
                 token,
                 showTierRegionConflict(requestedTier, decision),
-                result => {
-                    const selected = result === popupResult.AFFIRMATIVE ? decision.accept : decision.decline;
-                    if (selected.region !== getRegion()) {
-                        setRegion(selected.region);
-                    }
-                    applyState(selected.state);
-                },
+                result => commitTierRegionChoice(requestedTier, result),
             );
         } finally {
             finishTransition();
@@ -448,9 +474,21 @@ export function createPayGoUi({
                 ),
                 result => {
                     const selected = result === popupResult.AFFIRMATIVE ? decision.accept : decision.decline;
-                    if (selected.region !== getRegion()) {
+                    const regionChanged = selected.region !== getRegion();
+                    if (regionChanged) {
                         setRegion(selected.region);
-                    } else {
+                    }
+                    const latestValidation = validatePluginState({
+                        state: selected.state,
+                        region: selected.region,
+                        model: getModel(),
+                    });
+                    if (!latestValidation.ok) {
+                        notifyError(localizeValidation(localize, latestValidation, selected.state));
+                        render();
+                        return;
+                    }
+                    if (!regionChanged) {
                         writeActiveProfileRegion(context, selected.region);
                     }
                     applyState(selected.state);
@@ -547,8 +585,26 @@ export function createPayGoUi({
                     },
                 ),
                 result => {
+                    const latestDecision = resolveModelChange({ state, model: nextModel });
                     if (result === popupResult.AFFIRMATIVE || !previousModel || previousModel === nextModel) {
-                        applyState(decision.accept.state);
+                        if (latestDecision.type === 'apply') {
+                            render();
+                        } else {
+                            applyState(latestDecision.accept.state);
+                        }
+                        return;
+                    }
+
+                    const restoreDecision = resolveModelChange({ state, model: previousModel });
+                    if (restoreDecision.type !== 'apply') {
+                        const previousValidation = validatePluginState({
+                            state,
+                            region: getRegion(),
+                            model: previousModel,
+                        });
+                        notifyError(localizeValidation(localize, previousValidation, state));
+                        render();
+                        schedulePersistedReconciliation({ invalidate: false });
                         return;
                     }
 
@@ -589,6 +645,13 @@ export function createPayGoUi({
         }
         render();
         return healthState;
+    }
+
+    function onModelPolicyChanged() {
+        render();
+        // Do not silently invalidate a confirmation already shown to the user.
+        // The queued reconciliation revalidates its result after that transition.
+        schedulePersistedReconciliation({ invalidate: false });
     }
 
     async function reconcilePersistedState() {
@@ -632,13 +695,7 @@ export function createPayGoUi({
                     await reconcileGuard.settle(
                         token,
                         showTierRegionConflict(state.tier, decision),
-                        result => {
-                            const selected = result === popupResult.AFFIRMATIVE
-                                ? decision.accept
-                                : decision.decline;
-                            if (selected.region !== getRegion()) setRegion(selected.region);
-                            applyState(selected.state);
-                        },
+                        result => commitTierRegionChoice(state.tier, result),
                     );
                 } finally {
                     finishTransition();
@@ -664,6 +721,11 @@ export function createPayGoUi({
                     },
                 ),
                 result => {
+                    const latestValidation = validatePluginState({ state, region: getRegion(), model: getModel() });
+                    if (latestValidation.ok) {
+                        render();
+                        return;
+                    }
                     if (result === popupResult.AFFIRMATIVE) {
                         applyState({ ...DEFAULT_STATE });
                     }
@@ -779,6 +841,7 @@ export function createPayGoUi({
     return {
         getState: () => ({ ...state }),
         refreshHealth,
+        onModelPolicyChanged,
         render,
     };
 }

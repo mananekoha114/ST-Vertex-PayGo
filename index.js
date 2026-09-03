@@ -7,12 +7,18 @@
  */
 
 import { createLocalizer } from './src/i18n.js';
+import {
+    MODEL_POLICY_REFRESH_INTERVAL_MS,
+    refreshModelPolicyFromGitHub,
+    restoreCachedModelPolicy,
+} from './src/model-policy-updater.js';
 import { createRequestHook } from './src/request-hook.js';
 import { createServerClient } from './src/server-client.js';
 import { createPayGoUi } from './src/ui.js';
 
 let initialized = false;
 let controller = null;
+let modelPolicyRefreshTimer = null;
 
 function notify(kind, message) {
     const toaster = globalThis.toastr?.[kind];
@@ -58,6 +64,7 @@ export async function init() {
         if (!context) {
             throw new Error(localize('vertex_paygo.error.context_unavailable'));
         }
+        restoreCachedModelPolicy();
         await waitForVertexControls(10_000, localize);
 
         const serverClient = createServerClient({
@@ -87,8 +94,23 @@ export async function init() {
         } else {
             context.eventSource.on(eventName, requestHook);
         }
+
+        const refreshModelPolicy = async () => {
+            try {
+                const result = await refreshModelPolicyFromGitHub();
+                if (result.changed) controller?.onModelPolicyChanged();
+            } catch (error) {
+                console.warn('[Vertex PayGo] Could not apply the refreshed model policy.', error);
+            }
+        };
+        void refreshModelPolicy();
+        modelPolicyRefreshTimer ??= setInterval(refreshModelPolicy, MODEL_POLICY_REFRESH_INTERVAL_MS);
     } catch (error) {
         initialized = false;
+        if (modelPolicyRefreshTimer !== null) {
+            clearInterval(modelPolicyRefreshTimer);
+            modelPolicyRefreshTimer = null;
+        }
         console.error('[Vertex PayGo] Extension initialization failed.', error);
         notify('error', error instanceof Error ? error.message : String(error));
     }

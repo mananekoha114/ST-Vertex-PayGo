@@ -102,17 +102,18 @@ export function getTierLabel(localize, tier) {
 
 export function localizeSupport(localize, support, tier) {
     const tierLabel = getTierLabel(localize, tier);
+    const snapshot = support?.snapshot ?? MODEL_POLICY_SNAPSHOT;
     switch (support?.level) {
         case 'excluded':
             return localize('vertex_paygo.policy.gemini_only');
         case 'native':
             return localize('vertex_paygo.policy.native_standard');
         case 'known':
-            return localize('vertex_paygo.policy.known', { tier: tierLabel, date: MODEL_POLICY_SNAPSHOT });
+            return localize('vertex_paygo.policy.known', { tier: tierLabel, date: snapshot });
         case 'unsupported':
-            return localize('vertex_paygo.policy.unsupported', { tier: tierLabel, date: MODEL_POLICY_SNAPSHOT });
+            return localize('vertex_paygo.policy.unsupported', { tier: tierLabel, date: snapshot });
         case 'unverified':
-            return localize('vertex_paygo.policy.unverified', { date: MODEL_POLICY_SNAPSHOT });
+            return localize('vertex_paygo.policy.unverified', { date: snapshot });
         default:
             return String(support?.reason ?? '');
     }

@@ -9,38 +9,102 @@
 import { TIER } from './constants.js';
 
 // PayGo support snapshot maintained from Google documentation and verified
-// Vertex AI availability on 2026-09-02. New Gemini IDs remain usable but are
-// shown as unverified, while IDs known from the other tier are rejected.
-export const MODEL_POLICY_SNAPSHOT = '2026-09-02';
+// Vertex AI availability on 2026-09-03. It is also the fail-safe snapshot
+// used whenever the GitHub policy and the last-known-good cache are unavailable.
+export const BUNDLED_MODEL_POLICY = Object.freeze({
+    schemaVersion: 1,
+    updatedAt: '2026-09-03',
+    tiers: Object.freeze({
+        flex: Object.freeze([
+            'gemini-3.8-flash',
+            'gemini-3.7-flash',
+            'gemini-3.6-flash',
+            'gemini-3.5-flash-lite',
+            'gemini-3.1-flash-lite-image',
+            'gemini-3-pro-image',
+            'gemini-3.1-flash-image',
+            'gemini-3.5-flash',
+            'gemini-3.1-flash-lite',
+            'gemini-3.1-pro-preview',
+            'gemini-3-flash-preview',
+        ]),
+        priority: Object.freeze([
+            'gemini-3.8-flash',
+            'gemini-3.7-flash',
+            'gemini-3.6-flash',
+            'gemini-3.5-flash-lite',
+            'gemini-3.5-flash',
+            'gemini-3.1-flash-lite',
+            'gemini-3.1-pro-preview',
+            'gemini-3-flash-preview',
+            'gemini-2.5-pro',
+            'gemini-2.5-flash',
+            'gemini-2.5-flash-lite',
+        ]),
+    }),
+    // Keep retired entries here as tombstones even after removing them from
+    // both tier arrays, so they do not become "unknown" and fail open again.
+    knownModels: Object.freeze([
+        'gemini-3.8-flash',
+        'gemini-3.7-flash',
+        'gemini-3.6-flash',
+        'gemini-3.5-flash-lite',
+        'gemini-3.1-flash-lite-image',
+        'gemini-3-pro-image',
+        'gemini-3.1-flash-image',
+        'gemini-3.5-flash',
+        'gemini-3.1-flash-lite',
+        'gemini-3.1-pro-preview',
+        'gemini-3-flash-preview',
+        'gemini-2.5-pro',
+        'gemini-2.5-flash',
+        'gemini-2.5-flash-lite',
+    ]),
+});
 
-export const KNOWN_FLEX_MODELS = new Set([
-    'gemini-3.8-flash',
-    'gemini-3.7-flash',
-    'gemini-3.6-flash',
-    'gemini-3.5-flash-lite',
-    'gemini-3.1-flash-lite-image',
-    'gemini-3-pro-image',
-    'gemini-3.1-flash-image',
-    'gemini-3.5-flash',
-    'gemini-3.1-flash-lite',
-    'gemini-3.1-pro-preview',
-    'gemini-3-flash-preview',
-]);
+// These bindings stay live so existing synchronous policy consumers see an
+// atomically installed GitHub snapshot without doing network I/O themselves.
+export let MODEL_POLICY_SNAPSHOT = BUNDLED_MODEL_POLICY.updatedAt;
+export const KNOWN_FLEX_MODELS = new Set(BUNDLED_MODEL_POLICY.tiers.flex);
+export const KNOWN_PRIORITY_MODELS = new Set(BUNDLED_MODEL_POLICY.tiers.priority);
 
-export const KNOWN_PRIORITY_MODELS = new Set([
-    'gemini-3.7-flash',
-    'gemini-3.6-flash',
-    'gemini-3.5-flash-lite',
-    'gemini-3.5-flash',
-    'gemini-3.1-flash-lite',
-    'gemini-3.1-pro-preview',
-    'gemini-3-flash-preview',
-    'gemini-2.5-pro',
-    'gemini-2.5-flash',
-    'gemini-2.5-flash-lite',
-]);
+const KNOWN_TIER_MODELS = new Set(BUNDLED_MODEL_POLICY.knownModels);
 
-const KNOWN_TIER_MODELS = new Set([...KNOWN_FLEX_MODELS, ...KNOWN_PRIORITY_MODELS]);
+function replaceSet(target, values) {
+    target.clear();
+    for (const value of values) target.add(value);
+}
+
+/**
+ * Installs an already validated policy document. The updater owns validation;
+ * keeping this operation synchronous preserves request-time fail-closed checks.
+ */
+export function installModelPolicy(policy) {
+    const flexModels = [...policy.tiers.flex];
+    const priorityModels = [...policy.tiers.priority];
+    const allModels = new Set(policy.knownModels);
+
+    replaceSet(KNOWN_FLEX_MODELS, flexModels);
+    replaceSet(KNOWN_PRIORITY_MODELS, priorityModels);
+    replaceSet(KNOWN_TIER_MODELS, allModels);
+    MODEL_POLICY_SNAPSHOT = policy.updatedAt;
+}
+
+export function getKnownModelIds() {
+    return [...KNOWN_TIER_MODELS];
+}
+
+export function getActiveModelPolicy() {
+    return {
+        schemaVersion: BUNDLED_MODEL_POLICY.schemaVersion,
+        updatedAt: MODEL_POLICY_SNAPSHOT,
+        tiers: {
+            flex: [...KNOWN_FLEX_MODELS],
+            priority: [...KNOWN_PRIORITY_MODELS],
+        },
+        knownModels: getKnownModelIds(),
+    };
+}
 
 export function normalizeModelId(model) {
     return String(model ?? '').trim().toLowerCase();
@@ -57,6 +121,7 @@ export function isGeminiModel(model) {
 export function getTierSupport(model, tier) {
     const modelId = normalizeModelId(model);
     const gemini = isGeminiModel(modelId);
+    const snapshot = MODEL_POLICY_SNAPSHOT;
 
     if (!gemini) {
         return {
@@ -82,7 +147,8 @@ export function getTierSupport(model, tier) {
             allowed: true,
             level: 'known',
             model: modelId,
-            reason: `Supported for ${tier} PayGo as of ${MODEL_POLICY_SNAPSHOT}.`,
+            snapshot,
+            reason: `Supported for ${tier} PayGo as of ${snapshot}.`,
         };
     }
 
@@ -91,7 +157,8 @@ export function getTierSupport(model, tier) {
             allowed: false,
             level: 'unsupported',
             model: modelId,
-            reason: `This model is in the ${MODEL_POLICY_SNAPSHOT} PayGo snapshot, but not in the ${tier} list.`,
+            snapshot,
+            reason: `This model is in the ${snapshot} PayGo snapshot, but not in the ${tier} list.`,
         };
     }
 
@@ -99,7 +166,8 @@ export function getTierSupport(model, tier) {
         allowed: true,
         level: 'unverified',
         model: modelId,
-        reason: `This Gemini model is not in the ${MODEL_POLICY_SNAPSHOT} snapshot; Vertex AI will perform the final validation.`,
+        snapshot,
+        reason: `This Gemini model is not in the ${snapshot} snapshot; Vertex AI will perform the final validation.`,
     };
 }
 

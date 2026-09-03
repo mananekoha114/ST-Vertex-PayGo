@@ -96,6 +96,10 @@ test('policy and validation objects are localized by stable codes instead of Eng
         `未验证：${MODEL_POLICY_SNAPSHOT}`,
     );
     assert.equal(
+        localizeSupport(localize, { level: 'unverified', snapshot: '2026-01-01' }, TIER.FLEX),
+        '未验证：2026-01-01',
+    );
+    assert.equal(
         localizeValidation(localize, { code: 'TIER_REQUIRES_GLOBAL', message: 'raw English message' }, { tier: TIER.FLEX }),
         'Flex（灵活） 必须使用 global',
     );

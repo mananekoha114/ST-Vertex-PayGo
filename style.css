@@ -64,3 +64,43 @@
     min-width: auto;
     padding: 0.25rem 0.6rem;
 }
+
+#vertex-paygo-settings .vertex-paygo-log-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+}
+
+#vertex-paygo-settings .vertex-paygo-log-actions[hidden],
+#vertex-paygo-settings .vertex-paygo-only[hidden] {
+    display: none;
+}
+
+#vertex-paygo-settings .vertex-paygo-log-button {
+    min-width: auto;
+    padding: 0.25rem 0.6rem;
+}
+
+.vertex-paygo-log-viewer {
+    width: 100%;
+    min-width: 0;
+}
+
+.vertex-paygo-log-output {
+    box-sizing: border-box;
+    width: 100%;
+    max-height: 60vh;
+    margin: 0;
+    padding: 0.75rem;
+    overflow: auto;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--SmartThemeBlurTintColor) 85%, #000 15%);
+    color: var(--SmartThemeBodyColor);
+    font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+    font-size: 0.85rem;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+    user-select: text;
+}

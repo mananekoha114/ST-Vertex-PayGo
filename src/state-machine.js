@@ -6,7 +6,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-import { CONFIG_VERSION, DEFAULT_STATE, TIER } from './constants.js';
+import { AI_STUDIO_SOURCE, CONFIG_VERSION, DEFAULT_STATE, TIER, VERTEX_SOURCE } from './constants.js';
 import { getTierSupport, isGeminiModel } from './model-policy.js';
 
 const VALID_TIERS = new Set(Object.values(TIER));
@@ -29,12 +29,12 @@ export function normalizeState(value) {
     };
 }
 
-export function requiresPlugin(value) {
+export function requiresPlugin(value, source = VERTEX_SOURCE) {
     const state = normalizeState(value);
-    return state.tier !== TIER.STANDARD || state.paygoOnly;
+    return state.tier !== TIER.STANDARD || (source === VERTEX_SOURCE && state.paygoOnly);
 }
 
-export function resolveTierSelection({ state, requestedTier, region, model }) {
+export function resolveTierSelection({ state, requestedTier, region, model, source = VERTEX_SOURCE }) {
     const current = normalizeState(state);
     const tier = normalizeTier(requestedTier);
     const currentRegion = normalizeRegion(region);
@@ -44,12 +44,12 @@ export function resolveTierSelection({ state, requestedTier, region, model }) {
         return { type: 'apply', state: nextState, region: currentRegion };
     }
 
-    const support = getTierSupport(model, tier);
+    const support = getTierSupport(model, tier, source);
     if (!support.allowed) {
         return { type: 'reject', code: 'MODEL_UNSUPPORTED', support, state: current, region: currentRegion };
     }
 
-    if (currentRegion !== 'global') {
+    if (source === VERTEX_SOURCE && currentRegion !== 'global') {
         return {
             type: 'conflict',
             code: 'TIER_REQUIRES_GLOBAL',
@@ -78,9 +78,9 @@ export function resolveRegionChange({ state, requestedRegion }) {
     };
 }
 
-export function resolveModelChange({ state, model }) {
+export function resolveModelChange({ state, model, source = VERTEX_SOURCE }) {
     const current = normalizeState(state);
-    if (!requiresPlugin(current)) {
+    if (!requiresPlugin(current, source)) {
         return { type: 'apply', state: current };
     }
 
@@ -94,7 +94,7 @@ export function resolveModelChange({ state, model }) {
     }
 
     if (current.tier !== TIER.STANDARD) {
-        const support = getTierSupport(model, current.tier);
+        const support = getTierSupport(model, current.tier, source);
         if (!support.allowed) {
             return {
                 type: 'conflict',
@@ -109,9 +109,10 @@ export function resolveModelChange({ state, model }) {
     return { type: 'apply', state: current };
 }
 
-export function validatePluginState({ state, region, model }) {
+export function validatePluginState({ state, region, model, source = VERTEX_SOURCE }) {
     const current = normalizeState(state);
-    if (!requiresPlugin(current)) {
+    if (source === AI_STUDIO_SOURCE) current.paygoOnly = false;
+    if (!requiresPlugin(current, source)) {
         return { ok: true, state: current };
     }
 
@@ -124,7 +125,7 @@ export function validatePluginState({ state, region, model }) {
     }
 
     if (current.tier !== TIER.STANDARD) {
-        const support = getTierSupport(model, current.tier);
+        const support = getTierSupport(model, current.tier, source);
         if (!support.allowed) {
             return {
                 ok: false,
@@ -134,7 +135,7 @@ export function validatePluginState({ state, region, model }) {
             };
         }
 
-        if (normalizeRegion(region) !== 'global') {
+        if (source === VERTEX_SOURCE && normalizeRegion(region) !== 'global') {
             return {
                 ok: false,
                 code: 'TIER_REQUIRES_GLOBAL',

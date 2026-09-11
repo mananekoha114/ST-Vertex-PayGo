@@ -6,7 +6,8 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-import { DEFAULT_STATE, TIER, VERTEX_SOURCE } from './constants.js';
+import { AI_STUDIO_SOURCE, DEFAULT_STATE, isGoogleSource, TIER, VERTEX_SOURCE } from './constants.js';
+import { getSafeErrorContext } from './client-logger.js';
 import {
     createLocalizer,
     getTierLabel,
@@ -15,6 +16,7 @@ import {
     localizeValidation,
 } from './i18n.js';
 import { getModelPolicy, getTierSupport } from './model-policy.js';
+import { downloadLogText, showLogViewer } from './log-actions.js';
 import {
     attachStateToProfile,
     getActiveProfile,
@@ -51,9 +53,9 @@ function createElement(tag, attributes = {}, text = '') {
     return element;
 }
 
-export function resolveVertexModel({ profile, inputValue, settingsValue, selectValue } = {}) {
+export function resolveVertexModel({ profile, inputValue, settingsValue, selectValue, source = VERTEX_SOURCE } = {}) {
     const profileOwnsModel = profile?.mode === 'cc'
-        && profile?.api === VERTEX_SOURCE
+        && profile?.api === source
         && !profile?.exclude?.includes('model');
     const candidates = [
         inputValue,
@@ -68,7 +70,8 @@ export function resolveVertexModel({ profile, inputValue, settingsValue, selectV
 
 function buildControls(localize) {
     const root = createElement('section', { id: 'vertex-paygo-settings', class: 'vertex-paygo-settings' });
-    root.append(createElement('h4', { 'data-i18n': 'vertex_paygo.title' }, localize('vertex_paygo.title')));
+    const title = createElement('h4', { 'data-i18n': 'vertex_paygo.title' }, localize('vertex_paygo.title'));
+    root.append(title);
 
     const tierRow = createElement('div', { class: 'vertex-paygo-row flex-container' });
     const tierLabel = createElement(
@@ -115,8 +118,34 @@ function buildControls(localize) {
     );
     serverRow.append(serverStatus, retryButton);
 
-    root.append(tierRow, paygoLabel, guidance, policyStatus, serverRow);
-    return { root, tierSelect, paygoOnly, policyStatus, serverStatus, retryButton };
+    const logActions = createElement('div', { class: 'vertex-paygo-log-actions' });
+    const viewLogsButton = createElement(
+        'button',
+        { type: 'button', class: 'menu_button vertex-paygo-log-button', 'data-i18n': 'vertex_paygo.logs.view' },
+        localize('vertex_paygo.logs.view'),
+    );
+    const saveLogsButton = createElement(
+        'button',
+        { type: 'button', class: 'menu_button vertex-paygo-log-button', 'data-i18n': 'vertex_paygo.logs.save' },
+        localize('vertex_paygo.logs.save'),
+    );
+    logActions.append(viewLogsButton, saveLogsButton);
+
+    root.append(tierRow, paygoLabel, guidance, policyStatus, serverRow, logActions);
+    return {
+        root,
+        title,
+        guidance,
+        paygoLabel,
+        tierSelect,
+        paygoOnly,
+        policyStatus,
+        serverStatus,
+        retryButton,
+        logActions,
+        viewLogsButton,
+        saveLogsButton,
+    };
 }
 
 export function createPayGoUi({
@@ -124,12 +153,14 @@ export function createPayGoUi({
     serverClient,
     notifyError = () => {},
     notifyWarning = () => {},
+    logger = console,
     localize,
 }) {
     localize ??= createLocalizer((fallback, key) => context?.translate?.(fallback, key));
     const regionInput = document.getElementById('vertexai_region');
     const modelSelect = document.getElementById('model_vertexai_select');
-    const initialModelInput = document.getElementById('vertexai_model_id');
+    const googleModelSelect = document.getElementById('model_google_select');
+    const googleContainer = document.getElementById('makersuite_form');
     if (!(regionInput instanceof HTMLInputElement) || !(modelSelect instanceof HTMLSelectElement)) {
         throw new Error(localize('vertex_paygo.error.controls_missing'));
     }
@@ -139,27 +170,36 @@ export function createPayGoUi({
     regionContainer.after(controls.root);
 
     let state = readPersistedState(context);
-    let lastModel = resolveVertexModel({
-        profile: getActiveProfile(context),
-        inputValue: initialModelInput instanceof HTMLInputElement ? initialModelInput.value : '',
-        settingsValue: context.chatCompletionSettings.vertexai_model,
-        selectValue: modelSelect.value,
-    });
+    let lastModel = getModel();
     let transitionPending = false;
     let revertingModel = false;
-    let healthState = { status: 'checking', message: localize('vertex_paygo.server.checking') };
+    let healthState = {
+        status: 'checking',
+        message: localize('vertex_paygo.server.checking'),
+        logsAvailable: false,
+    };
     let appReady = false;
     let reconcileQueued = false;
     let reconcileTimer = null;
     let profileTransitionPending = false;
     let profileTransitionTimer = null;
     let profileTransitionTargetId = null;
+    let logActionPending = false;
     const reconcileGuard = createReconcileGuard();
 
     const popup = context.Popup;
     const popupResult = context.POPUP_RESULT;
 
+    function getSource() {
+        return context.chatCompletionSettings.chat_completion_source;
+    }
+
+    function getModelSelect() {
+        return getSource() === AI_STUDIO_SOURCE ? googleModelSelect : modelSelect;
+    }
+
     function getModelInput() {
+        if (getSource() === AI_STUDIO_SOURCE) return null;
         const element = document.getElementById('vertexai_model_id');
         return element instanceof HTMLInputElement ? element : null;
     }
@@ -167,10 +207,12 @@ export function createPayGoUi({
     function getModel() {
         const modelInput = getModelInput();
         return resolveVertexModel({
+            source: getSource(),
             profile: getActiveProfile(context),
             inputValue: modelInput instanceof HTMLInputElement ? modelInput.value : '',
-            settingsValue: context.chatCompletionSettings.vertexai_model,
-            selectValue: modelSelect.value,
+            settingsValue: getSource() === AI_STUDIO_SOURCE
+                ? context.chatCompletionSettings.google_model : context.chatCompletionSettings.vertexai_model,
+            selectValue: getModelSelect()?.value,
         });
     }
 
@@ -295,14 +337,14 @@ export function createPayGoUi({
             return;
         }
 
-        const support = state.tier === TIER.STANDARD ? null : getTierSupport(policy.model, state.tier);
+        const support = state.tier === TIER.STANDARD ? null : getTierSupport(policy.model, state.tier, getSource());
         if (support?.level === 'unverified') {
             controls.policyStatus.textContent = localizeSupport(localize, support, state.tier);
             controls.policyStatus.classList.add('vertex-paygo-status--warning');
             return;
         }
 
-        const validation = validatePluginState({ state, model: policy.model, region: getRegion() });
+        const validation = validatePluginState({ state, model: policy.model, region: getRegion(), source: getSource() });
         if (!validation.ok) {
             controls.policyStatus.textContent = localize('vertex_paygo.status.blocked', {
                 message: localizeValidation(localize, validation, state),
@@ -311,24 +353,40 @@ export function createPayGoUi({
             return;
         }
 
-        if (state.tier === TIER.STANDARD && !state.paygoOnly) {
+        if (state.tier === TIER.STANDARD && (!state.paygoOnly || getSource() === AI_STUDIO_SOURCE)) {
             controls.policyStatus.textContent = localize('vertex_paygo.status.native_standard');
         } else if (state.tier === TIER.STANDARD) {
             controls.policyStatus.textContent = localize('vertex_paygo.status.standard_paygo_only');
         } else {
-            controls.policyStatus.textContent = localize('vertex_paygo.status.tier_global', {
+            controls.policyStatus.textContent = localize(getSource() === AI_STUDIO_SOURCE
+                ? 'vertex_paygo.ai_studio.status' : 'vertex_paygo.status.tier_global', {
                 tier: getTierLabel(localize, state.tier),
             });
         }
     }
 
     function render() {
-        const policy = getModelPolicy(getModel());
+        const aiStudio = getSource() === AI_STUDIO_SOURCE;
+        // One panel, one controller, and one set of listeners serve both sources.
+        if (aiStudio && googleContainer && controls.root.parentElement !== googleContainer) {
+            googleContainer.append(controls.root);
+        } else if (!aiStudio && controls.root.previousElementSibling !== regionContainer) {
+            regionContainer.after(controls.root);
+        }
+        for (const [element, key] of [
+            [controls.title, aiStudio ? 'vertex_paygo.ai_studio.title' : 'vertex_paygo.title'],
+            [controls.guidance, aiStudio ? 'vertex_paygo.ai_studio.guidance' : 'vertex_paygo.guidance'],
+        ]) {
+            element.dataset.i18n = key;
+            element.textContent = localize(key);
+        }
+        controls.paygoLabel.hidden = aiStudio;
+        const policy = getModelPolicy(getModel(), getSource());
         controls.tierSelect.value = state.tier;
         controls.paygoOnly.checked = state.paygoOnly;
         // A stale invalid value must remain switchable off even when the new
         // model is not Gemini.
-        controls.paygoOnly.disabled = (!policy.isGemini && !state.paygoOnly) || transitionPending;
+        controls.paygoOnly.disabled = aiStudio || (!policy.isGemini && !state.paygoOnly) || transitionPending;
         controls.tierSelect.disabled = transitionPending;
 
         const flexOption = controls.tierSelect.querySelector(`option[value="${TIER.FLEX}"]`);
@@ -336,14 +394,27 @@ export function createPayGoUi({
         flexOption.disabled = !policy.flex.allowed;
         flexOption.title = localizeSupport(localize, policy.flex, TIER.FLEX);
         priorityOption.disabled = !policy.priority.allowed;
+        priorityOption.hidden = aiStudio;
         priorityOption.title = localizeSupport(localize, policy.priority, TIER.PRIORITY);
 
-        controls.root.dataset.active = String(isVertexSelected());
+        controls.root.dataset.active = String(isGoogleSource(getSource()));
         controls.root.dataset.serverStatus = healthState.status;
         controls.serverStatus.textContent = healthState.message;
         controls.serverStatus.title = healthState.detail || '';
         controls.retryButton.disabled = healthState.status === 'checking';
+        controls.logActions.hidden = healthState.status === 'ready' && !healthState.logsAvailable;
+        const logsDisabled = logActionPending || healthState.status !== 'ready' || !healthState.logsAvailable;
+        controls.viewLogsButton.disabled = logsDisabled;
+        controls.saveLogsButton.disabled = logsDisabled;
         renderPolicyStatus(policy);
+    }
+
+    function recordClientEvent(level, event, context = {}) {
+        try {
+            logger?.event?.(level, event, context);
+        } catch {
+            // Diagnostics must never affect settings or request routing.
+        }
     }
 
     async function showTierRegionConflict(tier, decision) {
@@ -359,6 +430,39 @@ export function createPayGoUi({
         );
     }
 
+    function commitTierRegionChoice(requestedTier, result) {
+        const latestDecision = resolveTierSelection({
+            source: getSource(),
+            state,
+            requestedTier,
+            region: getRegion(),
+            model: getModel(),
+        });
+
+        if (result === popupResult.AFFIRMATIVE) {
+            if (latestDecision.type === 'reject') {
+                notifyError(localizeSupport(localize, latestDecision.support, requestedTier));
+                render();
+                return false;
+            }
+            const selected = latestDecision.type === 'conflict'
+                ? latestDecision.accept
+                : latestDecision;
+            if (selected.region !== getRegion()) setRegion(selected.region);
+            applyState(selected.state);
+            return true;
+        }
+
+        // The negative button promises to keep the current region and use
+        // Standard, even if the live policy changed while the popup was open.
+        const selected = latestDecision.type === 'conflict'
+            ? latestDecision.decline
+            : { state: { ...state, tier: TIER.STANDARD }, region: getRegion() };
+        if (selected.region !== getRegion()) setRegion(selected.region);
+        applyState(selected.state);
+        return true;
+    }
+
     async function onTierChanged() {
         if (transitionPending) {
             reconcileGuard.invalidate();
@@ -367,7 +471,7 @@ export function createPayGoUi({
             return;
         }
         const requestedTier = controls.tierSelect.value;
-        const decision = resolveTierSelection({ state, requestedTier, region: getRegion(), model: getModel() });
+        const decision = resolveTierSelection({ state, requestedTier, region: getRegion(), model: getModel(), source: getSource() });
 
         if (decision.type === 'reject') {
             notifyError(localizeSupport(localize, decision.support, requestedTier));
@@ -387,13 +491,7 @@ export function createPayGoUi({
             await reconcileGuard.settle(
                 token,
                 showTierRegionConflict(requestedTier, decision),
-                result => {
-                    const selected = result === popupResult.AFFIRMATIVE ? decision.accept : decision.decline;
-                    if (selected.region !== getRegion()) {
-                        setRegion(selected.region);
-                    }
-                    applyState(selected.state);
-                },
+                result => commitTierRegionChoice(requestedTier, result),
             );
         } finally {
             finishTransition();
@@ -407,7 +505,7 @@ export function createPayGoUi({
             render();
             return;
         }
-        const policy = getModelPolicy(getModel());
+        const policy = getModelPolicy(getModel(), getSource());
         if (!policy.isGemini && controls.paygoOnly.checked) {
             notifyError(localize('vertex_paygo.error.paygo_only_gemini'));
             controls.paygoOnly.checked = false;
@@ -448,9 +546,21 @@ export function createPayGoUi({
                 ),
                 result => {
                     const selected = result === popupResult.AFFIRMATIVE ? decision.accept : decision.decline;
-                    if (selected.region !== getRegion()) {
+                    const regionChanged = selected.region !== getRegion();
+                    if (regionChanged) {
                         setRegion(selected.region);
-                    } else {
+                    }
+                    const latestValidation = validatePluginState({
+                        state: selected.state,
+                        region: selected.region,
+                        model: getModel(),
+                    });
+                    if (!latestValidation.ok) {
+                        notifyError(localizeValidation(localize, latestValidation, selected.state));
+                        render();
+                        return;
+                    }
+                    if (!regionChanged) {
                         writeActiveProfileRegion(context, selected.region);
                     }
                     applyState(selected.state);
@@ -463,7 +573,7 @@ export function createPayGoUi({
 
     async function onModelChanged() {
         const nextModel = getModel();
-        if (!isVertexSelected()) {
+        if (!isGoogleSource(getSource())) {
             reconcileGuard.invalidate();
             render();
             return;
@@ -521,7 +631,7 @@ export function createPayGoUi({
 
         const previousModel = lastModel;
         lastModel = nextModel;
-        const decision = resolveModelChange({ state, model: nextModel });
+        const decision = resolveModelChange({ state, model: nextModel, source: getSource() });
         if (decision.type === 'apply') {
             render();
             schedulePersistedReconciliation();
@@ -547,8 +657,27 @@ export function createPayGoUi({
                     },
                 ),
                 result => {
+                    const latestDecision = resolveModelChange({ state, model: nextModel, source: getSource() });
                     if (result === popupResult.AFFIRMATIVE || !previousModel || previousModel === nextModel) {
-                        applyState(decision.accept.state);
+                        if (latestDecision.type === 'apply') {
+                            render();
+                        } else {
+                            applyState(latestDecision.accept.state);
+                        }
+                        return;
+                    }
+
+                    const restoreDecision = resolveModelChange({ state, model: previousModel, source: getSource() });
+                    if (restoreDecision.type !== 'apply') {
+                        const previousValidation = validatePluginState({
+                            source: getSource(),
+                            state,
+                            region: getRegion(),
+                            model: previousModel,
+                        });
+                        notifyError(localizeValidation(localize, previousValidation, state));
+                        render();
+                        schedulePersistedReconciliation({ invalidate: false });
                         return;
                     }
 
@@ -559,8 +688,9 @@ export function createPayGoUi({
                         modelInput.dispatchEvent(new Event('input', { bubbles: true }));
                     } else {
                         revertingModel = true;
-                        modelSelect.value = previousModel;
-                        modelSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                        const select = getModelSelect();
+                        select.value = previousModel;
+                        select.dispatchEvent(new Event('change', { bubbles: true }));
                     }
                 },
             );
@@ -570,25 +700,87 @@ export function createPayGoUi({
     }
 
     async function refreshHealth() {
-        healthState = { status: 'checking', message: localize('vertex_paygo.server.checking') };
+        const startedAt = Date.now();
+        recordClientEvent('info', 'server.health_started', { phase: 'started' });
+        healthState = {
+            status: 'checking',
+            message: localize('vertex_paygo.server.checking'),
+            logsAvailable: false,
+        };
         render();
         try {
             const health = await serverClient.checkHealth();
+            logger?.setDeliveryEnabled?.(health.capabilities?.clientLogging === true);
             const version = health.pluginVersion ? ` ${health.pluginVersion}` : '';
             healthState = {
                 status: 'ready',
                 message: localize('vertex_paygo.server.ready', { version }),
                 detail: localize('vertex_paygo.server.ready_detail'),
+                logsAvailable: health.capabilities?.logs === true,
             };
+            recordClientEvent('info', 'server.health_ready', {
+                phase: 'ready',
+                serverStatus: 'ready',
+                durationMs: Date.now() - startedAt,
+            });
         } catch (error) {
             healthState = {
                 status: 'unavailable',
                 message: localize('vertex_paygo.server.unavailable'),
                 detail: localizeError(localize, error),
+                logsAvailable: false,
             };
+            recordClientEvent('warn', 'server.health_unavailable', {
+                phase: 'failed',
+                serverStatus: 'unavailable',
+                durationMs: Date.now() - startedAt,
+                ...getSafeErrorContext(error),
+            });
         }
         render();
         return healthState;
+    }
+
+    async function runLogAction(action) {
+        if (logActionPending || !healthState.logsAvailable) return;
+        logActionPending = true;
+        render();
+        recordClientEvent('info', `logs.${action}_started`, { phase: 'started' });
+        try {
+            await logger?.flush?.();
+            const text = await serverClient.readLogs();
+            if (action === 'view') {
+                recordClientEvent('info', 'logs.view_ready', { phase: 'ready' });
+                await showLogViewer(text, {
+                    context,
+                    title: localize('vertex_paygo.logs.title'),
+                    description: localize('vertex_paygo.logs.description'),
+                    emptyText: localize('vertex_paygo.logs.empty'),
+                    closeText: localize('vertex_paygo.logs.close'),
+                });
+            } else {
+                downloadLogText(text);
+                recordClientEvent('info', 'logs.save_ready', { phase: 'ready' });
+            }
+        } catch (error) {
+            recordClientEvent('error', `logs.${action}_failed`, {
+                phase: 'failed',
+                ...getSafeErrorContext(error),
+            });
+            notifyError(localize(`vertex_paygo.logs.${action}_failed`, {
+                error: localizeError(localize, error),
+            }));
+        } finally {
+            logActionPending = false;
+            render();
+        }
+    }
+
+    function onModelPolicyChanged() {
+        render();
+        // Do not silently invalidate a confirmation already shown to the user.
+        // The queued reconciliation revalidates its result after that transition.
+        schedulePersistedReconciliation({ invalidate: false });
     }
 
     async function reconcilePersistedState() {
@@ -632,13 +824,7 @@ export function createPayGoUi({
                     await reconcileGuard.settle(
                         token,
                         showTierRegionConflict(state.tier, decision),
-                        result => {
-                            const selected = result === popupResult.AFFIRMATIVE
-                                ? decision.accept
-                                : decision.decline;
-                            if (selected.region !== getRegion()) setRegion(selected.region);
-                            applyState(selected.state);
-                        },
+                        result => commitTierRegionChoice(state.tier, result),
                     );
                 } finally {
                     finishTransition();
@@ -664,6 +850,11 @@ export function createPayGoUi({
                     },
                 ),
                 result => {
+                    const latestValidation = validatePluginState({ state, region: getRegion(), model: getModel(), source: getSource() });
+                    if (latestValidation.ok) {
+                        render();
+                        return;
+                    }
                     if (result === popupResult.AFFIRMATIVE) {
                         applyState({ ...DEFAULT_STATE });
                     }
@@ -725,9 +916,12 @@ export function createPayGoUi({
         }
     }, true);
     controls.retryButton.addEventListener('click', refreshHealth);
+    controls.viewLogsButton.addEventListener('click', () => void runLogAction('view'));
+    controls.saveLogsButton.addEventListener('click', () => void runLogAction('save'));
 
     const events = context.eventTypes;
     context.eventSource.on(events.CHATCOMPLETION_SOURCE_CHANGED, () => {
+        syncPersistedState();
         const model = getModel();
         if (model) {
             lastModel = model;
@@ -744,7 +938,7 @@ export function createPayGoUi({
     context.eventSource.on(events.OAI_PRESET_EXPORT_READY, normalizeExportedPreset);
     context.eventSource.on(events.CONNECTION_PROFILE_CREATED, profile => {
         reconcileGuard.invalidate();
-        if (profile?.mode === 'cc' && profile?.api === VERTEX_SOURCE) {
+        if (profile?.mode === 'cc' && isGoogleSource(profile?.api)) {
             attachStateToProfile(profile, state);
             // Connection Manager emitted CREATED after its first save.
             context.saveSettingsDebounced();
@@ -757,7 +951,7 @@ export function createPayGoUi({
     context.eventSource.on(events.CONNECTION_PROFILE_LOADED, finishProfileTransition);
     context.eventSource.on(events.CONNECTION_PROFILE_UPDATED, (_oldProfile, newProfile) => {
         reconcileGuard.invalidate();
-        if (newProfile?.mode === 'cc' && newProfile?.api === VERTEX_SOURCE && !Object.hasOwn(newProfile, 'vertex-paygo')) {
+        if (newProfile?.mode === 'cc' && isGoogleSource(newProfile?.api) && !Object.hasOwn(newProfile, 'vertex-paygo')) {
             attachStateToProfile(newProfile, state);
             context.saveSettingsDebounced();
         }
@@ -779,6 +973,9 @@ export function createPayGoUi({
     return {
         getState: () => ({ ...state }),
         refreshHealth,
+        viewLogs: () => runLogAction('view'),
+        saveLogs: () => runLogAction('save'),
+        onModelPolicyChanged,
         render,
     };
 }

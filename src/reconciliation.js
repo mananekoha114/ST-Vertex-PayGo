@@ -6,16 +6,16 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-import { VERTEX_SOURCE } from './constants.js';
+import { isGoogleSource } from './constants.js';
 import { normalizeState, requiresPlugin, validatePluginState } from './state-machine.js';
 
 export function planPersistedReconciliation({ state, source, model, region }) {
     const current = normalizeState(state);
-    if (source !== VERTEX_SOURCE) {
+    if (!isGoogleSource(source)) {
         return { type: 'skip', code: 'SOURCE_NOT_VERTEX', state: current };
     }
 
-    if (!requiresPlugin(current)) {
+    if (!requiresPlugin(current, source)) {
         return { type: 'skip', code: 'PLUGIN_NOT_REQUIRED', state: current };
     }
 
@@ -24,7 +24,7 @@ export function planPersistedReconciliation({ state, source, model, region }) {
         return { type: 'defer', code: 'MODEL_UNRESOLVED', state: current };
     }
 
-    const validation = validatePluginState({ state: current, model: modelId, region });
+    const validation = validatePluginState({ state: current, model: modelId, region, source });
     return validation.ok
         ? { type: 'valid', state: current, validation }
         : { type: 'conflict', state: current, validation };

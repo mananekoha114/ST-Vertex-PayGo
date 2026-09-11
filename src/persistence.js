@@ -6,7 +6,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-import { DEFAULT_STATE, EXTENSION_ID } from './constants.js';
+import { DEFAULT_STATE, EXTENSION_ID, isGoogleSource, VERTEX_SOURCE } from './constants.js';
 import { normalizeRegion, normalizeState } from './state-machine.js';
 
 const presetWriteQueues = new WeakMap();
@@ -22,7 +22,7 @@ export function getActiveProfile(context) {
     }
 
     const profile = manager.profiles.find(candidate => candidate?.id === manager.selectedProfile) ?? null;
-    return profile?.mode === 'cc' && profile?.api === 'vertexai' ? profile : null;
+    return profile?.mode === 'cc' && isGoogleSource(profile?.api) ? profile : null;
 }
 
 export function readPersistedState(context) {
@@ -81,7 +81,7 @@ export function attachStateToProfile(profile, state) {
 
 export function writeActiveProfileRegion(context, region, { save = true } = {}) {
     const profile = getActiveProfile(context);
-    if (!profile || profile.exclude?.includes('api-url')) {
+    if (!profile || profile.api !== VERTEX_SOURCE || profile.exclude?.includes('api-url')) {
         return false;
     }
 

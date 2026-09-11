@@ -10,7 +10,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-import { TIER } from '../src/constants.js';
+import { CLIENT_VERSION, TIER } from '../src/constants.js';
 import {
     MESSAGES,
     createLocalizer,
@@ -41,6 +41,7 @@ test('manifest exposes exact SillyTavern locale IDs and package version matches'
         'zh-tw': 'locales/zh-tw.json',
     });
     assert.equal(manifest.version, packageJson.version);
+    assert.equal(packageJson.version, CLIENT_VERSION);
 });
 
 test('every locale has exactly one non-empty string for every message key', async () => {
@@ -96,6 +97,10 @@ test('policy and validation objects are localized by stable codes instead of Eng
         `未验证：${MODEL_POLICY_SNAPSHOT}`,
     );
     assert.equal(
+        localizeSupport(localize, { level: 'unverified', snapshot: '2026-01-01' }, TIER.FLEX),
+        '未验证：2026-01-01',
+    );
+    assert.equal(
         localizeValidation(localize, { code: 'TIER_REQUIRES_GLOBAL', message: 'raw English message' }, { tier: TIER.FLEX }),
         'Flex（灵活） 必须使用 global',
     );
@@ -107,5 +112,7 @@ test('server errors are localized by protocol code with unknown errors preserved
     ));
 
     assert.equal(localizeError(localize, { code: 'PROTOCOL_MISMATCH' }), '需要协议 v1');
+    assert.equal(localizeError(localize, { code: 'LOG_TOO_LARGE' }), 'Server Plugin log exceeds the 5 MiB limit.');
+    assert.equal(localizeError(localize, { code: 'INVALID_LOG_RESPONSE' }), 'Server Plugin returned an invalid log response.');
     assert.equal(localizeError(localize, new Error('opaque upstream failure')), 'opaque upstream failure');
 });

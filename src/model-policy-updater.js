@@ -10,7 +10,6 @@ import {
     BUNDLED_MODEL_POLICY,
     MODEL_POLICY_SNAPSHOT,
     getActiveModelPolicy,
-    getKnownModelIds,
     installModelPolicy,
     normalizeModelId,
 } from './model-policy.js';
@@ -75,6 +74,36 @@ function normalizeModelList(value, name, { allowEmpty = false } = {}) {
     return Object.freeze(models);
 }
 
+function parseProviderPolicy(document, tierNames, { allowEmptyTiers = false } = {}) {
+    if (!isPlainObject(document)) {
+        throw new ModelPolicyUpdateError('INVALID_DOCUMENT', 'Model policy must be a JSON object.');
+    }
+    if (!isCalendarDate(document.updatedAt)) {
+        throw new ModelPolicyUpdateError('INVALID_DATE', 'Model policy updatedAt must be a valid YYYY-MM-DD date.');
+    }
+    if (!isPlainObject(document.tiers)) {
+        throw new ModelPolicyUpdateError('INVALID_TIERS', 'Model policy tiers must be a JSON object.');
+    }
+
+    const knownModels = normalizeModelList(document.knownModels, 'knownModels');
+    const tiers = Object.fromEntries(tierNames.map(tier => [
+        tier, normalizeModelList(document.tiers[tier], tier, { allowEmpty: allowEmptyTiers }),
+    ]));
+    const knownModelSet = new Set(knownModels);
+    if (Object.values(tiers).flat().some(model => !knownModelSet.has(model))) {
+        throw new ModelPolicyUpdateError(
+            'INCOMPLETE_KNOWN_MODELS',
+            'Every tier model must also be present in knownModels.',
+        );
+    }
+
+    return Object.freeze({
+        updatedAt: document.updatedAt,
+        tiers: Object.freeze(tiers),
+        knownModels,
+    });
+}
+
 export function parseModelPolicyDocument(document) {
     if (!isPlainObject(document)) {
         throw new ModelPolicyUpdateError('INVALID_DOCUMENT', 'Model policy must be a JSON object.');
@@ -85,32 +114,12 @@ export function parseModelPolicyDocument(document) {
             `Model policy schema v${MODEL_POLICY_SCHEMA_VERSION} is required.`,
         );
     }
-    if (!isCalendarDate(document.updatedAt)) {
-        throw new ModelPolicyUpdateError('INVALID_DATE', 'Model policy updatedAt must be a valid YYYY-MM-DD date.');
-    }
-    if (!isPlainObject(document.tiers)) {
-        throw new ModelPolicyUpdateError('INVALID_TIERS', 'Model policy tiers must be a JSON object.');
-    }
-
-    const knownModels = normalizeModelList(document.knownModels, 'knownModels');
-    const flexModels = normalizeModelList(document.tiers.flex, 'flex');
-    const priorityModels = normalizeModelList(document.tiers.priority, 'priority');
-    const knownModelSet = new Set(knownModels);
-    if ([...flexModels, ...priorityModels].some(model => !knownModelSet.has(model))) {
-        throw new ModelPolicyUpdateError(
-            'INCOMPLETE_KNOWN_MODELS',
-            'Every tier model must also be present in knownModels.',
-        );
-    }
-
     return Object.freeze({
         schemaVersion: MODEL_POLICY_SCHEMA_VERSION,
-        updatedAt: document.updatedAt,
-        tiers: Object.freeze({
-            flex: flexModels,
-            priority: priorityModels,
-        }),
-        knownModels,
+        ...parseProviderPolicy(document, ['flex', 'priority']),
+        ...(Object.hasOwn(document, 'aiStudio') ? {
+            aiStudio: parseProviderPolicy(document.aiStudio, ['flex'], { allowEmptyTiers: true }),
+        } : {}),
     });
 }
 
@@ -131,7 +140,7 @@ function parseModelPolicyText(text) {
     }
 }
 
-function requireCurrentOrNewerPolicy(policy, now) {
+function requireCurrentOrNewerProviderPolicy(policy, active, now) {
     const updatedAt = Date.parse(`${policy.updatedAt}T00:00:00.000Z`);
     if (updatedAt > now + MODEL_POLICY_MAX_FUTURE_SKEW_MS) {
         throw new ModelPolicyUpdateError(
@@ -139,18 +148,26 @@ function requireCurrentOrNewerPolicy(policy, now) {
             `Model policy ${policy.updatedAt} is too far in the future.`,
         );
     }
-    if (policy.updatedAt < MODEL_POLICY_SNAPSHOT) {
+    if (policy.updatedAt < active.updatedAt) {
         throw new ModelPolicyUpdateError(
             'STALE_POLICY',
-            `Model policy ${policy.updatedAt} is older than the active ${MODEL_POLICY_SNAPSHOT} snapshot.`,
+            `Model policy ${policy.updatedAt} is older than the active ${active.updatedAt} snapshot.`,
         );
     }
     const nextKnownModels = new Set(policy.knownModels);
-    if (getKnownModelIds().some(model => !nextKnownModels.has(model))) {
+    if (active.knownModels.some(model => !nextKnownModels.has(model))) {
         throw new ModelPolicyUpdateError(
             'INCOMPLETE_MODEL_HISTORY',
             'Model policy knownModels must retain every model from the active snapshot.',
         );
+    }
+}
+
+function requireCurrentOrNewerPolicy(policy, now) {
+    const active = getActiveModelPolicy();
+    requireCurrentOrNewerProviderPolicy(policy, active, now);
+    if (policy.aiStudio) {
+        requireCurrentOrNewerProviderPolicy(policy.aiStudio, active.aiStudio, now);
     }
     return policy;
 }
@@ -219,12 +236,16 @@ function haveSameMembers(left, right) {
     return left.every(value => rightSet.has(value));
 }
 
+function hasProviderPolicyChanged(policy, active) {
+    return policy.updatedAt !== active.updatedAt
+        || Object.keys(active.tiers).some(tier => !haveSameMembers(policy.tiers[tier], active.tiers[tier]))
+        || !haveSameMembers(policy.knownModels, active.knownModels);
+}
+
 function installModelPolicyIfChanged(policy) {
     const active = getActiveModelPolicy();
-    const changed = policy.updatedAt !== active.updatedAt
-        || !haveSameMembers(policy.tiers.flex, active.tiers.flex)
-        || !haveSameMembers(policy.tiers.priority, active.tiers.priority)
-        || !haveSameMembers(policy.knownModels, active.knownModels);
+    const changed = hasProviderPolicyChanged(policy, active)
+        || Boolean(policy.aiStudio && hasProviderPolicyChanged(policy.aiStudio, active.aiStudio));
     if (changed) installModelPolicy(policy);
     return changed;
 }
@@ -295,7 +316,9 @@ export async function refreshModelPolicyFromGitHub({
         }
         const policy = requireCurrentOrNewerPolicy(parseModelPolicyText(await readPolicyResponse(response)), now);
         const changed = installModelPolicyIfChanged(policy);
-        cachePolicy(policy, storage, logger);
+        // Cache the effective document, including AI Studio retained from an
+        // earlier update when a legacy Vertex-only response is received.
+        cachePolicy(getActiveModelPolicy(), storage, logger);
         return { applied: true, changed, source: 'github', snapshot: policy.updatedAt };
     } catch (error) {
         warn(logger, '[Vertex PayGo] Could not refresh the model policy from GitHub; keeping the active snapshot.', error);

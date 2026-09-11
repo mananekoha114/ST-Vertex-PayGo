@@ -6,7 +6,8 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-import { PROTOCOL_VERSION, SERVER_ROUTES, VERTEX_SOURCE } from './constants.js';
+import { AI_STUDIO_SOURCE, isGoogleSource, PROTOCOL_VERSION, SERVER_ROUTES, VERTEX_SOURCE } from './constants.js';
+import { getSafeErrorContext } from './client-logger.js';
 import { createLocalizer, localizeError, localizeSupport, localizeValidation } from './i18n.js';
 import { requiresPlugin, validatePluginState } from './state-machine.js';
 
@@ -47,16 +48,19 @@ export function installFailureSink(generateData, origin, secretFactory = createE
 }
 
 export function buildPreparePayload(generateData, state) {
+    const source = generateData.chat_completion_source === AI_STUDIO_SOURCE ? AI_STUDIO_SOURCE : VERTEX_SOURCE;
     return {
         protocolVersion: PROTOCOL_VERSION,
-        chat_completion_source: VERTEX_SOURCE,
+        chat_completion_source: source,
         model: String(generateData.model ?? '').trim(),
         stream: Boolean(generateData.stream),
-        vertexai_auth_mode: String(generateData.vertexai_auth_mode || 'express').trim().toLowerCase(),
-        vertexai_region: String(generateData.vertexai_region || 'us-central1').trim().toLowerCase(),
-        vertexai_express_project_id: String(generateData.vertexai_express_project_id || '').trim(),
+        ...(source === VERTEX_SOURCE ? {
+            vertexai_auth_mode: String(generateData.vertexai_auth_mode || 'express').trim().toLowerCase(),
+            vertexai_region: String(generateData.vertexai_region || 'us-central1').trim().toLowerCase(),
+            vertexai_express_project_id: String(generateData.vertexai_express_project_id || '').trim(),
+        } : {}),
         tier: state.tier,
-        paygoOnly: state.paygoOnly,
+        paygoOnly: source === VERTEX_SOURCE && state.paygoOnly,
     };
 }
 
@@ -64,6 +68,27 @@ export function applyPreparedProxy(generateData, prepared) {
     generateData.reverse_proxy = prepared.proxyUrl;
     generateData.proxy_password = prepared.proxySecret;
     return generateData;
+}
+
+function recordClientEvent(logger, level, event, context = {}) {
+    try {
+        logger?.event?.(level, event, context);
+    } catch {
+        // Diagnostics must never affect the fail-closed request hook.
+    }
+}
+
+function buildSafeRequestLogContext(generateData, state, requestId) {
+    return {
+        requestId,
+        provider: generateData?.chat_completion_source,
+        model: String(generateData?.model ?? '').trim(),
+        region: generateData?.chat_completion_source === VERTEX_SOURCE
+            ? String(generateData?.vertexai_region ?? '').trim().toLowerCase() : undefined,
+        tier: state?.tier,
+        paygoOnly: generateData?.chat_completion_source === VERTEX_SOURCE && state?.paygoOnly,
+        stream: Boolean(generateData?.stream),
+    };
 }
 
 export function createRequestHook({
@@ -83,53 +108,90 @@ export function createRequestHook({
     const shownWarningKeys = new Set();
 
     return async function onChatCompletionSettingsReady(generateData) {
-        if (generateData?.chat_completion_source !== VERTEX_SOURCE) {
+        const source = generateData?.chat_completion_source;
+        if (!isGoogleSource(source)) {
             return;
         }
 
         const state = stateProvider();
-        if (!requiresPlugin(state)) {
+        if (!requiresPlugin(state, source)) {
             return;
         }
 
         const existingReverseProxy = String(generateData.reverse_proxy ?? '').trim();
+        const requestId = logger?.createRequestId?.();
+        const startedAt = Date.now();
+        const logContext = buildSafeRequestLogContext(generateData, state, requestId);
 
         // EventEmitter.emit catches listener errors. Install the failure sink
         // before validation or I/O so no exceptional path can fall back to a
         // credentialed native Vertex request.
         installFailureSink(generateData, origin, secretFactory);
+        recordClientEvent(logger, 'info', 'request.prepare_started', {
+            ...logContext,
+            phase: 'started',
+        });
 
         try {
             if (existingReverseProxy) {
                 notifyError(localize('vertex_paygo.hook.proxy_conflict'));
+                recordClientEvent(logger, 'warn', 'request.blocked', {
+                    ...logContext,
+                    phase: 'blocked',
+                    errorCode: 'CUSTOM_REVERSE_PROXY_CONFLICT',
+                    durationMs: Date.now() - startedAt,
+                });
                 logger.error('[Vertex PayGo] Request blocked: CUSTOM_REVERSE_PROXY_CONFLICT');
                 return;
             }
 
             const validation = validatePluginState({
                 state,
+                source,
                 model: generateData.model,
                 region: generateData.vertexai_region,
             });
             if (!validation.ok) {
                 notifyError(localizeValidation(localize, validation, state));
+                recordClientEvent(logger, 'warn', 'request.blocked', {
+                    ...logContext,
+                    phase: 'blocked',
+                    errorCode: validation.code,
+                    durationMs: Date.now() - startedAt,
+                });
                 logger.error('[Vertex PayGo] Request blocked:', validation.code, validation.message);
                 return;
             }
             if (validation.warning) {
-                const warningKey = `${validation.support?.level ?? 'warning'}:${String(generateData.model ?? '').trim().toLowerCase()}`;
+                const warningKey = `${source}:${validation.support?.level ?? 'warning'}:${String(generateData.model ?? '').trim().toLowerCase()}`;
                 if (!shownWarningKeys.has(warningKey)) {
                     shownWarningKeys.add(warningKey);
                     notifyWarning(localizeSupport(localize, validation.support, state.tier));
+                    recordClientEvent(logger, 'warn', 'request.support_unverified', {
+                        ...logContext,
+                        phase: 'warning',
+                        supportLevel: validation.support?.level,
+                    });
                 }
             }
 
             const prepared = await serverClient.prepare(buildPreparePayload(generateData, validation.state));
             applyPreparedProxy(generateData, prepared);
+            recordClientEvent(logger, 'info', 'request.prepare_succeeded', {
+                ...logContext,
+                phase: 'succeeded',
+                durationMs: Date.now() - startedAt,
+            });
         } catch (error) {
             notifyError(localize('vertex_paygo.hook.request_blocked', {
                 message: localizeError(localize, error),
             }));
+            recordClientEvent(logger, 'error', 'request.prepare_failed', {
+                ...logContext,
+                phase: 'failed',
+                durationMs: Date.now() - startedAt,
+                ...getSafeErrorContext(error),
+            });
             logger.error('[Vertex PayGo] Failed to prepare request; failure sink retained.', error);
         }
     };

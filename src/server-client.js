@@ -7,8 +7,11 @@
  */
 
 import {
+    CLIENT_LOG_MEDIA_TYPE,
     HEALTH_TIMEOUT_MS,
     EXTENSION_ID,
+    LOG_TIMEOUT_MS,
+    MAX_LOG_RESPONSE_BYTES,
     PREPARE_TIMEOUT_MS,
     PROTOCOL_VERSION,
     REQUIRED_TRANSPORT,
@@ -91,6 +94,117 @@ async function fetchJson(fetchImpl, url, options, timeoutMs) {
     }
 }
 
+async function fetchText(fetchImpl, url, options, timeoutMs) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+        const response = await fetchImpl(url, { ...options, signal: controller.signal });
+        const contentLength = Number(response.headers?.get?.('content-length'));
+        if (Number.isFinite(contentLength) && contentLength > MAX_LOG_RESPONSE_BYTES) {
+            throw new ServerPluginError('Server Plugin log response is too large.', {
+                code: 'LOG_TOO_LARGE',
+                status: response.status,
+            });
+        }
+
+        let data;
+        try {
+            if (response.body && typeof response.body.getReader === 'function' && typeof TextDecoder === 'function') {
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let totalBytes = 0;
+                let text = '';
+                for (;;) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    totalBytes += value.byteLength;
+                    if (totalBytes > MAX_LOG_RESPONSE_BYTES) {
+                        await reader.cancel();
+                        throw new ServerPluginError('Server Plugin log response is too large.', {
+                            code: 'LOG_TOO_LARGE',
+                            status: response.status,
+                        });
+                    }
+                    text += decoder.decode(value, { stream: true });
+                }
+                data = text + decoder.decode();
+            } else {
+                data = await response.text();
+                const byteLength = typeof TextEncoder === 'function'
+                    ? new TextEncoder().encode(data).byteLength
+                    : data.length;
+                if (byteLength > MAX_LOG_RESPONSE_BYTES) {
+                    throw new ServerPluginError('Server Plugin log response is too large.', {
+                        code: 'LOG_TOO_LARGE',
+                        status: response.status,
+                    });
+                }
+            }
+        } catch (cause) {
+            if (cause instanceof ServerPluginError) throw cause;
+            throw new ServerPluginError('Server Plugin returned an invalid text response.', {
+                code: 'INVALID_LOG_RESPONSE',
+                status: response.status,
+                cause,
+            });
+        }
+        if (!response.ok) {
+            let message = `Server Plugin request failed (${response.status}).`;
+            try {
+                const parsed = JSON.parse(data);
+                if (typeof parsed?.message === 'string') message = parsed.message;
+            } catch {
+                // Keep the bounded generic message for non-JSON error bodies.
+            }
+            throw new ServerPluginError(message, { code: 'HTTP_ERROR', status: response.status });
+        }
+        const contentType = response.headers?.get?.('content-type');
+        if (contentType && !/^text\/plain(?:\s*;|$)/iu.test(contentType)) {
+            throw new ServerPluginError('Server Plugin returned an invalid log content type.', {
+                code: 'INVALID_LOG_RESPONSE',
+                status: response.status,
+            });
+        }
+        return data;
+    } catch (error) {
+        if (error instanceof ServerPluginError) throw error;
+        if (error?.name === 'AbortError') {
+            throw new ServerPluginError('Server Plugin request timed out.', { code: 'TIMEOUT', cause: error });
+        }
+        throw new ServerPluginError('Server Plugin is unavailable.', { code: 'UNAVAILABLE', cause: error });
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
+async function sendWithoutBody(fetchImpl, url, options, timeoutMs) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+        const response = await fetchImpl(url, { ...options, signal: controller.signal });
+        if (!response.ok) {
+            let message = `Server Plugin request failed (${response.status}).`;
+            try {
+                const data = await response.json();
+                if (typeof data?.message === 'string') message = data.message;
+            } catch {
+                // The log transport deliberately ignores non-JSON error details.
+            }
+            throw new ServerPluginError(message, { code: 'HTTP_ERROR', status: response.status });
+        }
+    } catch (error) {
+        if (error instanceof ServerPluginError) throw error;
+        if (error?.name === 'AbortError') {
+            throw new ServerPluginError('Server Plugin request timed out.', { code: 'TIMEOUT', cause: error });
+        }
+        throw new ServerPluginError('Server Plugin is unavailable.', { code: 'UNAVAILABLE', cause: error });
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
 function validateHandshake(data) {
     if (data?.ok !== true || data?.pluginId !== EXTENSION_ID || data?.protocolVersion !== PROTOCOL_VERSION) {
         throw new ServerPluginError(`Server Plugin protocol v${PROTOCOL_VERSION} is required.`, {
@@ -147,6 +261,27 @@ export function createServerClient({ fetchImpl = globalThis.fetch, getRequestHea
                 proxyUrl,
                 proxySecret: data.proxySecret,
             };
+        },
+
+        async readLogs() {
+            return await fetchText(fetchImpl, SERVER_ROUTES.LOGS, {
+                method: 'GET',
+                headers: { ...getRequestHeaders(), Accept: 'text/plain' },
+                cache: 'no-store',
+            }, LOG_TIMEOUT_MS);
+        },
+
+        async writeClientLog(entry) {
+            await sendWithoutBody(fetchImpl, SERVER_ROUTES.CLIENT_LOG, {
+                method: 'POST',
+                headers: {
+                    ...getRequestHeaders(),
+                    Accept: 'application/json',
+                    'Content-Type': CLIENT_LOG_MEDIA_TYPE,
+                },
+                body: JSON.stringify(entry),
+                cache: 'no-store',
+            }, LOG_TIMEOUT_MS);
         },
     };
 }

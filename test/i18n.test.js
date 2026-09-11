@@ -10,7 +10,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-import { TIER } from '../src/constants.js';
+import { CLIENT_VERSION, TIER } from '../src/constants.js';
 import {
     MESSAGES,
     createLocalizer,
@@ -41,6 +41,7 @@ test('manifest exposes exact SillyTavern locale IDs and package version matches'
         'zh-tw': 'locales/zh-tw.json',
     });
     assert.equal(manifest.version, packageJson.version);
+    assert.equal(packageJson.version, CLIENT_VERSION);
 });
 
 test('every locale has exactly one non-empty string for every message key', async () => {
@@ -111,5 +112,7 @@ test('server errors are localized by protocol code with unknown errors preserved
     ));
 
     assert.equal(localizeError(localize, { code: 'PROTOCOL_MISMATCH' }), '需要协议 v1');
+    assert.equal(localizeError(localize, { code: 'LOG_TOO_LARGE' }), 'Server Plugin log exceeds the 5 MiB limit.');
+    assert.equal(localizeError(localize, { code: 'INVALID_LOG_RESPONSE' }), 'Server Plugin returned an invalid log response.');
     assert.equal(localizeError(localize, new Error('opaque upstream failure')), 'opaque upstream failure');
 });

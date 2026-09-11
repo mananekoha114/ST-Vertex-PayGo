@@ -10,7 +10,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-import { BUNDLED_MODEL_POLICY, MODEL_POLICY_SNAPSHOT, getTierSupport } from '../src/model-policy.js';
+import { BUNDLED_MODEL_POLICY, MODEL_POLICY_SNAPSHOT, getActiveModelPolicy, getTierSupport } from '../src/model-policy.js';
 import {
     MODEL_POLICY_CACHE_KEY,
     MODEL_POLICY_GITHUB_URL,
@@ -20,7 +20,9 @@ import {
     restoreBundledModelPolicy,
     restoreCachedModelPolicy,
 } from '../src/model-policy-updater.js';
-import { TIER } from '../src/constants.js';
+import { AI_STUDIO_SOURCE, TIER } from '../src/constants.js';
+import { planPersistedReconciliation } from '../src/reconciliation.js';
+import { createRequestHook } from '../src/request-hook.js';
 
 const silentLogger = { warn() {} };
 
@@ -56,6 +58,18 @@ function currentBasedPolicy({
             priority: [...BUNDLED_MODEL_POLICY.tiers.priority, ...priorityAdditions],
         },
         knownModels: [...BUNDLED_MODEL_POLICY.knownModels, ...knownAdditions],
+        aiStudio: BUNDLED_MODEL_POLICY.aiStudio,
+    };
+}
+
+function aiStudioPolicy(overrides = {}) {
+    return {
+        ...BUNDLED_MODEL_POLICY,
+        aiStudio: {
+            ...BUNDLED_MODEL_POLICY.aiStudio,
+            updatedAt: '2026-09-11',
+            ...overrides,
+        },
     };
 }
 
@@ -302,4 +316,180 @@ test('a timed-out GitHub request keeps the active fallback', async () => {
     assert.equal(result.applied, false);
     assert.equal(result.error.name, 'AbortError');
     assert.equal(MODEL_POLICY_SNAPSHOT, BUNDLED_MODEL_POLICY.updatedAt);
+});
+
+test('AI Studio-only changes use the existing fetch, cache, and change notification without affecting Vertex', async () => {
+    const model = 'gemini-ai-studio-new';
+    const document = aiStudioPolicy({
+        tiers: { flex: [...BUNDLED_MODEL_POLICY.aiStudio.tiers.flex, model] },
+        knownModels: [...BUNDLED_MODEL_POLICY.aiStudio.knownModels, model],
+    });
+    const storage = createStorage();
+    let fetches = 0;
+    const result = await refreshModelPolicyFromGitHub({
+        fetchImpl: async (url, options) => {
+            fetches++;
+            assert.equal(url, MODEL_POLICY_GITHUB_URL);
+            assert.equal(options.credentials, 'omit');
+            return responseFor(document);
+        },
+        storage, logger: silentLogger,
+    });
+
+    assert.equal(fetches, 1);
+    assert.equal(result.applied, true);
+    assert.equal(result.changed, true);
+    assert.equal(MODEL_POLICY_SNAPSHOT, BUNDLED_MODEL_POLICY.updatedAt);
+    assert.equal(getTierSupport(model, TIER.FLEX, AI_STUDIO_SOURCE).level, 'known');
+    assert.equal(getTierSupport(model, TIER.FLEX, AI_STUDIO_SOURCE).snapshot, '2026-09-11');
+    assert.equal(getTierSupport(model, TIER.FLEX).level, 'unverified');
+    assert.deepEqual(getActiveModelPolicy().tiers, BUNDLED_MODEL_POLICY.tiers);
+    assert.deepEqual(JSON.parse(storage.value(MODEL_POLICY_CACHE_KEY)), parseModelPolicyDocument(document));
+
+    restoreBundledModelPolicy();
+    assert.equal(restoreCachedModelPolicy({ storage, logger: silentLogger }).applied, true);
+    const failed = await refreshModelPolicyFromGitHub({
+        fetchImpl: async () => { throw new Error('offline'); }, storage, logger: silentLogger,
+    });
+    assert.equal(failed.applied, false);
+    assert.equal(getTierSupport(model, TIER.FLEX, AI_STUDIO_SOURCE).level, 'known');
+});
+
+test('same-date AI Studio roster changes notify consumers but reordering does not', async () => {
+    const initial = aiStudioPolicy();
+    const storage = createStorage();
+    const refresh = document => refreshModelPolicyFromGitHub({
+        fetchImpl: async () => responseFor(document), storage, logger: silentLogger,
+    });
+    assert.equal((await refresh(initial)).changed, true);
+    const retired = 'gemini-2.5-pro';
+    const changed = aiStudioPolicy({ tiers: { flex: initial.aiStudio.tiers.flex.filter(model => model !== retired) } });
+    assert.equal((await refresh(changed)).changed, true);
+    assert.equal(getTierSupport(retired, TIER.FLEX, AI_STUDIO_SOURCE).level, 'unsupported');
+    assert.equal(getTierSupport(retired, TIER.PRIORITY).level, 'known');
+    const reordered = aiStudioPolicy({
+        tiers: { flex: [...changed.aiStudio.tiers.flex].reverse() },
+        knownModels: [...changed.aiStudio.knownModels].reverse(),
+    });
+    assert.equal((await refresh(reordered)).changed, false);
+    assert.deepEqual(getActiveModelPolicy(), JSON.parse(storage.value(MODEL_POLICY_CACHE_KEY)));
+});
+
+test('AI Studio history-only updates and an empty Flex roster still refresh the policy', async () => {
+    const storage = createStorage();
+    const model = 'gemini-ai-studio-retired';
+    const history = aiStudioPolicy({
+        knownModels: [...BUNDLED_MODEL_POLICY.aiStudio.knownModels, model],
+    });
+    const refresh = document => refreshModelPolicyFromGitHub({ fetchImpl: async () => responseFor(document), storage, logger: silentLogger });
+    assert.equal((await refresh(aiStudioPolicy())).applied, true);
+    assert.equal((await refresh(history)).changed, true);
+    assert.equal(getTierSupport(model, TIER.FLEX, AI_STUDIO_SOURCE).level, 'unsupported');
+    assert.equal(getTierSupport(model, TIER.FLEX).level, 'unverified');
+    const disabled = { ...history, aiStudio: { ...history.aiStudio, tiers: { flex: [] } } };
+    assert.equal((await refresh(disabled)).changed, true);
+    assert.equal(getTierSupport('gemini-2.5-pro', TIER.FLEX, AI_STUDIO_SOURCE).allowed, false);
+    assert.equal(getTierSupport('gemini-3.8-flash', TIER.FLEX).allowed, true);
+});
+
+test('an AI Studio model removed by the repository is blocked by reconciliation and the request hook', async () => {
+    const model = 'gemini-2.5-pro';
+    const document = aiStudioPolicy({ tiers: { flex: BUNDLED_MODEL_POLICY.aiStudio.tiers.flex.filter(value => value !== model) } });
+    const result = await refreshModelPolicyFromGitHub({
+        fetchImpl: async () => responseFor(document), storage: createStorage(), logger: silentLogger,
+    });
+    assert.equal(result.changed, true);
+    const state = { tier: TIER.FLEX, paygoOnly: false };
+    const plan = planPersistedReconciliation({ state, source: AI_STUDIO_SOURCE, model });
+    assert.equal(plan.type, 'conflict');
+    assert.equal(plan.validation.code, 'MODEL_UNSUPPORTED');
+    const data = { chat_completion_source: AI_STUDIO_SOURCE, model, stream: true };
+    await createRequestHook({
+        stateProvider: () => state,
+        serverClient: { prepare: async () => assert.fail('retired model must not reach prepare') },
+        origin: 'http://localhost:8000', logger: { error() {} },
+    })(data);
+    assert.match(data.reverse_proxy, /\/rejected$/u);
+});
+
+test('legacy Vertex-only responses retain and cache a previously fetched AI Studio roster', async () => {
+    const storage = createStorage();
+    const model = 'gemini-ai-studio-retained';
+    const updated = aiStudioPolicy({
+        tiers: { flex: [...BUNDLED_MODEL_POLICY.aiStudio.tiers.flex, model] },
+        knownModels: [...BUNDLED_MODEL_POLICY.aiStudio.knownModels, model],
+    });
+    await refreshModelPolicyFromGitHub({ fetchImpl: async () => responseFor(updated), storage, logger: silentLogger });
+    const legacy = currentBasedPolicy();
+    delete legacy.aiStudio;
+    const result = await refreshModelPolicyFromGitHub({ fetchImpl: async () => responseFor(legacy), storage, logger: silentLogger });
+    assert.equal(result.applied, true);
+    assert.equal(getTierSupport(model, TIER.FLEX, AI_STUDIO_SOURCE).level, 'known');
+    assert.deepEqual(JSON.parse(storage.value(MODEL_POLICY_CACHE_KEY)).aiStudio, updated.aiStudio);
+
+    restoreBundledModelPolicy();
+    assert.equal(restoreCachedModelPolicy({ storage, logger: silentLogger }).applied, true);
+    assert.equal(getTierSupport(model, TIER.FLEX, AI_STUDIO_SOURCE).snapshot, '2026-09-11');
+    const unchanged = await refreshModelPolicyFromGitHub({ fetchImpl: async () => responseFor(legacy), storage, logger: silentLogger });
+    assert.equal(unchanged.changed, false);
+    assert.equal(getTierSupport(model, TIER.FLEX, AI_STUDIO_SOURCE).level, 'known');
+});
+
+test('old caches without AI Studio remain readable and preserve its bundled policy', () => {
+    const legacy = currentBasedPolicy();
+    delete legacy.aiStudio;
+    assert.equal(Object.hasOwn(parseModelPolicyDocument(legacy), 'aiStudio'), false);
+    const result = restoreCachedModelPolicy({ storage: createStorage(JSON.stringify(legacy)), logger: silentLogger });
+    assert.equal(result.applied, true);
+    assert.equal(MODEL_POLICY_SNAPSHOT, legacy.updatedAt);
+    assert.deepEqual(getActiveModelPolicy().aiStudio, BUNDLED_MODEL_POLICY.aiStudio);
+});
+
+test('invalid AI Studio sections reject the whole update and preserve both active policies and cache', async () => {
+    const baseline = BUNDLED_MODEL_POLICY.aiStudio;
+    const storage = createStorage(JSON.stringify(BUNDLED_MODEL_POLICY));
+    for (const [aiStudio, code] of [
+        [null, 'INVALID_DOCUMENT'],
+        [[], 'INVALID_DOCUMENT'],
+        [{ ...baseline, updatedAt: '2026-02-30' }, 'INVALID_DATE'],
+        [{ ...baseline, tiers: null }, 'INVALID_TIERS'],
+        [{ ...baseline, tiers: {} }, 'INVALID_MODELS'],
+        [{ ...baseline, tiers: { flex: ['claude-sonnet-4'] } }, 'INVALID_MODEL_ID'],
+        [{ ...baseline, tiers: { flex: ['gemini-2.5-pro', 'GEMINI-2.5-PRO'] } }, 'DUPLICATE_MODEL_ID'],
+        [{ ...baseline, knownModels: baseline.knownModels.slice(1) }, 'INCOMPLETE_KNOWN_MODELS'],
+        [{ ...baseline, knownModels: Array(257).fill('gemini-2.5-pro') }, 'INVALID_MODELS'],
+    ]) {
+        const result = await refreshModelPolicyFromGitHub({
+            fetchImpl: async () => responseFor({ ...currentBasedPolicy(), aiStudio }), storage, logger: silentLogger,
+        });
+        assert.equal(result.applied, false);
+        assert.equal(result.error.code, code);
+        assert.deepEqual(getActiveModelPolicy(), BUNDLED_MODEL_POLICY);
+        assert.deepEqual(JSON.parse(storage.value(MODEL_POLICY_CACHE_KEY)), BUNDLED_MODEL_POLICY);
+    }
+});
+
+test('AI Studio dates and model history are checked independently for both cache and network updates', async () => {
+    const model = 'gemini-ai-studio-history';
+    const updated = aiStudioPolicy({
+        tiers: { flex: [...BUNDLED_MODEL_POLICY.aiStudio.tiers.flex, model] },
+        knownModels: [...BUNDLED_MODEL_POLICY.aiStudio.knownModels, model],
+    });
+    const storage = createStorage();
+    await refreshModelPolicyFromGitHub({ fetchImpl: async () => responseFor(updated), storage, logger: silentLogger });
+    for (const [aiStudio, code] of [
+        [{ ...updated.aiStudio, updatedAt: '2026-09-09' }, 'STALE_POLICY'],
+        [{ ...updated.aiStudio, updatedAt: '9999-12-31' }, 'FUTURE_POLICY'],
+        [{ ...BUNDLED_MODEL_POLICY.aiStudio, updatedAt: '2026-09-12' }, 'INCOMPLETE_MODEL_HISTORY'],
+    ]) {
+        const document = { ...currentBasedPolicy(), aiStudio };
+        const cached = restoreCachedModelPolicy({ storage: createStorage(JSON.stringify(document)), logger: silentLogger });
+        const fetched = await refreshModelPolicyFromGitHub({ fetchImpl: async () => responseFor(document), storage, logger: silentLogger });
+        assert.equal(cached.applied, false);
+        assert.equal(fetched.applied, false);
+        assert.equal(cached.error.code, code);
+        assert.equal(fetched.error.code, code);
+        assert.deepEqual(getActiveModelPolicy(), updated);
+        assert.deepEqual(JSON.parse(storage.value(MODEL_POLICY_CACHE_KEY)), updated);
+    }
 });

@@ -102,7 +102,7 @@ test('prepare failure retains the failure sink and reports a visible error', asy
     await hook(data);
     assert.match(data.reverse_proxy, /\/rejected$/);
     assert.equal(data.proxy_password, 'blocked');
-    assert.match(errors[0], /not sent to Vertex AI/);
+    assert.match(errors[0], /not sent to Google/);
 });
 
 test('invalid tier/region state is blocked before prepare', async () => {
@@ -165,7 +165,7 @@ test('pre-existing custom Vertex reverse proxy conflicts fail closed', async () 
     assert.equal(prepares, 0);
     assert.equal(data.reverse_proxy, 'http://st.local:8000/api/plugins/vertex-paygo/rejected');
     assert.equal(data.proxy_password, 'blocked-conflict');
-    assert.match(errors[0], /custom Vertex reverse proxy/i);
+    assert.match(errors[0], /custom Google reverse proxy/i);
 });
 
 test('payload builder supplies safe defaults for optional Vertex fields', () => {
@@ -203,4 +203,82 @@ test('failure sink itself cannot throw and retains a non-network URL', () => {
 test('failure sink does not propagate hostile property setters', () => {
     const data = new Proxy({}, { set() { throw new Error('setter failed'); } });
     assert.doesNotThrow(() => installFailureSink(data, ORIGIN, () => 'secret'));
+});
+
+test('structured request events cover preparation without exposing proxy credentials', async () => {
+    const events = [];
+    const logger = {
+        createRequestId: () => 'request-1',
+        event: (level, event, context) => events.push({ level, event, context }),
+        error() {},
+    };
+    const data = vertexData();
+    const hook = createRequestHook({
+        stateProvider: () => ({ tier: TIER.FLEX, paygoOnly: true }),
+        serverClient: {
+            prepare: async () => ({
+                proxyUrl: `http://127.0.0.1:32145/proxy/${'a'.repeat(32)}`,
+                proxySecret: 'proxy-secret-value',
+                ticket: 'a'.repeat(32),
+            }),
+        },
+        origin: ORIGIN,
+        logger,
+    });
+
+    await hook(data);
+    assert.deepEqual(events.map(entry => entry.event), [
+        'request.prepare_started',
+        'request.prepare_succeeded',
+    ]);
+    assert.equal(events[0].context.requestId, 'request-1');
+    assert.equal(events[0].context.model, 'gemini-3.1-pro-preview');
+    assert.equal(events[1].context.phase, 'succeeded');
+    const serialized = JSON.stringify(events);
+    assert.doesNotMatch(serialized, /proxy-secret-value/u);
+    assert.doesNotMatch(serialized, new RegExp('a{32}', 'u'));
+    assert.doesNotMatch(serialized, /proxyUrl|proxySecret|proxy_password|ticket/u);
+});
+
+test('blocked and failed preparations emit stable error metadata only', async () => {
+    const blockedEvents = [];
+    const blockedHook = createRequestHook({
+        stateProvider: () => ({ tier: TIER.FLEX, paygoOnly: false }),
+        serverClient: { prepare: async () => assert.fail('prepare should not run') },
+        origin: ORIGIN,
+        logger: {
+            createRequestId: () => 'request-blocked',
+            event: (level, event, context) => blockedEvents.push({ level, event, context }),
+            error() {},
+        },
+    });
+    await blockedHook(vertexData({ model: 'claude-3-7-sonnet' }));
+    assert.equal(blockedEvents[1].event, 'request.blocked');
+    assert.equal(blockedEvents[1].context.model, 'claude-3-7-sonnet');
+    assert.equal(blockedEvents[1].context.errorCode, 'PAYGO_REQUIRES_GEMINI');
+
+    const failedEvents = [];
+    const failedHook = createRequestHook({
+        stateProvider: () => ({ tier: TIER.PRIORITY, paygoOnly: false }),
+        serverClient: {
+            prepare: async () => {
+                const error = new Error('secret-bearing detail');
+                error.code = 'UNAVAILABLE';
+                error.status = 503;
+                throw error;
+            },
+        },
+        origin: ORIGIN,
+        logger: {
+            createRequestId: () => 'request-failed',
+            event: (level, event, context) => failedEvents.push({ level, event, context }),
+            error() {},
+        },
+    });
+    await failedHook(vertexData());
+    const failure = failedEvents.at(-1);
+    assert.equal(failure.event, 'request.prepare_failed');
+    assert.equal(failure.context.errorCode, 'UNAVAILABLE');
+    assert.equal(failure.context.statusCode, 503);
+    assert.doesNotMatch(JSON.stringify(failure), /secret-bearing detail/u);
 });

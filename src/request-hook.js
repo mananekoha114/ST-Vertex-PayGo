@@ -54,6 +54,7 @@ export function buildPreparePayload(generateData, state) {
         chat_completion_source: source,
         model: String(generateData.model ?? '').trim(),
         stream: Boolean(generateData.stream),
+        ...(generateData.secret_id ? { secret_id: generateData.secret_id } : {}),
         ...(source === VERTEX_SOURCE ? {
             vertexai_auth_mode: String(generateData.vertexai_auth_mode || 'express').trim().toLowerCase(),
             vertexai_region: String(generateData.vertexai_region || 'us-central1').trim().toLowerCase(),
@@ -113,7 +114,7 @@ export function createRequestHook({
             return;
         }
 
-        const state = stateProvider();
+        const state = stateProvider(generateData);
         if (!requiresPlugin(state, source)) {
             return;
         }

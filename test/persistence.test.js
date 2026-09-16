@@ -115,6 +115,30 @@ test('serializes preset writes and binds each write to the preset selected at in
     await second;
 });
 
+test('rejects a failed preset write while allowing later queued writes to continue', async () => {
+    const context = makeContext();
+    context.extensionSettings.connectionManager.selectedProfile = null;
+    const writes = [];
+    let attempt = 0;
+    context.getPresetManager = () => ({
+        getSelectedPresetName: () => 'Vertex preset',
+        writePresetExtensionField: value => {
+            writes.push(value);
+            attempt++;
+            return attempt === 1 ? Promise.reject(new Error('write failed')) : Promise.resolve();
+        },
+    });
+
+    const first = writePersistedState(context, { tier: TIER.FLEX, paygoOnly: false });
+    const second = writePersistedState(context, { tier: TIER.PRIORITY, paygoOnly: true });
+
+    await assert.rejects(first, /write failed/);
+    await second;
+    assert.equal(writes.length, 2);
+    assert.deepEqual(writes[1].value, { version: 1, tier: TIER.PRIORITY, paygoOnly: true });
+    assert.equal(context.saves, 1);
+});
+
 test('clearly falls back to current settings when Preset Manager is unavailable', () => {
     const context = makeContext();
     context.extensionSettings.connectionManager.selectedProfile = null;

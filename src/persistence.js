@@ -59,11 +59,12 @@ export function writePersistedState(context, state, { save = true } = {}) {
             name: presetName,
             path: EXTENSION_ID,
             value: { ...value },
-        })).catch(error => {
+        }));
+        const queued = write.catch(error => {
             context.saveSettingsDebounced();
             console.warn('[Vertex PayGo] Preset Manager write failed; saved only current settings.', error);
         });
-        presetWriteQueues.set(context, write);
+        presetWriteQueues.set(context, queued);
         return write.then(() => value);
     }
 

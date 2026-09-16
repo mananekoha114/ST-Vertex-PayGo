@@ -14,7 +14,7 @@ import {
     refreshModelPolicyFromGitHub,
     restoreCachedModelPolicy,
 } from './src/model-policy-updater.js';
-import { createRequestHook } from './src/request-hook.js';
+import { installRequestTransport } from './src/request-transport.js';
 import { createServerClient } from './src/server-client.js';
 import { createPayGoUi } from './src/ui.js';
 
@@ -97,7 +97,8 @@ export async function init() {
             localize,
         });
 
-        const requestHook = createRequestHook({
+        const requestHook = installRequestTransport({
+            context,
             stateProvider: controller.getState,
             serverClient,
             origin: globalThis.location.origin,

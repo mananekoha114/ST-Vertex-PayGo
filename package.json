@@ -10,6 +10,7 @@
   },
   "type": "module",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "preview:cost": "node scripts/preview-message-cost.mjs"
   }
 }

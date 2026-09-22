@@ -1,0 +1,256 @@
+/*
+ * Copyright (c) 2026 Mana Nekoha
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0.
+ */
+
+import { formatMessageCostLabel, formatMessageMoney, summarizeMessageCost } from './message-cost-view.js';
+
+const ROOT_CLASS = 'vertex-paygo-message-cost';
+
+function node(documentRef, tag, className = '', text = '') {
+    const result = documentRef.createElement(tag);
+    if (className) result.className = className;
+    if (text !== '') result.textContent = text;
+    return result;
+}
+
+function formatTokens(value) {
+    return Number(value).toLocaleString();
+}
+
+function formatDuration(value) {
+    if (value == null) return '—';
+    return value < 1000 ? `${Math.round(value)} ms` : `${(value / 1000).toFixed(2)} s`;
+}
+
+function formatTps(value) {
+    return value == null ? '—' : `${value.toFixed(1)} token/s`;
+}
+
+function addMetric(documentRef, parent, label, value, note = '') {
+    const item = node(documentRef, 'div', 'vertex-paygo-message-cost-metric');
+    item.append(node(documentRef, 'span', 'vertex-paygo-message-cost-metric-label', label));
+    item.append(node(documentRef, 'strong', '', value));
+    if (note) item.append(node(documentRef, 'small', '', note));
+    parent.append(item);
+}
+
+const REASON_LABELS = {
+    pending: '请求仍在处理中',
+    unavailable: '用量轮询已结束，结果不可用',
+    usage_missing: '服务未返回用量',
+    usage_incomplete: '服务返回的用量不完整',
+    price_missing: '缺少该模型与层级的价格',
+    long_price_missing: '缺少长上下文价格',
+    traffic_tier_mismatch: '返回的流量层级与请求不一致',
+    provisioned_throughput: '预置吞吐量不适用按量估算',
+    unsupported_modality: '包含暂不支持估算的非文本模态',
+    cache_exceeds_prompt: '缓存 token 超过输入 token',
+    amount_out_of_range: '费用结果超出可表示范围',
+    request_pending: '请求记录尚未完成',
+    request_incomplete: '请求记录不完整',
+    request_failed: '请求失败，费用可能不完整',
+    tool_use: '工具调用 token 可能未完整计价',
+    timing_missing: '缺少完整的客户端耗时观测',
+};
+
+function buildCard(documentRef, summary, onClose) {
+    const card = node(documentRef, 'section', 'vertex-paygo-message-cost-card');
+    card.setAttribute('role', 'dialog');
+    card.setAttribute('aria-label', '本条消息费用详情');
+    card.tabIndex = -1;
+
+    const header = node(documentRef, 'header');
+    const heading = node(documentRef, 'div', 'vertex-paygo-message-cost-heading');
+    heading.append(node(documentRef, 'strong', '', '消息用量与费用'));
+    heading.append(node(documentRef, 'span', '', summary.complete ? '完整估算' : '当前可用估算'));
+    const closeButton = node(documentRef, 'button', 'vertex-paygo-message-cost-close', '×');
+    closeButton.type = 'button';
+    closeButton.setAttribute('aria-label', '关闭费用详情');
+    closeButton.onclick = onClose;
+    header.append(heading, closeButton);
+    card.append(header);
+
+    const top = node(documentRef, 'div', 'vertex-paygo-message-cost-top');
+    addMetric(documentRef, top, '输入', summary.hasUsage ? formatTokens(summary.promptTokens) : '—', 'token');
+    addMetric(documentRef, top, '输出（含推理）', summary.hasUsage ? formatTokens(summary.outputTokens + summary.thinkingTokens) : '—',
+        summary.hasUsage ? `正文 ${formatTokens(summary.outputTokens)} · 推理 ${formatTokens(summary.thinkingTokens)}` : 'token');
+    const generationNote = summary.generationTps != null ? '客户端观测'
+        : summary.reasons.includes('timing_missing') ? '流式耗时观测不完整' : '仅流式响应可用';
+    addMetric(documentRef, top, '生成速度', formatTps(summary.generationTps), generationNote);
+    card.append(top);
+
+    const cost = node(documentRef, 'div', 'vertex-paygo-message-cost-amount');
+    cost.append(node(documentRef, 'span', '', summary.hasAmount ? '本地估算费用' : '本地费用估算'));
+    cost.append(node(documentRef, 'strong', '', summary.hasAmount ? formatMessageMoney(summary.amount) : summary.awaitingPrice ? '待计价' : '无法估算'));
+    const qualifiers = [];
+    if (summary.priceSource === 'current' || summary.priceSource === 'mixed') qualifiers.push('含当前价格补估');
+    for (const reason of summary.reasons) {
+        const label = REASON_LABELS[reason];
+        if (label && !qualifiers.includes(label)) qualifiers.push(label);
+    }
+    if (qualifiers.length) cost.append(node(documentRef, 'small', '', qualifiers.join(' · ')));
+    card.append(cost);
+
+    const details = node(documentRef, 'div', 'vertex-paygo-message-cost-details');
+    addMetric(documentRef, details, '推理 token', summary.hasUsage ? formatTokens(summary.thinkingTokens) : '—');
+    addMetric(documentRef, details, '缓存命中', summary.hasUsage ? formatTokens(summary.cachedTokens) : '—');
+    addMetric(documentRef, details, '未缓存输入', summary.hasUsage ? formatTokens(summary.uncachedTokens) : '—');
+    addMetric(documentRef, details, '首个有效内容', formatDuration(summary.firstTokenMs), summary.firstTokenMs == null ? '非流式或暂无观测' : '客户端观测');
+    addMetric(documentRef, details, '端到端耗时', formatDuration(summary.durationMs));
+    addMetric(documentRef, details, '端到端速度', formatTps(summary.endToEndTps));
+    card.append(details);
+
+    const footer = node(documentRef, 'footer');
+    const model = summary.models.join(' · ') || '模型未知';
+    const tier = summary.tiers.length ? summary.tiers.join(' · ') : '未知';
+    footer.append(node(documentRef, 'span', '', `${model} · Tier: ${tier}`));
+    footer.append(node(documentRef, 'span', '', `${summary.requestCount} 次请求`));
+    card.append(footer);
+    return card;
+}
+
+export function createMessageCostUi({ getContext, getMessageCost, getPrices, documentRef = globalThis.document, onOpen } = {}) {
+    let openCard = null;
+    let openButton = null;
+    let destroyed = false;
+
+    function close() {
+        openCard?.remove();
+        openButton?.setAttribute('aria-expanded', 'false');
+        openCard = null;
+        openButton = null;
+    }
+
+    function position(card, button) {
+        const rect = button.getBoundingClientRect?.();
+        if (!rect || !documentRef.defaultView) return;
+        const view = documentRef.defaultView;
+        const margin = 8;
+        const width = Math.min(520, view.innerWidth - margin * 2);
+        card.style.width = `${width}px`;
+        card.style.left = `${Math.max(margin, Math.min(rect.left, view.innerWidth - width - margin))}px`;
+        const measuredHeight = card.offsetHeight || 360;
+        const below = rect.bottom + margin;
+        card.style.top = `${below + measuredHeight <= view.innerHeight
+            ? below : Math.max(margin, rect.top - measuredHeight - margin)}px`;
+    }
+
+    function open(button, summary) {
+        close();
+        const card = buildCard(documentRef, summary, close);
+        documentRef.body.append(card);
+        openCard = card;
+        openButton = button;
+        button.setAttribute('aria-expanded', 'true');
+        position(card, button);
+        card.focus?.();
+        onOpen?.(summary);
+    }
+
+    function refreshOpenCard(summary) {
+        if (!openCard || !openButton) return;
+        const fresh = buildCard(documentRef, summary, close);
+        openCard.replaceChildren(...fresh.children);
+        openButton.setAttribute('aria-expanded', 'true');
+        position(openCard, openButton);
+    }
+
+    function placeButton(messageElement, button) {
+        const avatar = messageElement.querySelector?.('.mesAvatarWrapper, .avatar-container, .avatar');
+        const body = messageElement.querySelector?.('.mes_text, .mes_block');
+        if (avatar && avatar.offsetParent !== null) avatar.append(button);
+        else if (body?.parentElement) body.parentElement.insertBefore(button, body);
+        else messageElement.prepend?.(button);
+    }
+
+    function attach(messageElement, message, id) {
+        const snapshot = message?.is_user || message?.is_system ? null : getMessageCost?.(message);
+        const existing = messageElement.querySelector?.(`.${ROOT_CLASS}-trigger`);
+        if (!snapshot) {
+            existing?.remove();
+            return;
+        }
+        const summary = summarizeMessageCost(snapshot, getPrices?.() ?? {});
+        const button = existing ?? node(documentRef, 'button', `${ROOT_CLASS}-trigger`);
+        button.type = 'button';
+        button.dataset.messageId = id;
+        button.setAttribute('aria-haspopup', 'dialog');
+        button.setAttribute('aria-expanded', openButton === button ? 'true' : 'false');
+        button.setAttribute('aria-label', `查看本条消息费用：${formatMessageCostLabel(summary)}`);
+        button.textContent = formatMessageCostLabel(summary);
+        button.onclick = event => {
+            event.stopPropagation?.();
+            if (openButton === button) close();
+            else {
+                // Manual/catalog price changes need no chat rerender to take effect.
+                const current = summarizeMessageCost(getMessageCost?.(message), getPrices?.() ?? {});
+                button.textContent = formatMessageCostLabel(current);
+                button.setAttribute('aria-label', `查看本条消息费用：${formatMessageCostLabel(current)}`);
+                open(button, current);
+            }
+        };
+        placeButton(messageElement, button);
+        if (openButton === button) refreshOpenCard(summary);
+        return button;
+    }
+
+    function render(messageId) {
+        if (destroyed || !documentRef) return;
+        const messages = getContext?.()?.chat ?? [];
+        const elements = new Map([...(documentRef.querySelectorAll?.('.mes[mesid]') ?? [])]
+            .map(element => [element.getAttribute?.('mesid'), element]));
+        let keptOpen = false;
+        for (let index = 0; index < messages.length; index += 1) {
+            const message = messages[index];
+            const id = String(index);
+            if (messageId != null && String(messageId) !== id) continue;
+            const messageElement = elements.get(id);
+            if (messageElement) {
+                const attached = attach(messageElement, message, id);
+                if (attached && attached === openButton) keptOpen = true;
+            }
+        }
+        if (openCard && !keptOpen && (messageId == null || openButton?.dataset.messageId === String(messageId))) close();
+    }
+
+    const outside = event => {
+        if (openCard && !openCard.contains(event.target) && !openButton?.contains(event.target)) close();
+    };
+    const keydown = event => {
+        if (event.key === 'Escape' && openCard) {
+            const button = openButton;
+            close();
+            button?.focus?.();
+        }
+    };
+    documentRef?.addEventListener?.('pointerdown', outside);
+    documentRef?.addEventListener?.('keydown', keydown);
+    const reposition = () => { if (openCard && openButton) position(openCard, openButton); };
+    documentRef?.defaultView?.addEventListener?.('resize', reposition);
+    documentRef?.defaultView?.addEventListener?.('scroll', reposition, true);
+    const context = getContext?.();
+    const chatChanged = context?.eventTypes?.CHAT_CHANGED;
+    if (chatChanged) context.eventSource?.on?.(chatChanged, close);
+    // Theme/layout switches can hide the avatar column without rerendering any
+    // messages. Move existing triggers when the host changes its body classes.
+    const Observer = documentRef?.defaultView?.MutationObserver;
+    const layoutObserver = Observer && documentRef.body ? new Observer(() => render()) : null;
+    layoutObserver?.observe(documentRef.body, { attributes: true, attributeFilter: ['class'] });
+
+    function destroy() {
+        if (destroyed) return;
+        destroyed = true;
+        close();
+        documentRef?.removeEventListener?.('pointerdown', outside);
+        documentRef?.removeEventListener?.('keydown', keydown);
+        documentRef?.defaultView?.removeEventListener?.('resize', reposition);
+        documentRef?.defaultView?.removeEventListener?.('scroll', reposition, true);
+        if (chatChanged) context.eventSource?.removeListener?.(chatChanged, close);
+        layoutObserver?.disconnect();
+        for (const trigger of documentRef?.querySelectorAll?.(`.${ROOT_CLASS}-trigger`) ?? []) trigger.remove();
+    }
+
+    return { render, close, destroy };
+}

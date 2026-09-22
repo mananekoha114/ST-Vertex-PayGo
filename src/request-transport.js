@@ -30,20 +30,30 @@ function presetState(context, name) {
 }
 
 export function installRequestTransport({ context, stateProvider, target = globalThis, captureUsageContext = () => null,
-    getUsagePrice = () => null, ...hookOptions }) {
+    getUsagePrice = () => null, messageCosts, ...hookOptions }) {
     const origin = hookOptions.origin ?? target.location?.origin;
     const originalFetch = target.fetch;
     if (typeof originalFetch !== 'function') throw new TypeError('fetch is required.');
     const requestStates = new WeakMap();
     const requestUsage = new WeakMap();
+    // Presentation/telemetry must never prevent a generation or change its route.
+    const observe = (method, ...args) => {
+        try { return messageCosts?.[method]?.(...args); }
+        catch (error) { console.warn('[Vertex PayGo] Message cost observation failed.', error); }
+    };
     const prepareRequest = createRequestHook({ ...hookOptions, origin,
         usageProvider: data => requestUsage.get(data) ?? {},
         stateProvider: data => requestStates.get(data) });
 
     const onSettingsReady = data => {
         if (!isGoogleSource(data?.chat_completion_source)) return;
+        const background = data[REQUEST_STATE]?.background === true;
+        if (background) return;
         Object.assign(data, markRequest(data, stateProvider(), origin));
         data[REQUEST_STATE].usageChatId = captureUsageContext();
+        data[REQUEST_STATE].background = background;
+        data[REQUEST_STATE].messageCostToken = background ? null
+            : observe('capture', data, data[REQUEST_STATE].usageChatId) ?? null;
     };
 
     target.fetch = async function payGoFetch(input, init) {
@@ -78,14 +88,26 @@ export function installRequestTransport({ context, stateProvider, target = globa
             ...(usageChatId ? { usageChatId } : {}),
             usagePrice: getUsagePrice(data, state),
         });
+        const costToken = metadata?.messageCostToken;
         try {
-            await prepareRequest(data);
+            const prepared = await prepareRequest(data);
+            if (costToken) observe('prepared', costToken, prepared?.usageId, {
+                chatId: usageChatId, model: data.model, source: data.chat_completion_source,
+                tier: state.tier, stream: Boolean(data.stream), price: requestUsage.get(data).usagePrice,
+            });
         } finally {
             requestStates.delete(data);
             requestUsage.delete(data);
         }
-        signal?.throwIfAborted();
-        return originalFetch.call(this, input, { ...init, body: JSON.stringify(data) });
+        try {
+            signal?.throwIfAborted();
+            if (costToken) observe('started', costToken);
+            const response = await originalFetch.call(this, input, { ...init, body: JSON.stringify(data) });
+            return costToken ? observe('response', costToken, response, signal) ?? response : response;
+        } catch (error) {
+            if (costToken) observe('failed', costToken);
+            throw error;
+        }
     };
 
     const service = context.ChatCompletionService;
@@ -100,6 +122,8 @@ export function installRequestTransport({ context, stateProvider, target = globa
                 // A sink here would override a proxy inherited from the preset
                 // before the host merges it. This API propagates errors itself.
                 presetState(context, options.presetName), origin, false);
+            marked[REQUEST_STATE].background = true;
+            marked[REQUEST_STATE].messageCostToken = null;
             if (!Object.hasOwn(marked[REQUEST_STATE], 'usageChatId')) {
                 marked[REQUEST_STATE].usageChatId = captureUsageContext();
             }
@@ -109,6 +133,8 @@ export function installRequestTransport({ context, stateProvider, target = globa
             if (!isGoogleSource(data.chat_completion_source)) return sendRequest.call(this, data, ...args);
             const marked = data[REQUEST_STATE] ? data : markRequest(data,
                 data.extensions?.[EXTENSION_ID] ?? DEFAULT_STATE, origin);
+            marked[REQUEST_STATE].background = true;
+            marked[REQUEST_STATE].messageCostToken = null;
             if (!Object.hasOwn(marked[REQUEST_STATE], 'usageChatId')) {
                 marked[REQUEST_STATE].usageChatId = captureUsageContext();
             }
@@ -129,7 +155,7 @@ export function installRequestTransport({ context, stateProvider, target = globa
             // The host adds provider/model before merging overridePayload. Do
             // not insert a sink here: validation must see its final proxy too.
             return sendRequest.call(this, profileId, prompt, maxTokens, custom, {
-                ...overridePayload, [REQUEST_STATE]: { state: normalizeState(state), usageChatId: captureUsageContext() },
+                ...overridePayload, [REQUEST_STATE]: { state: normalizeState(state), usageChatId: captureUsageContext(), background: true },
             });
         };
     }

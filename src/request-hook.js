@@ -191,6 +191,7 @@ export function createRequestHook({
                 phase: 'succeeded',
                 durationMs: Date.now() - startedAt,
             });
+            return prepared;
         } catch (error) {
             notifyError(localize('vertex_paygo.hook.request_blocked', {
                 message: localizeError(localize, error),

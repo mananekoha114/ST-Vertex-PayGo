@@ -29,9 +29,13 @@ export function normalizeState(value) {
     };
 }
 
-export function requiresPlugin(value, source = VERTEX_SOURCE) {
+export function requiresPlugin(value, source = VERTEX_SOURCE, model) {
     const state = normalizeState(value);
-    return state.tier !== TIER.STANDARD || (source === VERTEX_SOURCE && state.paygoOnly);
+    if (source !== VERTEX_SOURCE && source !== AI_STUDIO_SOURCE) return false;
+    // Standard Gemini also passes through the proxy to collect provider usage.
+    // Preserve native handling of models outside this extension's Gemini scope.
+    return state.tier !== TIER.STANDARD || (source === VERTEX_SOURCE && state.paygoOnly)
+        || model === undefined || isGeminiModel(model);
 }
 
 export function resolveTierSelection({ state, requestedTier, region, model, source = VERTEX_SOURCE }) {
@@ -80,7 +84,7 @@ export function resolveRegionChange({ state, requestedRegion }) {
 
 export function resolveModelChange({ state, model, source = VERTEX_SOURCE }) {
     const current = normalizeState(state);
-    if (!requiresPlugin(current, source)) {
+    if (!requiresPlugin(current, source, model)) {
         return { type: 'apply', state: current };
     }
 
@@ -112,7 +116,7 @@ export function resolveModelChange({ state, model, source = VERTEX_SOURCE }) {
 export function validatePluginState({ state, region, model, source = VERTEX_SOURCE }) {
     const current = normalizeState(state);
     if (source === AI_STUDIO_SOURCE) current.paygoOnly = false;
-    if (!requiresPlugin(current, source)) {
+    if (!requiresPlugin(current, source, model)) {
         return { ok: true, state: current };
     }
 

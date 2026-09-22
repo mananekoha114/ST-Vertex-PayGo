@@ -7,11 +7,13 @@
  */
 
 import { AI_STUDIO_SOURCE, TIER, VERTEX_SOURCE } from './constants.js';
+import { BUNDLED_PRICING } from './bundled-pricing.js';
 
 // Source-specific support snapshots, also used when the GitHub policy and
 // last-known-good cache are unavailable. Keep data/model-support.json in sync.
 export const BUNDLED_MODEL_POLICY = Object.freeze({
     schemaVersion: 1,
+    pricing: BUNDLED_PRICING,
     updatedAt: '2026-09-03',
     tiers: Object.freeze({
         flex: Object.freeze([
@@ -104,6 +106,7 @@ export const KNOWN_PRIORITY_MODELS = new Set(BUNDLED_MODEL_POLICY.tiers.priority
 const KNOWN_TIER_MODELS = new Set(BUNDLED_MODEL_POLICY.knownModels);
 
 let aiStudioSnapshot = BUNDLED_MODEL_POLICY.aiStudio.updatedAt;
+let pricingSnapshot = BUNDLED_PRICING;
 const AI_STUDIO_FLEX_MODELS = new Set(BUNDLED_MODEL_POLICY.aiStudio.tiers.flex);
 const AI_STUDIO_KNOWN_MODELS = new Set(BUNDLED_MODEL_POLICY.aiStudio.knownModels);
 
@@ -117,6 +120,7 @@ function replaceSet(target, values) {
  * keeping this operation synchronous preserves request-time fail-closed checks.
  */
 export function installModelPolicy(policy) {
+    const nextPricing = policy.pricing ? structuredClone(policy.pricing) : pricingSnapshot;
     const flexModels = [...policy.tiers.flex];
     const priorityModels = [...policy.tiers.priority];
     const allModels = new Set(policy.knownModels);
@@ -127,6 +131,7 @@ export function installModelPolicy(policy) {
     replaceSet(KNOWN_PRIORITY_MODELS, priorityModels);
     replaceSet(KNOWN_TIER_MODELS, allModels);
     MODEL_POLICY_SNAPSHOT = policy.updatedAt;
+    pricingSnapshot = nextPricing;
     // Older schema-v1 documents lack aiStudio. Preserve its current policy
     // instead of replacing a fetched roster with the bundled fallback.
     if (policy.aiStudio) {
@@ -143,6 +148,7 @@ export function getKnownModelIds(source = VERTEX_SOURCE) {
 export function getActiveModelPolicy() {
     return {
         schemaVersion: BUNDLED_MODEL_POLICY.schemaVersion,
+        pricing: getActivePricing(),
         updatedAt: MODEL_POLICY_SNAPSHOT,
         tiers: {
             flex: [...KNOWN_FLEX_MODELS],
@@ -155,6 +161,10 @@ export function getActiveModelPolicy() {
             knownModels: getKnownModelIds(AI_STUDIO_SOURCE),
         },
     };
+}
+
+export function getActivePricing() {
+    return structuredClone(pricingSnapshot);
 }
 
 export function normalizeModelId(model) {

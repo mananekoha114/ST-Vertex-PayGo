@@ -24,7 +24,7 @@ test('AI Studio Flex accepts 2.5 models without changing the Vertex region or Pa
     assert.equal(plan.type, 'valid');
     assert.equal(plan.validation.state.paygoOnly, false);
     assert.equal(selection.state.paygoOnly, true);
-    assert.equal(requiresPlugin(state, source), false);
+    assert.equal(requiresPlugin(state, source), true);
     assert.equal(getTierSupport('gemini-2.5-pro', TIER.FLEX).allowed, false);
 });
 
@@ -75,18 +75,19 @@ test('AI Studio hook uses the same ticket preparation with a source-specific pay
             } },
         });
         await hook(data);
-        assert.deepEqual(payload, { protocolVersion: 1, chat_completion_source: source, model: 'gemini-2.5-pro', stream, tier: TIER.FLEX, paygoOnly: false });
+        assert.deepEqual(payload, { protocolVersion: 2, chat_completion_source: source, model: 'gemini-2.5-pro', stream, tier: TIER.FLEX, paygoOnly: false });
         assert.equal(data.proxy_password, 'disposable');
         assert.equal(data.vertexai_region, 'us-central1');
     }
 });
 
-test('AI Studio Standard stays native and Flex failures cannot fall back to Standard', async () => {
+test('AI Studio Standard and Flex failures cannot fall back to the native route', async () => {
     const data = () => ({ chat_completion_source: source, model: 'gemini-2.5-pro' });
     const serverClient = { prepare: async () => { throw new Error('unavailable'); } };
     const native = data();
-    await createRequestHook({ stateProvider: () => ({ tier: TIER.STANDARD, paygoOnly: true }), serverClient })(native);
-    assert.deepEqual(native, data());
+    await createRequestHook({ stateProvider: () => ({ tier: TIER.STANDARD, paygoOnly: true }), serverClient,
+        origin: 'http://localhost:8000', logger: { error() {} } })(native);
+    assert.match(native.reverse_proxy, /\/rejected$/u);
     for (const overrides of [{}, { model: 'gemma-3' }, { reverse_proxy: 'https://custom.invalid' }]) {
         const request = { ...data(), ...overrides };
         const errors = [];

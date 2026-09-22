@@ -24,8 +24,10 @@ test('normalizes invalid persisted values', () => {
     assert.deepEqual(normalizeState({ tier: 'FLEX', paygoOnly: true }), { version: 1, tier: 'flex', paygoOnly: true });
 });
 
-test('requires the plugin only for non-standard tiers or PayGo-only', () => {
-    assert.equal(requiresPlugin(DEFAULT_STATE), false);
+test('requires the plugin for Standard Gemini usage as well as other tiers', () => {
+    assert.equal(requiresPlugin(DEFAULT_STATE), true);
+    assert.equal(requiresPlugin(DEFAULT_STATE, 'makersuite', 'gemini-2.5-pro'), true);
+    assert.equal(requiresPlugin(DEFAULT_STATE, 'vertexai', 'gemma-3-27b-it'), false);
     assert.equal(requiresPlugin({ tier: TIER.STANDARD, paygoOnly: true }), true);
     assert.equal(requiresPlugin({ tier: TIER.PRIORITY, paygoOnly: false }), true);
 });

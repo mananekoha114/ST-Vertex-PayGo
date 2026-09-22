@@ -17,11 +17,15 @@ import {
 import { installRequestTransport } from './src/request-transport.js';
 import { createServerClient } from './src/server-client.js';
 import { createPayGoUi } from './src/ui.js';
+import { createCostContext } from './src/cost-context.js';
+import { createCostUi } from './src/cost-ui.js';
 
 let initialized = false;
 let controller = null;
 let modelPolicyRefreshTimer = null;
 let clientLogger = null;
+let costUi = null;
+let costContext = null;
 
 function notify(kind, message) {
     const toaster = globalThis.toastr?.[kind];
@@ -97,6 +101,26 @@ export async function init() {
             localize,
         });
 
+        costContext = createCostContext({ getContext: () => globalThis.SillyTavern.getContext() });
+        costUi = createCostUi({
+            context,
+            serverClient,
+            getChatId: costContext.getChatId,
+            getPrices: costContext.getPrices,
+            getPriceInfo: costContext.getPriceInfo,
+            setPrice: costContext.setPrice,
+            resetPrice: costContext.resetPrice,
+            refreshCatalog: () => refreshModelPolicy(),
+            getCurrentPricingKey: () => {
+                const current = globalThis.SillyTavern.getContext();
+                return {
+                    source: current.chatCompletionSettings?.chat_completion_source,
+                    model: current.getChatCompletionModel?.(),
+                    tier: controller.getState().tier,
+                };
+            },
+        });
+
         const requestHook = installRequestTransport({
             context,
             stateProvider: controller.getState,
@@ -106,6 +130,8 @@ export async function init() {
             notifyWarning: message => notify('warning', message),
             logger: clientLogger,
             localize,
+            captureUsageContext: costContext.captureUsageContext,
+            getUsagePrice: costContext.getUsagePrice,
         });
 
         const eventName = context.eventTypes.CHAT_COMPLETION_SETTINGS_READY;
@@ -126,18 +152,22 @@ export async function init() {
                     phase: result.applied ? (result.changed ? 'changed' : 'unchanged') : 'failed',
                     ...getSafeErrorContext(result.error),
                 });
+                return result;
             } catch (error) {
                 clientLogger?.event('error', 'policy.refresh_failed', {
                     phase: 'failed',
                     ...getSafeErrorContext(error),
                 });
                 console.warn('[Vertex PayGo] Could not apply the refreshed model policy.', error);
+                return { applied: false, error };
             }
         };
         void refreshModelPolicy();
         modelPolicyRefreshTimer ??= setInterval(refreshModelPolicy, MODEL_POLICY_REFRESH_INTERVAL_MS);
         clientLogger.event('info', 'extension.init_ready', { phase: 'ready' });
     } catch (error) {
+        costUi?.destroy();
+        costContext?.destroy();
         initialized = false;
         if (modelPolicyRefreshTimer !== null) {
             clearInterval(modelPolicyRefreshTimer);

@@ -111,7 +111,7 @@ test('server errors are localized by protocol code with unknown errors preserved
         key === 'vertex_paygo.server_error.protocol' ? '需要协议 v{version}' : fallback
     ));
 
-    assert.equal(localizeError(localize, { code: 'PROTOCOL_MISMATCH' }), '需要协议 v1');
+    assert.equal(localizeError(localize, { code: 'PROTOCOL_MISMATCH' }), '需要协议 v2');
     assert.equal(localizeError(localize, { code: 'LOG_TOO_LARGE' }), 'Server Plugin log exceeds the 5 MiB limit.');
     assert.equal(localizeError(localize, { code: 'INVALID_LOG_RESPONSE' }), 'Server Plugin returned an invalid log response.');
     assert.equal(localizeError(localize, new Error('opaque upstream failure')), 'opaque upstream failure');

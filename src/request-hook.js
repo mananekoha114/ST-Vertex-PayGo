@@ -101,6 +101,7 @@ export function createRequestHook({
     logger = console,
     secretFactory = createEphemeralSecret,
     localize = createLocalizer(),
+    usageProvider = () => ({}),
 }) {
     if (typeof stateProvider !== 'function') {
         throw new TypeError('stateProvider must be a function.');
@@ -115,7 +116,7 @@ export function createRequestHook({
         }
 
         const state = stateProvider(generateData);
-        if (!requiresPlugin(state, source)) {
+        if (!requiresPlugin(state, source, generateData.model)) {
             return;
         }
 
@@ -176,8 +177,15 @@ export function createRequestHook({
                 }
             }
 
-            const prepared = await serverClient.prepare(buildPreparePayload(generateData, validation.state));
+            const usage = usageProvider(generateData, validation.state);
+            const prepared = await serverClient.prepare({
+                ...buildPreparePayload(generateData, validation.state),
+                ...usage,
+            });
             applyPreparedProxy(generateData, prepared);
+            if (usage.usageChatId && !prepared.usageId) {
+                notifyWarning(localize('vertex_paygo.costs.recording_unavailable'));
+            }
             recordClientEvent(logger, 'info', 'request.prepare_succeeded', {
                 ...logContext,
                 phase: 'succeeded',

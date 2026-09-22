@@ -271,6 +271,38 @@ export function createServerClient({ fetchImpl = globalThis.fetch, getRequestHea
             }, LOG_TIMEOUT_MS);
         },
 
+        async readUsage(chatId) {
+            if (typeof chatId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(chatId)) {
+                throw new TypeError('A valid conversation usage ID is required.');
+            }
+            const records = [];
+            const cursors = new Set();
+            let cursor;
+            let truncated = false;
+            do {
+                const suffix = cursor === undefined ? '' : `&cursor=${encodeURIComponent(cursor)}`;
+                const data = await fetchJson(fetchImpl, `${SERVER_ROUTES.USAGE}?chatId=${encodeURIComponent(chatId)}${suffix}`, {
+                    method: 'GET',
+                    headers: { ...getRequestHeaders(), Accept: 'application/json' },
+                    cache: 'no-store',
+                }, LOG_TIMEOUT_MS);
+                if (data?.ok !== true || !Array.isArray(data.records)) {
+                    throw new ServerPluginError('Invalid usage ledger response.', { code: 'INVALID_USAGE_RESPONSE' });
+                }
+                records.push(...data.records);
+                cursor = data.nextCursor ?? undefined;
+                // All fetched pages together form the complete ledger.
+                truncated ||= data.truncated === true && cursor === undefined;
+                if (cursor !== undefined) {
+                    if (typeof cursor !== 'string' || cursor.length > 256 || !cursor || cursors.has(cursor)) {
+                        throw new ServerPluginError('Invalid usage ledger cursor.', { code: 'INVALID_USAGE_RESPONSE' });
+                    }
+                    cursors.add(cursor);
+                }
+            } while (cursor !== undefined);
+            return { ok: true, records, truncated };
+        },
+
         async writeClientLog(entry) {
             await sendWithoutBody(fetchImpl, SERVER_ROUTES.CLIENT_LOG, {
                 method: 'POST',

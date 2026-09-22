@@ -8,7 +8,7 @@ const flex = { tier: 'flex', paygoOnly: false };
 const standard = { tier: 'standard', paygoOnly: false };
 const data = () => ({ chat_completion_source: 'makersuite', model: 'gemini-2.5-pro', stream: false });
 
-function setup({ state = flex, prepare, presets = {}, profiles = {} } = {}) {
+function setup({ state = flex, prepare, presets = {}, profiles = {}, captureUsageContext, getUsagePrice } = {}) {
     const sent = [];
     const prepared = [];
     const target = { location: { origin }, fetch: async (input, init) => {
@@ -35,7 +35,7 @@ function setup({ state = flex, prepare, presets = {}, profiles = {} } = {}) {
     }
     const context = { ChatCompletionService, ConnectionManagerRequestService,
         getPresetManager: () => ({ getCompletionPresetByName: name => presets[name] }) };
-    const hook = installRequestTransport({ context, target, stateProvider: () => state,
+    const hook = installRequestTransport({ context, target, stateProvider: () => state, captureUsageContext, getUsagePrice,
         logger: { error() {} }, serverClient: { prepare: async payload => {
             prepared.push(payload);
             if (prepare) await prepare(payload);
@@ -64,9 +64,10 @@ test('overlapping profiles use their own state and never the active UI tier', as
         b: { mode: 'cc', api: 'makersuite', 'vertex-paygo': standard, 'secret-id': 'b-key' },
     } });
     await Promise.all(['a', 'b'].map(id => f.context.ConnectionManagerRequestService.sendRequest(id, 'fixture', 10)));
-    assert.equal(f.prepared.length, 1);
-    assert.equal(f.prepared[0].secret_id, 'a-key');
-    assert.equal(f.sent.find(x => x.data.secret_id === 'b-key').data.reverse_proxy, undefined);
+    assert.equal(f.prepared.length, 2);
+    assert.equal(f.prepared.find(x => x.secret_id === 'a-key').tier, 'flex');
+    assert.equal(f.prepared.find(x => x.secret_id === 'b-key').tier, 'standard');
+    assert.match(f.sent.find(x => x.data.secret_id === 'b-key').data.reverse_proxy, /127\.0\.0\.1/);
 });
 
 test('profile preference overrides preset; absent profile preference uses the requested preset', async () => {
@@ -76,17 +77,17 @@ test('profile preference overrides preset; absent profile preference uses the re
     await f.context.ConnectionManagerRequestService.sendRequest('a', 'fixture', 10);
     await f.context.ConnectionManagerRequestService.sendRequest('b', 'fixture', 10);
     await f.context.ConnectionManagerRequestService.sendRequest('a', 'fixture', 10, { includePreset: false });
-    assert.equal(f.prepared.length, 1);
-    assert.equal(f.sent[1].data.reverse_proxy, undefined);
-    assert.equal(f.sent[2].data.reverse_proxy, undefined);
+    assert.deepEqual(f.prepared.map(x => x.tier), ['flex', 'standard', 'standard']);
+    assert.match(f.sent[1].data.reverse_proxy, /127\.0\.0\.1/);
+    assert.match(f.sent[2].data.reverse_proxy, /127\.0\.0\.1/);
 });
 
 test('direct preset requests use that preset and direct payloads default to Standard', async () => {
     const f = setup({ presets: { discounted: { extensions: { 'vertex-paygo': flex } } } });
     await f.context.ChatCompletionService.processRequest(data(), { presetName: 'discounted' });
     await f.context.ChatCompletionService.sendRequest(data());
-    assert.equal(f.prepared.length, 1);
-    assert.equal(f.sent[1].data.reverse_proxy, undefined);
+    assert.deepEqual(f.prepared.map(x => x.tier), ['flex', 'standard']);
+    assert.match(f.sent[1].data.reverse_proxy, /127\.0\.0\.1/);
     await assert.rejects(f.context.ChatCompletionService.processRequest(data(), { presetName: 'missing' }), /Cannot resolve/);
 });
 
@@ -134,4 +135,34 @@ test('aborted requests never generate; Request objects preserve headers and abor
     assert.equal(f.sent.length, 0);
     await assert.rejects(f.target.fetch(input), { name: 'AbortError' });
     assert.equal(f.prepared.length, 1);
+});
+
+test('usage attribution is fixed at generation start even if the active conversation changes', async () => {
+    let chatId = 'chat-first';
+    const rate = { input: 2, cachedInput: 0.2, output: 12 };
+    const f = setup({ state: standard, captureUsageContext: () => chatId, getUsagePrice: () => ({ ...rate }) });
+    const request = data();
+    f.hook(request);
+    chatId = 'chat-second';
+    await f.target.fetch(endpoint, { method: 'POST', body: JSON.stringify(request) });
+    assert.equal(f.prepared[0].usageChatId, 'chat-first');
+    assert.deepEqual(f.prepared[0].usagePrice, rate);
+    assert.equal(f.sent[0].data.usageChatId, undefined);
+    assert.equal(f.sent[0].data.usagePrice, undefined);
+    assert.equal(Object.keys(f.sent[0].data).some(key => key.startsWith('__vertex')), false);
+});
+
+test('background preset work keeps its conversation and missing conversation does not fall into a later chat', async () => {
+    let chatId = 'chat-first';
+    const f = setup({ state: standard, captureUsageContext: () => chatId });
+    const pending = f.context.ChatCompletionService.processRequest(data(), {});
+    chatId = 'chat-second';
+    await pending;
+    assert.equal(f.prepared[0].usageChatId, 'chat-first');
+    chatId = null;
+    const request = data();
+    f.hook(request);
+    chatId = 'chat-third';
+    await f.target.fetch(endpoint, { method: 'POST', body: JSON.stringify(request) });
+    assert.equal(f.prepared[1].usageChatId, undefined);
 });

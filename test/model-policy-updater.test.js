@@ -59,6 +59,7 @@ function currentBasedPolicy({
         },
         knownModels: [...BUNDLED_MODEL_POLICY.knownModels, ...knownAdditions],
         aiStudio: BUNDLED_MODEL_POLICY.aiStudio,
+        pricing: BUNDLED_MODEL_POLICY.pricing,
     };
 }
 
@@ -199,7 +200,7 @@ test('stale or invalid cache entries never replace the bundled policy', () => {
 
 test('a poisoned future cache is rejected and cannot pin later GitHub updates', async () => {
     const storage = createStorage(JSON.stringify(currentBasedPolicy({ updatedAt: '9999-12-31' })));
-    const now = Date.UTC(2026, 8, 3, 12);
+    const now = Date.UTC(2026, 8, 22, 12);
 
     const restored = restoreCachedModelPolicy({ storage, logger: silentLogger, now });
     assert.equal(restored.applied, false);

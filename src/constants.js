@@ -7,9 +7,9 @@
  */
 
 export const EXTENSION_ID = 'vertex-paygo';
-export const CLIENT_VERSION = '0.3.0';
+export const CLIENT_VERSION = '0.4.0';
 export const CONFIG_VERSION = 1;
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 export const REQUIRED_TRANSPORT = 'loopback-http';
 export const CLIENT_LOG_MEDIA_TYPE = 'application/vnd.st-vertex-paygo.client-log+json';
 
@@ -38,6 +38,7 @@ export const SERVER_ROUTES = Object.freeze({
     REJECTED: '/api/plugins/vertex-paygo/rejected',
     LOGS: '/api/plugins/vertex-paygo/logs',
     CLIENT_LOG: '/api/plugins/vertex-paygo/logs/client',
+    USAGE: '/api/plugins/vertex-paygo/usage',
 });
 
 export const HEALTH_TIMEOUT_MS = 5_000;

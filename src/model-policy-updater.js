@@ -13,6 +13,7 @@ import {
     installModelPolicy,
     normalizeModelId,
 } from './model-policy.js';
+import { normalizePrice, priceKey } from './cost-model.js';
 
 export const MODEL_POLICY_SCHEMA_VERSION = 1;
 export const MODEL_POLICY_GITHUB_URL =
@@ -120,7 +121,36 @@ export function parseModelPolicyDocument(document) {
         ...(Object.hasOwn(document, 'aiStudio') ? {
             aiStudio: parseProviderPolicy(document.aiStudio, ['flex'], { allowEmptyTiers: true }),
         } : {}),
+        ...(Object.hasOwn(document, 'pricing') ? { pricing: parsePricing(document.pricing) } : {}),
     });
+}
+
+function parsePricing(pricing) {
+    const invalid = () => { throw new ModelPolicyUpdateError('INVALID_PRICING', 'Invalid USD text token pricing catalog.'); };
+    if (!isPlainObject(pricing) || !isCalendarDate(pricing.updatedAt)
+        || pricing.currency !== 'USD' || pricing.unit !== 'per_million_tokens'
+        || !Array.isArray(pricing.entries) || pricing.entries.length > 256) invalid();
+    const keys = new Set();
+    const rateFields = ['input', 'cachedInput', 'output', 'longContextThreshold', 'longInput', 'longCachedInput', 'longOutput'];
+    const entries = pricing.entries.map(entry => {
+        if (!isPlainObject(entry) || !['vertexai', 'makersuite'].includes(entry.source)
+            || !['standard', 'flex', 'priority'].includes(entry.tier)
+            || typeof entry.model !== 'string' || !MODEL_ID_PATTERN.test(entry.model)
+            || rateFields.some(field => Object.hasOwn(entry, field) && typeof entry[field] !== 'number')) invalid();
+        const rate = normalizePrice(entry);
+        if (!rate) invalid();
+        if (Object.hasOwn(entry, 'validUntil') && (!isCalendarDate(entry.validUntil) || entry.validUntil < pricing.updatedAt)) invalid();
+        let url;
+        try { url = new URL(entry.sourceUrl); } catch { invalid(); }
+        if (url.protocol !== 'https:' || url.username || url.password || url.port
+            || !['ai.google.dev', 'cloud.google.com', 'docs.cloud.google.com'].includes(url.hostname)) invalid();
+        const key = priceKey(entry);
+        if (keys.has(key)) invalid();
+        keys.add(key);
+        return Object.freeze({ source: entry.source, model: entry.model, tier: entry.tier,
+            ...rate, ...(entry.validUntil ? { validUntil: entry.validUntil } : {}), sourceUrl: entry.sourceUrl });
+    });
+    return Object.freeze({ updatedAt: pricing.updatedAt, currency: 'USD', unit: 'per_million_tokens', entries: Object.freeze(entries) });
 }
 
 function getUtf8Size(text) {
@@ -168,6 +198,14 @@ function requireCurrentOrNewerPolicy(policy, now) {
     requireCurrentOrNewerProviderPolicy(policy, active, now);
     if (policy.aiStudio) {
         requireCurrentOrNewerProviderPolicy(policy.aiStudio, active.aiStudio, now);
+    }
+    if (policy.pricing) {
+        if (Date.parse(`${policy.pricing.updatedAt}T00:00:00.000Z`) > now + MODEL_POLICY_MAX_FUTURE_SKEW_MS) {
+            throw new ModelPolicyUpdateError('FUTURE_PRICING', 'Pricing catalog is too far in the future.');
+        }
+        if (policy.pricing.updatedAt < active.pricing.updatedAt) {
+            throw new ModelPolicyUpdateError('STALE_PRICING', 'Pricing catalog is older than the active snapshot.');
+        }
     }
     return policy;
 }
@@ -245,7 +283,8 @@ function hasProviderPolicyChanged(policy, active) {
 function installModelPolicyIfChanged(policy) {
     const active = getActiveModelPolicy();
     const changed = hasProviderPolicyChanged(policy, active)
-        || Boolean(policy.aiStudio && hasProviderPolicyChanged(policy.aiStudio, active.aiStudio));
+        || Boolean(policy.aiStudio && hasProviderPolicyChanged(policy.aiStudio, active.aiStudio))
+        || Boolean(policy.pricing && JSON.stringify(policy.pricing) !== JSON.stringify(active.pricing));
     if (changed) installModelPolicy(policy);
     return changed;
 }
@@ -263,7 +302,7 @@ export function restoreCachedModelPolicy({ storage = undefined, logger = console
         }
         const policy = requireCurrentOrNewerPolicy(parseModelPolicyText(cached), now);
         const changed = installModelPolicyIfChanged(policy);
-        return { applied: true, changed, source: 'cache', snapshot: policy.updatedAt };
+        return { applied: true, changed, source: 'cache', snapshot: policy.updatedAt, pricingSnapshot: getActiveModelPolicy().pricing.updatedAt };
     } catch (error) {
         warn(logger, '[Vertex PayGo] Ignoring invalid cached model policy.', error);
         return { applied: false, source: 'bundled', snapshot: MODEL_POLICY_SNAPSHOT, error };
@@ -316,10 +355,10 @@ export async function refreshModelPolicyFromGitHub({
         }
         const policy = requireCurrentOrNewerPolicy(parseModelPolicyText(await readPolicyResponse(response)), now);
         const changed = installModelPolicyIfChanged(policy);
-        // Cache the effective document, including AI Studio retained from an
-        // earlier update when a legacy Vertex-only response is received.
+        // Cache the effective document, retaining AI Studio and prices when
+        // an older publisher omits either optional section.
         cachePolicy(getActiveModelPolicy(), storage, logger);
-        return { applied: true, changed, source: 'github', snapshot: policy.updatedAt };
+        return { applied: true, changed, source: 'github', snapshot: policy.updatedAt, pricingSnapshot: getActiveModelPolicy().pricing.updatedAt };
     } catch (error) {
         warn(logger, '[Vertex PayGo] Could not refresh the model policy from GitHub; keeping the active snapshot.', error);
         return { applied: false, source: 'active', snapshot: MODEL_POLICY_SNAPSHOT, error };

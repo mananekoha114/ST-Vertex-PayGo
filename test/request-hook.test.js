@@ -30,7 +30,7 @@ function vertexData(overrides = {}) {
     };
 }
 
-test('Standard without PayGo-only leaves the native request completely untouched', async () => {
+test('Standard rejects custom reverse proxies before collecting usage', async () => {
     const data = vertexData({ reverse_proxy: 'https://user-proxy.example' });
     let prepares = 0;
     const hook = createRequestHook({
@@ -40,8 +40,38 @@ test('Standard without PayGo-only leaves the native request completely untouched
     });
     await hook(data);
     assert.equal(prepares, 0);
-    assert.equal(data.reverse_proxy, 'https://user-proxy.example');
-    assert.equal(Object.hasOwn(data, 'proxy_password'), false);
+    assert.match(data.reverse_proxy, /\/rejected$/);
+    assert.equal(Object.hasOwn(data, 'proxy_password'), true);
+});
+
+test('Standard collects usage without changing region or enabling PayGo-only', async () => {
+    const data = vertexData({ vertexai_region: 'europe-west4' });
+    let payload;
+    await createRequestHook({
+        stateProvider: () => ({ tier: TIER.STANDARD, paygoOnly: false }),
+        origin: ORIGIN,
+        serverClient: { prepare: async value => {
+            payload = value;
+            return { proxyUrl: 'http://127.0.0.1:1234/proxy/fixture', proxySecret: 'fixture' };
+        } },
+    })(data);
+    assert.equal(payload.tier, 'standard');
+    assert.equal(payload.paygoOnly, false);
+    assert.equal(payload.vertexai_region, 'europe-west4');
+    assert.equal(data.vertexai_region, 'europe-west4');
+    assert.match(data.reverse_proxy, /127\.0\.0\.1/);
+});
+
+test('a ledger failure warns about incomplete costs without redirecting the prepared generation', async () => {
+    const data = vertexData();
+    const warnings = [];
+    await createRequestHook({ stateProvider: () => ({ tier: TIER.STANDARD }), origin: ORIGIN,
+        usageProvider: () => ({ usageChatId: 'chat-1', usagePrice: null }),
+        notifyWarning: message => warnings.push(message),
+        serverClient: { prepare: async () => ({ usageId: null, proxyUrl: 'http://127.0.0.1:1234/proxy/fixture', proxySecret: 'fixture' }) },
+    })(data);
+    assert.match(data.reverse_proxy, /127\.0\.0\.1/);
+    assert.match(warnings[0], /costs will be incomplete/);
 });
 
 test('non-Vertex sources are untouched even when a PayGo state is selected', async () => {
@@ -76,7 +106,7 @@ test('installs the failure sink before awaiting prepare and replaces it only aft
     assert.equal(data.reverse_proxy, `http://127.0.0.1:32145/proxy/${'a'.repeat(32)}`);
     assert.equal(data.proxy_password, 'proxy-secret-value');
     assert.deepEqual(payload, {
-        protocolVersion: 1,
+        protocolVersion: 2,
         chat_completion_source: 'vertexai',
         model: 'gemini-3.1-pro-preview',
         stream: true,
@@ -175,7 +205,7 @@ test('payload builder supplies safe defaults for optional Vertex fields', () => 
         vertexai_region: ' GLOBAL ',
         vertexai_express_project_id: ' project-id ',
     }), { tier: TIER.STANDARD, paygoOnly: true }), {
-        protocolVersion: 1,
+        protocolVersion: 2,
         chat_completion_source: 'vertexai',
         model: 'gemini-3.1-pro-preview',
         stream: false,

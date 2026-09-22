@@ -8,7 +8,32 @@
 
 > ⛔ **TauriTavern 用户请注意：**  
 > **请勿在 TauriTavern 中安装此扩展！**  
-> TauriTavern 原生自带“附加参数”功能，如需启用 PayGo，直接在其自定义请求头中填入 Google 官方对应的 Header 即可。
+> 扩展检测到 TauriTavern 后，会弹出不可用说明与 Service Tier 切换指引，并停止初始化，不会接管请求或访问配套后端。每次页面加载只提示一次；可在扩展程序中禁用或卸载本扩展。TauriTavern 用户请使用下方的原生设置方法。
+
+### 在 TauriTavern 中切换 Service Tier
+
+适用于 **TauriTavern 2.1.0 及以上**（已核对 2.3.0 源码）。在 **API 连接设置 → Chat Completion** 中先选择对应 API 来源，再点击连接按钮旁的 **附加参数（Additional Parameters）**。这些设置按来源分别保存，输入会自动保存，编辑后关闭弹窗即可。保留已有的其他参数。
+
+**Google Vertex AI**：选择支持相应层级的 Gemini 模型，Flex / Priority 将 **Region 设为 `global`**。在 **Include Request Headers（包含请求头）** 中填入 YAML：
+
+```yaml
+X-Vertex-AI-LLM-Request-Type: shared
+X-Vertex-AI-LLM-Shared-Request-Type: flex
+```
+
+- **Flex**：使用上面的两行。
+- **Priority**：将第二行的 `flex` 改为 `priority`。
+- **Standard**：删除第二行；若不需要强制 PayGo（绕过预配吞吐量），也删除第一行。仅需 Standard PayGo 时保留第一行。
+
+**Google AI Studio**：先切换至该来源，使用已开通付费的 Gemini API 账号和支持 Flex 的模型，在 **Include Body Parameters（包含请求体参数）** 中填入 YAML：
+
+```yaml
+service_tier: flex
+```
+
+恢复 **Standard** 时删除 `service_tier` 字段。AI Studio 不使用上述 Vertex 请求头，也无需设置 Vertex 区域。找不到附加参数入口时，请更新 TauriTavern 至 2.1.0 或更新版本。
+
+核验依据：[TauriTavern 2.1.0 更新说明](https://github.com/Darkatse/TauriTavern/releases/tag/v2.1.0)、[附加参数字段](https://github.com/Darkatse/TauriTavern/blob/v2.3.0/src/scripts/templates/customEndpointAdditionalParameters.html)、[按来源保存逻辑](https://github.com/Darkatse/TauriTavern/blob/v2.3.0/src/scripts/openai.js#L7454-L7471)、[Vertex Flex](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/flex-paygo)、[Vertex Priority](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/priority-paygo)、[AI Studio Flex](https://ai.google.dev/gemini-api/docs/generate-content/flex-inference)。
 
 ---
 

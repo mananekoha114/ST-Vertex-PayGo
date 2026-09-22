@@ -1,5 +1,10 @@
 # 更新日志
 
+## 未发布 · TauriTavern 兼容性提示
+
+- 识别 TauriTavern 后弹出不可用说明，提供 Vertex AI 的 Standard / Flex / Priority 及 Google AI Studio 的 Standard / Flex 切换指引，支持英文、简体与繁体中文。
+- 在 TauriTavern 上停止插件初始化，不再检查后端、注册请求钩子或启动费用统计与后台刷新；每次页面加载只提示一次。
+
 ## 0.4.0 · 对话费用估算
 
 - Gemini Standard 也经过后端代理，保留认证、区域与 PayGo-only 选择。前后端协议升级为 v2，需要一起更新。

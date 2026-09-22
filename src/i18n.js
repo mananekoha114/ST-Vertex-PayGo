@@ -10,6 +10,18 @@ import { PROTOCOL_VERSION, REQUIRED_TRANSPORT } from './constants.js';
 import { MODEL_POLICY_SNAPSHOT } from './model-policy.js';
 
 export const MESSAGES = Object.freeze({
+    'vertex_paygo.tauritavern.title': 'This extension is unavailable in TauriTavern',
+    'vertex_paygo.tauritavern.unavailable': 'TauriTavern was detected. Vertex AI PayGo requires a SillyTavern/Luker server plugin and cannot run here. The extension has stopped initializing. Use TauriTavern’s built-in additional parameters to change Service Tier instead.',
+    'vertex_paygo.tauritavern.vertex_title': 'Google Vertex AI: Standard / Flex / Priority',
+    'vertex_paygo.tauritavern.vertex_steps': 'In TauriTavern 2.1.0 or later, open API Connections → Chat Completion → Google Vertex AI. Select a supported Gemini model and set Region to global for Flex or Priority. Click Additional Parameters beside Connect, then enter this YAML in Include Request Headers for Flex:',
+    'vertex_paygo.tauritavern.vertex_flex': 'X-Vertex-AI-LLM-Request-Type: shared\nX-Vertex-AI-LLM-Shared-Request-Type: flex',
+    'vertex_paygo.tauritavern.vertex_tiers': 'For Priority, change flex to priority. To return to Standard, remove X-Vertex-AI-LLM-Shared-Request-Type. Keep X-Vertex-AI-LLM-Request-Type: shared only if you want PayGo-only (bypass Provisioned Throughput); otherwise remove it too.',
+    'vertex_paygo.tauritavern.ai_studio_title': 'Google AI Studio: Standard / Flex',
+    'vertex_paygo.tauritavern.ai_studio_steps': 'Select Google AI Studio first, using a paid Gemini API account and a model that supports Flex. Open Additional Parameters → Include Body Parameters and add this YAML (no Vertex headers needed):',
+    'vertex_paygo.tauritavern.ai_studio_flex': 'service_tier: flex',
+    'vertex_paygo.tauritavern.ai_studio_standard': 'To return to Standard, remove the service_tier field. Google AI Studio does not need a Vertex region setting.',
+    'vertex_paygo.tauritavern.finish': 'Parameters are saved automatically for each API source; close the dialog when done. Preserve unrelated parameters. If these fields are missing, update TauriTavern to 2.1.0 or later. You can disable or uninstall this extension in Extensions.',
+    'vertex_paygo.tauritavern.close': 'Got it',
     'vertex_paygo.costs.recording_unavailable': 'This request could not be added to the usage ledger. Conversation costs will be incomplete.',
     'vertex_paygo.title': 'Vertex AI PayGo',
     'vertex_paygo.ai_studio.title': 'Google AI Studio Flex',

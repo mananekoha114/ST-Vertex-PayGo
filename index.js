@@ -19,6 +19,7 @@ import { createServerClient } from './src/server-client.js';
 import { createPayGoUi } from './src/ui.js';
 import { createCostContext } from './src/cost-context.js';
 import { createCostUi } from './src/cost-ui.js';
+import { isTauriTavern, showTauriTavernNotice } from './src/tauritavern.js';
 
 let initialized = false;
 let controller = null;
@@ -62,12 +63,29 @@ export async function init() {
     initialized = true;
 
     try {
-        const context = globalThis.SillyTavern?.getContext?.();
+        const unsupportedHost = isTauriTavern();
+        let context;
+        try {
+            context = globalThis.SillyTavern?.getContext?.();
+        } catch (error) {
+            if (!unsupportedHost) throw error;
+            // Detection and the native notice do not depend on the compatibility API.
+            console.warn('[Vertex PayGo] TauriTavern extension context is not ready.', error);
+        }
         const localize = createLocalizer(
             typeof context?.translate === 'function'
                 ? (fallback, key) => context.translate(fallback, key)
                 : undefined,
         );
+        if (unsupportedHost) {
+            // Do not hold up host startup while the user reads the notice. Keep the
+            // initialization guard set so both activation paths show it only once.
+            void showTauriTavernNotice({ context, localize }).catch(error => {
+                console.error('[Vertex PayGo] Could not display the TauriTavern notice.', error);
+                notify('error', localize('vertex_paygo.tauritavern.unavailable'));
+            });
+            return;
+        }
         if (!context) {
             throw new Error(localize('vertex_paygo.error.context_unavailable'));
         }

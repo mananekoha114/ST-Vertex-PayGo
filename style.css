@@ -28,26 +28,11 @@
     min-width: 9rem;
 }
 
-#vertex-paygo-settings.vertex-paygo-settings--collapsible {
-    display: block;
-}
-
-#vertex-paygo-settings > summary {
-    display: list-item;
-    cursor: pointer;
-    font-weight: bold;
-    overflow-wrap: anywhere;
-}
-
 #vertex-paygo-settings .vertex-paygo-settings-content {
     display: flex;
     flex-direction: column;
     gap: 0.45rem;
     margin-top: 0.75rem;
-}
-
-#vertex-paygo-settings:not([open]) > .vertex-paygo-settings-content {
-    display: none;
 }
 
 #vertex-paygo-settings > select,

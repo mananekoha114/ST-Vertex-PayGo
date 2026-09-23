@@ -37,8 +37,14 @@ export function createTauriUi({ getContext, connections, yaml, documentRef = glo
         for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
         return node;
     }
-    const root = element('details', '', { id: 'vertex-paygo-settings', class: 'vertex-paygo-settings vertex-paygo-settings--collapsible' });
-    root.append(element('summary', localize('vertex_paygo.tauri.title')));
+    // Reuse the host drawer markup, theme and delegated toggle handler.
+    const root = element('div', '', { id: 'vertex-paygo-settings', class: 'inline-drawer' });
+    const header = element('div', '', { class: 'inline-drawer-toggle inline-drawer-header',
+        role: 'button', tabindex: '0', 'aria-expanded': 'false', 'aria-controls': 'vertex-paygo-drawer-content' });
+    header.append(element('b', localize('vertex_paygo.tauri.title')),
+        element('div', '', { class: 'inline-drawer-icon fa-solid fa-circle-chevron-down down', 'aria-hidden': 'true' }));
+    const drawerContent = element('div', '', { id: 'vertex-paygo-drawer-content', class: 'inline-drawer-content' });
+    root.append(header, drawerContent);
     const content = element('div', '', { class: 'vertex-paygo-settings-content' });
     content.append(element('small', localize('vertex_paygo.tauri.native'), { class: 'vertex-paygo-guidance' }));
     const scope = element('select', '', { id: 'vertex-paygo-scope', class: 'text_pole' });
@@ -55,7 +61,7 @@ export function createTauriUi({ getContext, connections, yaml, documentRef = glo
     content.append(scopeLabel, scope, refresh, modelLabel, tierLabel, tier, paygoLabel, status,
         element('small', localize('vertex_paygo.tauri.persistence'), { class: 'vertex-paygo-guidance' }),
         element('small', localize('vertex_paygo.tauri.cost_notice'), { class: 'vertex-paygo-guidance' }));
-    root.append(content);
+    drawerContent.append(content);
     container.append(root);
     let busy = false;
     let destroyed = false;
@@ -64,6 +70,17 @@ export function createTauriUi({ getContext, connections, yaml, documentRef = glo
         node.addEventListener(event, handler);
         disposers.push(() => node.removeEventListener(event, handler));
     };
+    listen(header, 'keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            header.click();
+        }
+    });
+    listen(root, 'inline-drawer-toggle', event => {
+        if (event.target === root && typeof event.detail?.open === 'boolean') {
+            header.setAttribute('aria-expanded', String(event.detail.open));
+        }
+    });
     function selected() {
         if (scope.value && scope.value !== CURRENT) return connections.read(scope.value);
         const data = currentTauriRequest(getContext());

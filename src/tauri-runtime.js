@@ -3,6 +3,8 @@
 
 import { createCostContext } from './cost-context.js';
 import { createCostUi } from './cost-ui.js';
+import { createMessageCosts, getMessageCost } from './message-costs.js';
+import { createMessageCostUi } from './message-cost-ui.js';
 import { createLocalizer } from './i18n.js';
 import { MODEL_POLICY_REFRESH_INTERVAL_MS, refreshModelPolicyFromGitHub, restoreCachedModelPolicy } from './model-policy-updater.js';
 import { createTauriConnections } from './tauri-connections.js';
@@ -61,6 +63,8 @@ export async function initTauriTavern({ target = globalThis, documentRef = targe
     let controller;
     let costs;
     let costUi;
+    let messageCosts;
+    let messageCostUi;
     let usage;
     let transport;
     let timer;
@@ -72,6 +76,8 @@ export async function initTauriTavern({ target = globalThis, documentRef = targe
         if (transport) context.eventSource.removeListener?.(eventName, transport);
         transport?.destroy?.();
         controller?.destroy?.();
+        messageCosts?.destroy?.();
+        messageCostUi?.destroy?.();
         costUi?.destroy?.();
         costs?.destroy?.();
         usage?.destroy?.();
@@ -88,6 +94,15 @@ export async function initTauriTavern({ target = globalThis, documentRef = targe
         costs = (factories.costContext ?? createCostContext)({ getContext });
         usage = (factories.usage ?? createTauriUsageClient)({ store,
             notifyWarning: () => notifyWarning(localize('vertex_paygo.costs.recording_unavailable')) });
+        messageCostUi = (factories.messageCostUi ?? createMessageCostUi)({ getContext, getMessageCost,
+            documentRef, getPrices: costs.getPrices, localize,
+            onOpen: () => void messageCosts?.refresh({ retry: true }),
+        });
+        messageCosts = (factories.messageCosts ?? createMessageCosts)({ getContext,
+            getChatId: costs.getChatId, serverClient: usage, documentRef,
+            onChange: () => messageCostUi.render(),
+        });
+        messageCostUi.render();
         costUi = (factories.costUi ?? createCostUi)({ context, serverClient: usage, documentRef,
             getChatId: costs.getChatId, getPrices: costs.getPrices, getPriceInfo: costs.getPriceInfo,
             setPrice: costs.setPrice, resetPrice: costs.resetPrice, refreshCatalog,
@@ -95,7 +110,7 @@ export async function initTauriTavern({ target = globalThis, documentRef = targe
             coverageNotice: localize('vertex_paygo.tauri.cost_coverage'),
         });
         transport = (factories.transport ?? installTauriTransport)({ context, target, yaml,
-            stateProvider: controller.getState, usageClient: usage,
+            stateProvider: controller.getState, usageClient: usage, messageCosts,
             captureUsageContext: costs.captureUsageContext, getUsagePrice: costs.getUsagePrice,
             notifyError, notifyWarning, localize,
         });

@@ -4,7 +4,8 @@
  * License, v. 2.0.
  */
 
-import { normalizePrice, priceKey, summarizeUsage } from './cost-model.js';
+import { calculateCacheHitRate, normalizePrice, priceKey, summarizeUsage } from './cost-model.js';
+import { createLocalizer } from './i18n.js';
 
 const POLL_MS = 5_000;
 
@@ -17,6 +18,10 @@ function element(documentRef, tag, className, text) {
 
 function money(value) {
     return `$${Number(value).toFixed(6)}`;
+}
+
+function cacheRate(value) {
+    return value == null ? '—' : `${(value * 100).toFixed(1)}%`;
 }
 
 function errorText(code) {
@@ -83,6 +88,7 @@ export function createCostUi({
     refreshCatalog,
     coverageNotice = '',
     documentRef = globalThis.document,
+    localize = createLocalizer((fallback, key) => context?.translate?.(fallback, key)),
 }) {
     if (!documentRef?.createElement) throw new TypeError('A document implementation is required.');
     const menu = documentRef.getElementById('extensionsMenu');
@@ -337,6 +343,8 @@ export function createCostUi({
                 const subtotal = result.estimatedCount ? money(result.amount) : '—';
                 const latestAmount = latest?.amount === null || latest === undefined ? '—' : money(latest.amount);
                 summary.textContent = `已估算小计 ${subtotal} · 最近一次 ${latestAmount} · ${result.requestCount} 次请求 · 缓存命中 ${result.cachedTokenCount} token · 待计价 ${result.unpricedCount} · 不完整 ${result.incompleteCount}`;
+                summary.textContent += ` · ${localize('vertex_paygo.costs.cache_hit_rate')} ${cacheRate(result.cacheHitRate)}`;
+                summary.title = localize('vertex_paygo.costs.cache_hit_rate_hint');
                 if (response.truncated) summary.append(element(documentRef, 'strong', 'vertex-paygo-cost-truncated', ' · 记录过多，当前仅显示部分账本'));
                 tableWrap.replaceChildren();
                 if (records.some(record => record.usageAccuracy === 'tauri-normalized')) {
@@ -346,7 +354,7 @@ export function createCostUi({
                 const table = element(documentRef, 'table', 'vertex-paygo-cost-table');
                 const head = element(documentRef, 'thead');
                 const headRow = element(documentRef, 'tr');
-                for (const title of ['时间', '模型 / 层级', '状态', '输入', '缓存', '输出', '思考', '费用']) headRow.append(element(documentRef, 'th', '', title));
+                for (const title of ['时间', '模型 / 层级', '状态', '输入', '缓存', localize('vertex_paygo.costs.cache_hit_rate'), '输出', '思考', '费用']) headRow.append(element(documentRef, 'th', '', title));
                 head.append(headRow);
                 const body = element(documentRef, 'tbody');
                 // Sum the entire ledger, but bound the number of live DOM rows.
@@ -365,6 +373,7 @@ export function createCostUi({
                         status,
                         element(documentRef, 'td', '', count('promptTokenCount')),
                         element(documentRef, 'td', '', count('cachedContentTokenCount')),
+                        element(documentRef, 'td', '', cacheRate(calculateCacheHitRate([record]))),
                         element(documentRef, 'td', '', count('candidatesTokenCount')),
                         element(documentRef, 'td', '', count('thoughtsTokenCount')),
                         element(documentRef, 'td', '', estimate.amount === null ? '—' : money(estimate.amount)),

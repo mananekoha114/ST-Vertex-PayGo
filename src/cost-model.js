@@ -43,6 +43,31 @@ function tokenCount(usage, name) {
     return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 }
 
+/** Compute the prompt-token-weighted shared-cache hit rate for requests. */
+export function calculateCacheHitRate(records) {
+    if (!Array.isArray(records) || records.length === 0) return null;
+    let promptTotal = 0;
+    let cachedTotal = 0;
+    for (const record of records) {
+        const usage = record?.usage;
+        if (!record || typeof record !== 'object' || !usage || typeof usage !== 'object') return null;
+        const prompt = tokenCount(usage, 'promptTokenCount');
+        if (prompt === undefined) return null;
+        let cached;
+        if (usage.cachedContentTokenCount == null) {
+            if (record.usageAccuracy === 'tauri-normalized') return null;
+            cached = 0;
+        } else {
+            cached = tokenCount(usage, 'cachedContentTokenCount');
+            if (cached === undefined || cached > prompt) return null;
+        }
+        promptTotal += prompt;
+        cachedTotal += cached;
+        if (!Number.isSafeInteger(promptTotal) || !Number.isSafeInteger(cachedTotal)) return null;
+    }
+    return promptTotal === 0 ? null : cachedTotal / promptTotal;
+}
+
 function hasUnsupportedModalities(usage) {
     const values = [];
     for (const [key, value] of Object.entries(usage ?? {})) {
@@ -168,5 +193,5 @@ export function summarizeUsage(records, prices = {}) {
         if (estimate.status === 'unpriced') unpricedCount += 1;
         if (estimate.status === 'unknown' || estimate.status === 'partial' || record.status !== 'complete') incompleteCount += 1;
     }
-    return { amount, estimatedCount, cachedTokenCount, unpricedCount, incompleteCount, requestCount: details.length, details };
+    return { amount, estimatedCount, cachedTokenCount, cacheHitRate: calculateCacheHitRate([...unique.values()]), unpricedCount, incompleteCount, requestCount: details.length, details };
 }

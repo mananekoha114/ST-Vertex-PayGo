@@ -19,6 +19,8 @@ import { createServerClient } from './src/server-client.js';
 import { createPayGoUi } from './src/ui.js';
 import { createCostContext } from './src/cost-context.js';
 import { createCostUi } from './src/cost-ui.js';
+import { createMessageCosts, getMessageCost } from './src/message-costs.js';
+import { createMessageCostUi } from './src/message-cost-ui.js';
 import { isTauriTavern, showTauriTavernNotice } from './src/tauritavern.js';
 
 let initialized = false;
@@ -27,6 +29,8 @@ let modelPolicyRefreshTimer = null;
 let clientLogger = null;
 let costUi = null;
 let costContext = null;
+let messageCosts = null;
+let messageCostUi = null;
 
 function notify(kind, message) {
     const toaster = globalThis.toastr?.[kind];
@@ -119,6 +123,20 @@ export async function init() {
         });
 
         costContext = createCostContext({ getContext: () => globalThis.SillyTavern.getContext() });
+        messageCostUi = createMessageCostUi({
+            getContext: () => globalThis.SillyTavern.getContext(),
+            getMessageCost,
+            getPrices: costContext.getPrices,
+            localize,
+            onOpen: () => void messageCosts?.refresh({ retry: true }),
+        });
+        messageCosts = createMessageCosts({
+            getContext: () => globalThis.SillyTavern.getContext(),
+            getChatId: costContext.getChatId,
+            serverClient,
+            onChange: () => messageCostUi.render(),
+        });
+        messageCostUi.render();
         costUi = createCostUi({
             context,
             serverClient,
@@ -149,6 +167,7 @@ export async function init() {
             localize,
             captureUsageContext: costContext.captureUsageContext,
             getUsagePrice: costContext.getUsagePrice,
+            messageCosts,
         });
 
         const eventName = context.eventTypes.CHAT_COMPLETION_SETTINGS_READY;
@@ -183,6 +202,8 @@ export async function init() {
         modelPolicyRefreshTimer ??= setInterval(refreshModelPolicy, MODEL_POLICY_REFRESH_INTERVAL_MS);
         clientLogger.event('info', 'extension.init_ready', { phase: 'ready' });
     } catch (error) {
+        messageCosts?.destroy();
+        messageCostUi?.destroy();
         costUi?.destroy();
         costContext?.destroy();
         initialized = false;

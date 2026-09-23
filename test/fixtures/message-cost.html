@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Message cost integration fixture</title>
+<link rel="stylesheet" href="../../message-cost.css">
+<style>
+:root { color-scheme:dark; --SmartThemeBodyColor:#dedede; --SmartThemeBlurTintColor:#252525; --SmartThemeQuoteColor:#95baba; font:16px/1.5 system-ui,sans-serif; }
+body { background:#191919; color:var(--SmartThemeBodyColor); margin:0; }
+main { max-width:900px; margin:40px auto; padding:20px; }
+h1 { font-size:22px; } p { color:#999; }
+nav { display:flex; flex-wrap:wrap; gap:8px; margin:20px 0; }
+nav button { padding:8px 12px; background:#303030; border:1px solid #555; border-radius:6px; color:inherit; }
+#chat { border:1px solid #393939; border-radius:12px; padding:20px; }
+.mes { display:flex; gap:20px; padding:22px 0; border-bottom:1px solid #333; }
+.mesAvatarWrapper { flex:0 0 72px; width:72px; text-align:center; }
+.avatar { height:64px; width:64px; border-radius:16px; display:grid; place-items:center; background:#324646; color:#b8d1cf; font-size:26px; margin:auto; }
+.mes_block { min-width:0; flex:1; } .ch_name { margin-bottom:10px; color:#aec6c4; } .mes_text { white-space:pre-wrap; }
+body.documentstyle .mesAvatarWrapper { display:none!important; }
+#status { min-height:24px; color:#91b99b; } code { font-size:12px; }
+@media(max-width:600px) { main {margin:0;padding:14px;} .mes {gap:12px;} }
+</style>
+<main>
+<h1>单条消息费用 · 浏览器集成验证</h1>
+<p>模拟酒馆消息生命周期与本地用量接口，无外部模型请求。点击头像下方金额查看详情。</p>
+<nav>
+ <button id="normal">生成回复</button><button id="continue">续写</button><button id="swipe">生成新版本</button>
+ <button id="switch">切换版本</button><button id="chat-switch">切换对话</button><button id="background">后台请求</button>
+ <button id="stop">中断生成</button><button id="document">文档模式</button><button id="reload">重新加载消息</button>
+ <button id="native-normalized">Tauri 非流式示例</button><button id="remount">模拟虚拟化重挂</button>
+ <label>卡片语言 <select id="locale"><option value="zh-cn">简体中文</option><option value="zh-tw">繁體中文</option><option value="en">English</option></select></label>
+</nav>
+<div id="status" role="status">就绪</div><div id="chat"></div>
+</main>
+<script type="module">
+import { createMessageCosts, getMessageCost } from '../../src/message-costs.js';
+import { createMessageCostUi } from '../../src/message-cost-ui.js';
+import { installRequestTransport } from '../../src/request-transport.js';
+const callbacks = new Map();
+const eventSource = {
+ on(name, cb) { const list=callbacks.get(name)??[]; list.push(cb); callbacks.set(name,list); },
+ removeListener(name, cb) { callbacks.set(name,(callbacks.get(name)??[]).filter(item=>item!==cb)); },
+ async emit(name,...args) { for(const cb of callbacks.get(name)??[]) await cb(...args); },
+};
+const eventNames = ['GENERATION_AFTER_COMMANDS','GENERATION_ENDED','GENERATION_STOPPED','MESSAGE_RECEIVED','CHARACTER_MESSAGE_RENDERED',
+ 'STREAM_TOKEN_RECEIVED','MESSAGE_SWIPED','CHAT_CHANGED','MESSAGE_UPDATED','MESSAGE_DELETED','MESSAGE_SWIPE_DELETED','MORE_MESSAGES_LOADED'];
+const eventTypes=Object.fromEntries(eventNames.map(name=>[name,name]));
+let active='fixture-a', busy=false, controller=null, serial=0, activeRecord=null;
+const chats=new Map([['fixture-a',[]],['fixture-b',[]]]), ledger=[];
+const context={eventSource,eventTypes,chat:chats.get(active),streamingProcessor:null,saveChat:async()=>{}};
+const catalogs=Object.fromEntries(await Promise.all(['en','zh-cn','zh-tw'].map(async language=>[language,
+ await (await fetch(`../../locales/${language}.json`)).json()])));
+let language='zh-cn';
+context.translate=(fallback,key)=>catalogs[language][key]??fallback;
+const serverClient={
+ async prepare(data) {
+  activeRecord={id:`request-${++serial}`,chatId:data.usageChatId,source:data.chat_completion_source,model:data.model,
+   tier:data.tier,stream:data.stream,price:data.usagePrice,status:'pending',usage:null,createdAt:new Date().toISOString()};
+  ledger.push(activeRecord);
+  return {usageId:activeRecord.id,proxyUrl:'http://127.0.0.1:18764/proxy/fixture',proxySecret:'fixture-only'};
+ },
+ async readUsage(chatId) { return {ok:true,records:structuredClone(ledger.filter(r=>r.chatId===chatId))}; },
+};
+const target={location:{origin:location.origin},async fetch(_url,init) {
+ const record=activeRecord, encoder=new TextEncoder();
+ const body=new ReadableStream({async start(output) {
+  let closed=false;
+  const finish=()=>{if(closed)return;closed=true;record.status='incomplete';output.close();};
+  init.signal?.addEventListener('abort',finish,{once:true});
+  output.enqueue(encoder.encode('data: {"choices":[{"delta":{"role":"assistant"}}]}\n\n'));
+  await new Promise(resolve=>setTimeout(resolve,350));
+  if(closed)return;
+  output.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n'));
+  await new Promise(resolve=>setTimeout(resolve,700));
+  if(closed)return;
+  record.usage={promptTokenCount:2775,cachedContentTokenCount:1000,candidatesTokenCount:4283,thoughtsTokenCount:57310};
+  record.status='complete';closed=true;output.enqueue(encoder.encode('data: [DONE]\n\n'));output.close();
+ }});
+ return new Response(body,{headers:{'content-type':'text/event-stream'}});
+}};
+let tracker;
+const ui=createMessageCostUi({getContext:()=>context,getMessageCost,getPrices:()=>({}),onOpen:()=>void tracker.refresh({retry:true})});
+tracker=createMessageCosts({getContext:()=>context,getChatId:()=>active,serverClient,onChange:()=>ui.render()});
+const ready=installRequestTransport({context,target,stateProvider:()=>({tier:'standard',paygoOnly:false}),serverClient,
+ captureUsageContext:()=>active,getUsagePrice:()=>({input:1.25,cachedInput:.125,output:3.75}),messageCosts:tracker,
+ logger:{error(){}},origin:location.origin});
+function renderMessages(refresh=true){
+ const chat=document.getElementById('chat');chat.replaceChildren();
+ for(const [i,message] of context.chat.entries()) {
+  const row=document.createElement('div');row.className='mes';row.setAttribute('mesid',i);
+  const avatar=document.createElement('div');avatar.className='mesAvatarWrapper';
+  const icon=document.createElement('div');icon.className='avatar';icon.textContent=message.is_user?'你':'凛';avatar.append(icon);
+  const block=document.createElement('div');block.className='mes_block';
+  const name=document.createElement('div');name.className='ch_name';name.textContent=message.is_user?'You':'Rin';
+  const text=document.createElement('div');text.className='mes_text';text.textContent=message.mes;
+  block.append(name,text);row.append(avatar,block);chat.append(row);
+ }
+ if(refresh)ui.render();
+}
+const status=text=>document.getElementById('status').textContent=text;
+async function generate(type='normal') {
+ if(busy)return;busy=true;controller=new AbortController();
+ await eventSource.emit('GENERATION_AFTER_COMMANDS',type,{},false);
+ if(type==='normal')context.chat.push({is_user:true,mes:'请继续这段故事。',extra:{}});
+ let message=context.chat.at(-1);
+ if(type==='swipe') {
+  message.swipe_info[message.swipe_id]={extra:structuredClone(message.extra)};
+  message.swipe_id=message.swipes.length;
+  await eventSource.emit('MESSAGE_SWIPED',context.chat.length-1);
+ }
+ const processor={messageId:-1};context.streamingProcessor=processor;
+ const data={type,chat_completion_source:'vertexai',model:'gemini-2.5-pro',stream:true};ready(data);
+ status('生成中…');
+ const response=await target.fetch('/api/backends/chat-completions/generate',{method:'POST',body:JSON.stringify(data),signal:controller.signal});
+ if(type==='normal'){message={is_user:false,mes:'…',extra:{},swipe_id:0,swipes:['…'],swipe_info:[{extra:{}}]};context.chat.push(message);}
+ else if(type==='swipe'){message.mes='…';message.swipes.push('…');message.swipe_info.push({extra:structuredClone(message.extra)});}
+ processor.messageId=context.chat.length-1;renderMessages();
+ const reader=response.body.getReader();
+ while(true){const chunk=await reader.read();if(chunk.done)break;await eventSource.emit('STREAM_TOKEN_RECEIVED','Hello');}
+ message.mes=(type==='continue'?message.mes+'\n':'')+'夜色渐深，窗外的风吹动了书页。凛放下茶杯，望向远处的灯火。';
+ message.swipes[message.swipe_id]=message.mes;
+ message.swipe_info[message.swipe_id]={extra:structuredClone(message.extra)};
+ await eventSource.emit('GENERATION_ENDED');
+ await eventSource.emit('MESSAGE_RECEIVED',processor.messageId,type);
+ renderMessages();await eventSource.emit('CHARACTER_MESSAGE_RENDERED',processor.messageId,type);
+ await tracker.refresh();context.streamingProcessor=null;busy=false;status('完成 · 点击金额查看详情');
+}
+document.getElementById('normal').onclick=()=>generate();
+document.getElementById('continue').onclick=()=>{if(context.chat.at(-1)&&!context.chat.at(-1).is_user)generate('continue');};
+document.getElementById('swipe').onclick=()=>{if(context.chat.at(-1)&&!context.chat.at(-1).is_user)generate('swipe');};
+document.getElementById('stop').onclick=()=>controller?.abort();
+document.getElementById('switch').onclick=async()=>{
+ if(busy)return;const message=context.chat.at(-1);if(!message?.swipes?.length)return;
+ message.swipe_info[message.swipe_id]={extra:structuredClone(message.extra)};
+ message.swipe_id=(message.swipe_id+1)%message.swipes.length;
+ message.extra=structuredClone(message.swipe_info[message.swipe_id].extra);message.mes=message.swipes[message.swipe_id];
+ renderMessages();await eventSource.emit('MESSAGE_SWIPED',context.chat.length-1);
+};
+document.getElementById('chat-switch').onclick=async()=>{if(busy)return;active=active==='fixture-a'?'fixture-b':'fixture-a';context.chat=chats.get(active);renderMessages();await eventSource.emit('CHAT_CHANGED');status(active);};
+document.getElementById('background').onclick=async()=>{
+ if(busy)return;const before=document.querySelectorAll('.vertex-paygo-message-cost-trigger').length;
+ const data={type:'quiet',chat_completion_source:'vertexai',model:'gemini-2.5-pro',stream:true};ready(data);
+ await(await target.fetch('/api/backends/chat-completions/generate',{method:'POST',body:JSON.stringify(data)})).text();
+ status(`后台请求结束：费用标签 ${before} → ${document.querySelectorAll('.vertex-paygo-message-cost-trigger').length}`);
+};
+document.getElementById('document').onclick=()=>{document.body.classList.toggle('documentstyle');ui.render();};
+document.getElementById('reload').onclick=async()=>{if(busy)return;context.chat=structuredClone(context.chat);chats.set(active,context.chat);renderMessages();await eventSource.emit('CHAT_CHANGED');status('从保存的消息元数据恢复');};
+document.getElementById('native-normalized').onclick=()=>{
+ if(busy)return;const message=context.chat.at(-1), snapshot=getMessageCost(message);if(!snapshot)return;
+ for(const request of snapshot.requests){
+  request.record.usageAccuracy='tauri-normalized';
+  delete request.record.usage.thoughtsTokenCount;delete request.record.usage.cachedContentTokenCount;
+  request.timing.stream=false;request.timing.firstTokenMs=null;
+ }
+ message.swipe_info[message.swipe_id]={extra:structuredClone(message.extra)};
+ ui.render();status('模拟原生转换用量：缺失的推理与缓存不按零显示');
+};
+document.getElementById('remount').onclick=()=>{if(busy)return;renderMessages(false);status('只重挂 DOM，不发送宿主事件；观察费用入口自动恢复');};
+document.getElementById('locale').onchange=event=>{language=event.target.value;ui.render();};
+await generate();
+</script>
+</html>

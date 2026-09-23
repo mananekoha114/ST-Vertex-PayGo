@@ -37,9 +37,10 @@ export function createTauriUi({ getContext, connections, yaml, documentRef = glo
         for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
         return node;
     }
-    const root = element('section', '', { id: 'vertex-paygo-settings', class: 'vertex-paygo-settings' });
-    root.append(element('h4', localize('vertex_paygo.tauri.title')));
-    root.append(element('small', localize('vertex_paygo.tauri.native'), { class: 'vertex-paygo-guidance' }));
+    const root = element('details', '', { id: 'vertex-paygo-settings', class: 'vertex-paygo-settings vertex-paygo-settings--collapsible' });
+    root.append(element('summary', localize('vertex_paygo.tauri.title')));
+    const content = element('div', '', { class: 'vertex-paygo-settings-content' });
+    content.append(element('small', localize('vertex_paygo.tauri.native'), { class: 'vertex-paygo-guidance' }));
     const scope = element('select', '', { id: 'vertex-paygo-scope', class: 'text_pole' });
     const scopeLabel = element('label', localize('vertex_paygo.tauri.scope'), { for: 'vertex-paygo-scope' });
     const refresh = element('button', localize('vertex_paygo.tauri.refresh'), { type: 'button', class: 'menu_button' });
@@ -51,9 +52,10 @@ export function createTauriUi({ getContext, connections, yaml, documentRef = glo
     const paygo = element('input', '', { type: 'checkbox', id: 'vertex-paygo-only' });
     paygoLabel.append(paygo, element('span', localize('vertex_paygo.paygo_only')));
     const status = element('small', '', { class: 'vertex-paygo-status', 'aria-live': 'polite' });
-    root.append(scopeLabel, scope, refresh, modelLabel, tierLabel, tier, paygoLabel, status,
+    content.append(scopeLabel, scope, refresh, modelLabel, tierLabel, tier, paygoLabel, status,
         element('small', localize('vertex_paygo.tauri.persistence'), { class: 'vertex-paygo-guidance' }),
         element('small', localize('vertex_paygo.tauri.cost_notice'), { class: 'vertex-paygo-guidance' }));
+    root.append(content);
     container.append(root);
     let busy = false;
     let destroyed = false;

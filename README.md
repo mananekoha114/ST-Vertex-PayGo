@@ -4,13 +4,13 @@
 
 > **SillyTavern / Luker 用户**：需安装配套的 [`ST-Vertex-PayGo-Server`](https://github.com/mananekoha114/ST-Vertex-PayGo-Server) **0.4.0 或更新版本（协议 v2）**。原有代理、费用账本及诊断流程保持不变。TauriTavern 用户无需安装此后端。
 
-### TauriTavern 原生模式（0.5.0）
+### TauriTavern 原生模式（0.4.0）
 
 按 **TauriTavern 2.3.0** 的公开接口适配。安装同一个前端扩展后，会自动使用 Tauri 原生认证和发送通道；不访问 Node 插件接口，也不要求手写 YAML。当前实现经过接口契约和模拟宿主集成测试，尚未完成真实 Tauri 应用及付费 API 联调。
 
 1. 在 TauriTavern 中安装本前端扩展，刷新页面。
 2. 在原生 API 设置中配置好 Google Vertex AI 或 Google AI Studio 的认证和模型。
-3. 打开 **扩展设置 → Vertex AI PayGo · TauriTavern**，配置对象选择“当前 Chat Completion 连接”，直接选择服务层级。Vertex Flex / Priority 使用非 `global` 区域时，会提示一并切换。
+3. 打开 **扩展设置 → Vertex AI PayGo · TauriTavern**，点击标题展开默认折叠的面板，配置对象选择“当前 Chat Completion 连接”，直接选择服务层级。Vertex Flex / Priority 使用非 `global` 区域时，会提示一并切换。
 4. 配置对象也可选择 **Agent 模型目标**，层级保存在该目标的连接选项中；主 Agent 和子 Agent 使用各自绑定的目标，无需改写所有连接。
 5. 从魔法棒菜单打开“对话费用估算”，查看已采集请求。
 
@@ -74,7 +74,7 @@ service_tier: flex
 - **宿主程序**：SillyTavern ≥ 1.16.0（已通过 1.16/1.17/1.18 测试）、Luker ≥ 2.7.0 (release 分支)，或提供上述接口的 TauriTavern（按 2.3.0 适配）
 - **Node.js 环境**：酒馆服务端运行环境需 Node.js ≥ 20
 - **前置认证**：酒馆内已成功配置 Vertex AI（快速模式 API Key 或服务账号 JSON 均可）
-- **配套组件**：SillyTavern/Luker 使用 0.5.0 前端与 0.4.0 或更新的后端插件（协议 v2）；TauriTavern 仅需前端
+- **配套组件**：SillyTavern/Luker 使用 0.4.0 前端与 0.4.0 或更新的后端插件（协议 v2）；TauriTavern 仅需前端
 
 ---
 

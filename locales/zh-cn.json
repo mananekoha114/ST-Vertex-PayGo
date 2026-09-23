@@ -1,4 +1,6 @@
 {
+  "vertex_paygo.costs.cache_hit_rate": "缓存命中率",
+  "vertex_paygo.costs.cache_hit_rate_hint": "缓存 token / 输入 token；数据缺失或输入为零时显示 — 喵",
   "vertex_paygo.message_cost.label_amount": "≈ {amount}",
   "vertex_paygo.message_cost.label_partial": "部分算完啦 ≈ {amount}",
   "vertex_paygo.message_cost.label_pending": "正在努力算账中喵…",

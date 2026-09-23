@@ -76,6 +76,27 @@ function fakeDom({ avatarVisible = true } = {}) {
 function allText(elements) { return elements.map(element => element.textContent).filter(Boolean); }
 function find(elements, className) { return elements.find(element => element.className === className); }
 
+test('message card shows weighted cache hit rate and unknown normalized cache separately from zero', () => {
+    const dom = fakeDom();
+    const current = structuredClone(snapshot);
+    current.requests[0].record.usage.cachedContentTokenCount = 250;
+    const ui = createMessageCostUi({ documentRef: dom.document, getContext: () => ({ chat: [{}] }),
+        getMessageCost: () => current });
+    ui.render();
+    dom.avatar.children[0].onclick({ stopPropagation() {} });
+    const metric = () => dom.walk().find(item => item.className === 'vertex-paygo-message-cost-metric'
+        && item.children[0]?.textContent === localize('vertex_paygo.costs.cache_hit_rate'));
+    assert.equal(metric().children[1].textContent, '25.0%');
+    current.requests[0].record.usage.cachedContentTokenCount = 0;
+    ui.render();
+    assert.equal(metric().children[1].textContent, '0.0%');
+    current.requests[0].record.usageAccuracy = 'tauri-normalized';
+    delete current.requests[0].record.usage.cachedContentTokenCount;
+    ui.render();
+    assert.equal(metric().children[1].textContent, '—');
+    ui.destroy();
+});
+
 test('message cards use the host locale, editable templates and English fallback', () => {
     for (const language of ['en', 'zh-cn', 'zh-tw']) {
         const dom = fakeDom();
@@ -153,7 +174,7 @@ test('native normalized details label partial costs and do not display unknown r
     button.onclick({ stopPropagation() {} });
     const text = allText(dom.walk());
     assert.ok(text.includes('输出（已报告）'));
-    assert.ok(text.includes('推理用量未报告'));
+    assert.ok(text.includes(localize('vertex_paygo.message_cost.thinking_unreported')));
     assert.ok(text.some(value => value.includes('TauriTavern 非流式用量经过转换')));
     ui.destroy();
 });
@@ -211,7 +232,7 @@ test('refreshes an open card in place and preserves its expanded state', () => {
     ui.render(0);
     assert.equal(dom.document.body.children.at(-1), card);
     assert.equal(button.attributes['aria-expanded'], 'true');
-    assert.ok(allText(dom.walk()).some(value => value.includes('用量轮询已结束，结果不可用')));
+    assert.ok(allText(dom.walk()).some(value => value.includes(localize('vertex_paygo.message_cost.reason.unavailable'))));
     ui.destroy();
 });
 

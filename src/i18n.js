@@ -10,6 +10,8 @@ import { PROTOCOL_VERSION, REQUIRED_TRANSPORT } from './constants.js';
 import { MODEL_POLICY_SNAPSHOT } from './model-policy.js';
 
 export const MESSAGES = Object.freeze({
+    'vertex_paygo.costs.cache_hit_rate': 'Cache hit rate',
+    'vertex_paygo.costs.cache_hit_rate_hint': 'Cached tokens / input tokens; — if unavailable or input is zero',
     "vertex_paygo.message_cost.label_amount": "≈ {amount}",
     "vertex_paygo.message_cost.label_partial": "Partial ≈ {amount}",
     "vertex_paygo.message_cost.label_pending": "Estimating cost",

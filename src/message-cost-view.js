@@ -4,7 +4,7 @@
  * License, v. 2.0.
  */
 
-import { estimateRecord, priceKey } from './cost-model.js';
+import { calculateCacheHitRate, estimateRecord, priceKey } from './cost-model.js';
 import { createLocalizer } from './i18n.js';
 
 function count(value) {
@@ -46,6 +46,7 @@ export function summarizeMessageCost(snapshot, prices = {}) {
         outputTokens: 0,
         thinkingTokens: 0,
         cachedTokens: 0,
+        cacheHitRate: null,
         uncachedTokens: 0,
         firstTokenMs: null,
         durationMs: null,
@@ -149,6 +150,7 @@ export function summarizeMessageCost(snapshot, prices = {}) {
     }
 
     summary.models = [...models];
+    summary.cacheHitRate = calculateCacheHitRate(requests.map(request => request?.record));
     summary.tiers = [...tiers];
     summary.firstTokenMs = firstTokenObserved;
     summary.durationMs = requests.length > 0 && durationCount === requests.length ? totalDuration : null;

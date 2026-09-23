@@ -40,6 +40,7 @@ test('native normalized usage preserves known counts without inventing reasoning
     assert.equal(result.outputTokens, 20);
     assert.equal(result.thinkingTokens, null);
     assert.equal(result.cachedTokens, null);
+    assert.equal(result.cacheHitRate, null);
     assert.equal(result.uncachedTokens, null);
     assert.equal(result.endToEndTps, null);
     assert.ok(result.reasons.includes('tauri_normalized'));
@@ -47,6 +48,7 @@ test('native normalized usage preserves known counts without inventing reasoning
     const cached = summarizeMessageCost({ requests: [request] });
     assert.equal(cached.cachedTokens, 30);
     assert.equal(cached.uncachedTokens, 70);
+    assert.equal(cached.cacheHitRate, .3);
     request.record.price = null;
     assert.equal(summarizeMessageCost({ requests: [request] }).awaitingPrice, true);
 });
@@ -83,6 +85,7 @@ test('deduplicates continuation requests and aggregates cost, usage, models and 
     assert.equal(summary.outputTokens, 150);
     assert.equal(summary.thinkingTokens, 50);
     assert.equal(summary.cachedTokens, 200);
+    assert.equal(summary.cacheHitRate, 200 / 1_500);
     assert.equal(summary.uncachedTokens, 1_300);
     assert.deepEqual(summary.models, ['gemini-test', 'gemini-next']);
     assert.deepEqual(summary.tiers, ['standard', 'flex']);
@@ -107,11 +110,12 @@ test('keeps a partial subtotal and labels current-price backfill without treatin
     assert.equal(summary.unavailable, true);
     assert.equal(summary.partial, true);
     assert.equal(summary.missingRequestCount, 2);
+    assert.equal(summary.cacheHitRate, null);
     assert.equal(summary.generationTps, null);
     assert.equal(summary.firstTokenMs, null);
     assert.equal(summary.durationMs, null);
     assert.equal(summary.endToEndTps, null);
-    assert.equal(formatMessageCostLabel(summary), '部分 ≈ $0.00112');
+    assert.equal(formatMessageCostLabel(summary), localize('vertex_paygo.message_cost.label_partial', { amount: '$0.00112' }));
 });
 
 test('missing required usage or price produces an unknown amount rather than $0', () => {
@@ -121,10 +125,10 @@ test('missing required usage or price produces an unknown amount rather than $0'
     assert.equal(incomplete.hasAmount, false);
     assert.equal(incomplete.hasUsage, false);
     assert.equal(incomplete.amount, 0);
-    assert.equal(formatMessageCostLabel(incomplete), '费用未知');
+    assert.equal(formatMessageCostLabel(incomplete), localize('vertex_paygo.message_cost.label_unknown'));
 
     const pending = summarizeMessageCost({ requests: [{ id: 'x', status: 'pending' }] });
-    assert.equal(formatMessageCostLabel(pending), '费用估算中');
+    assert.equal(formatMessageCostLabel(pending), localize('vertex_paygo.message_cost.label_pending'));
 });
 
 test('a request without an id is included but can never make the summary look complete', () => {
@@ -133,7 +137,7 @@ test('a request without an id is included but can never make the summary look co
     assert.equal(summary.hasAmount, true);
     assert.equal(summary.partial, true);
     assert.equal(summary.complete, false);
-    assert.equal(formatMessageCostLabel(summary), '部分 ≈ $0.00112');
+    assert.equal(formatMessageCostLabel(summary), localize('vertex_paygo.message_cost.label_partial', { amount: '$0.00112' }));
 });
 
 test('recognizes prepared record placeholders and lets unavailable override their pending status', () => {
@@ -141,12 +145,12 @@ test('recognizes prepared record placeholders and lets unavailable override thei
     const pending = summarizeMessageCost({ requests: [{ id: 'pending', record: placeholder, status: 'pending' }] });
     assert.equal(pending.pending, true);
     assert.equal(pending.unavailable, false);
-    assert.equal(formatMessageCostLabel(pending), '费用估算中');
+    assert.equal(formatMessageCostLabel(pending), localize('vertex_paygo.message_cost.label_pending'));
 
     const unavailable = summarizeMessageCost({ requests: [{ id: 'pending', record: placeholder, status: 'unavailable' }] });
     assert.equal(unavailable.pending, false);
     assert.equal(unavailable.unavailable, true);
-    assert.equal(formatMessageCostLabel(unavailable), '费用未知');
+    assert.equal(formatMessageCostLabel(unavailable), localize('vertex_paygo.message_cost.label_unknown'));
     assert.ok(unavailable.reasons.includes('unavailable'));
 });
 
@@ -155,7 +159,7 @@ test('reports awaiting price separately and keeps timing independent from missin
         id: 'unpriced', record: complete('unpriced', { price: null }), timing: { durationMs: 800, stream: false },
     }] });
     assert.equal(unpriced.awaitingPrice, true);
-    assert.equal(formatMessageCostLabel(unpriced), '待计价');
+    assert.equal(formatMessageCostLabel(unpriced), localize('vertex_paygo.message_cost.label_unpriced'));
     assert.ok(unpriced.reasons.includes('price_missing'));
 
     const timedWithoutUsage = summarizeMessageCost({ requests: [{

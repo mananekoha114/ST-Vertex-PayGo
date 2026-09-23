@@ -37,6 +37,34 @@ function find(node, predicate) {
     return null;
 }
 
+test('wand statistics show weighted and per-request cache rates using host translations', async () => {
+    for (const missingCache of [false, true]) {
+        const { document } = fakeDocument();
+        let shown;
+        class Popup { constructor(content) { shown = content; } async show() { return 0; } }
+        const records = [
+            { id: 'a', chatId: 'chat', status: 'complete', usage: { promptTokenCount: 100, cachedContentTokenCount: 20 } },
+            { id: 'b', chatId: 'chat', status: 'complete', usage: { promptTokenCount: 1000, cachedContentTokenCount: 800 } },
+        ];
+        if (missingCache) {
+            records[1].usageAccuracy = 'tauri-normalized';
+            delete records[1].usage.cachedContentTokenCount;
+        }
+        const ui = createCostUi({ context: { Popup, POPUP_TYPE: { TEXT: 1 },
+            translate: (fallback, key) => key === 'vertex_paygo.costs.cache_hit_rate' ? '自定义命中率' : fallback },
+        documentRef: document, getChatId: () => 'chat',
+        serverClient: { readUsage: async () => ({ ok: true, records }) } });
+        await ui.open();
+        const summary = find(shown, node => node.className === 'vertex-paygo-cost-summary');
+        assert.ok(summary.textContent.includes(`自定义命中率 ${missingCache ? '—' : '74.5%'}`));
+        const table = find(shown, node => node.tag === 'table');
+        assert.equal(table.children[0].children[0].children[5].textContent, '自定义命中率');
+        assert.equal(table.children[1].children[0].children[5].textContent, missingCache ? '—' : '80.0%');
+        assert.equal(table.children[1].children[1].children[5].textContent, '20.0%');
+        ui.destroy();
+    }
+});
+
 test('attaches a menu entry and a new chat can edit prices without reading usage', async () => {
     const { document, menu } = fakeDocument();
     let reads = 0;

@@ -6,9 +6,29 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { estimateRecord, normalizePrice, priceKey, summarizeUsage } from '../src/cost-model.js';
+import { calculateCacheHitRate, estimateRecord, normalizePrice, priceKey, summarizeUsage } from '../src/cost-model.js';
 
 const price = { input: 2, cachedInput: .5, output: 10 };
+
+test('calculates prompt-weighted cache hit rate and rejects incomplete or invalid usage', () => {
+    const record = (prompt, cached, extra = {}) => ({ usage: { promptTokenCount: prompt, ...(cached === undefined ? {} : { cachedContentTokenCount: cached }) }, ...extra });
+    assert.equal(calculateCacheHitRate([record(100, 20), record(1_000, 800)]), 820 / 1_100);
+    assert.equal(calculateCacheHitRate([record(10, 0)]), 0);
+    assert.equal(calculateCacheHitRate([record(10, 10)]), 1);
+    assert.equal(calculateCacheHitRate([]), null);
+    assert.equal(calculateCacheHitRate([record(0, 0)]), null);
+    assert.equal(calculateCacheHitRate([record(10, undefined, { usageAccuracy: 'tauri-normalized' })]), null);
+    assert.equal(calculateCacheHitRate([record(10, 3, { usageAccuracy: 'tauri-normalized' })]), .3);
+    assert.equal(calculateCacheHitRate([null]), null);
+    assert.equal(calculateCacheHitRate([{}]), null);
+    assert.equal(calculateCacheHitRate([record(undefined, 0)]), null);
+    for (const value of [-1, 1.5, Number.MAX_SAFE_INTEGER + 1, '10', true]) {
+        assert.equal(calculateCacheHitRate([record(value, 0)]), null);
+        assert.equal(calculateCacheHitRate([record(10, value)]), null);
+    }
+    assert.equal(calculateCacheHitRate([record(10, 11)]), null);
+    assert.equal(calculateCacheHitRate([record(Number.MAX_SAFE_INTEGER, 0), record(1, 0)]), null);
+});
 
 test('price keys preserve source, model and tier without collisions', () => {
     assert.equal(priceKey({ source: 'vertexai', model: 'gemini', tier: 'flex' }), '["vertexai","gemini","flex"]');
@@ -128,6 +148,7 @@ test('summary deduplicates record ids and counts unpriced and partial records', 
     const result = summarizeUsage(records);
     assert.equal(result.requestCount, 2);
     assert.equal(result.cachedTokenCount, 3);
+    assert.equal(result.cacheHitRate, .2);
     assert.equal(result.unpricedCount, 1);
     assert.equal(result.incompleteCount, 1);
 });

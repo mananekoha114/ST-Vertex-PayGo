@@ -130,6 +130,31 @@ test('a chat switch during loading replaces stale amounts with an explicit reope
     ui.destroy();
 });
 
+test('warns that Tauri normalized non-stream usage may underestimate cost', async () => {
+    const { document } = fakeDocument();
+    let shown;
+    let closePopup;
+    class Popup { constructor(content) { shown = content; } show() { return new Promise(resolve => { closePopup = resolve; }); } }
+    const ui = createCostUi({
+        context: { Popup, POPUP_TYPE: { TEXT: 1 } }, documentRef: document,
+        getChatId: () => 'chat-1', getCurrentPricingKey: () => ({ source: 'vertexai', model: 'm', tier: 'standard' }),
+        coverageNotice: 'Agent 原生模型循环费用暂未计入。',
+        serverClient: { readUsage: async () => ({ ok: true, records: [{
+            id: 'r', chatId: 'chat-1', source: 'vertexai', model: 'm', tier: 'standard', status: 'complete',
+            usageAccuracy: 'tauri-normalized', price: { input: 1, cachedInput: 0, output: 2 },
+            usage: { promptTokenCount: 10, candidatesTokenCount: 2 },
+        }] }) },
+    });
+    const opened = ui.open();
+    await new Promise(setImmediate);
+    assert.ok(text(shown).some(value => value.includes('非流式用量可能缺少思考 Token')));
+    assert.ok(text(shown).includes('TauriTavern 用量信息可能不完整，仅部分估算'));
+    assert.ok(text(shown).includes('Agent 原生模型循环费用暂未计入。'));
+    closePopup(0);
+    await opened;
+    ui.destroy();
+});
+
 test('pending requests poll serially every five seconds until completion', async t => {
     const { document } = fakeDocument();
     const timers = [];

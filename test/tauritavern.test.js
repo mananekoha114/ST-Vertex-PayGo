@@ -118,7 +118,7 @@ test('still shows guidance when the TauriTavern context shim throws', async t =>
     assert.equal(document.body.children.length, 1);
 });
 
-test('TauriTavern activation shows only once and leaves network, controls and request hooks untouched', async t => {
+test('unsupported TauriTavern capabilities show guidance once without installing request hooks', async t => {
     // Import with no document so the legacy activation fallback does not auto-run.
     const { init, getControllerForDebug } = await import('../index.js');
     const documentRef = createDocument();

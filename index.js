@@ -63,29 +63,28 @@ export async function init() {
     initialized = true;
 
     try {
-        const unsupportedHost = isTauriTavern();
-        let context;
-        try {
-            context = globalThis.SillyTavern?.getContext?.();
-        } catch (error) {
-            if (!unsupportedHost) throw error;
-            // Detection and the native notice do not depend on the compatibility API.
-            console.warn('[Vertex PayGo] TauriTavern extension context is not ready.', error);
+        if (isTauriTavern()) {
+            try {
+                const { initTauriTavern } = await import('./src/tauri-runtime.js');
+                controller = await initTauriTavern({
+                    notifyError: message => notify('error', message),
+                    notifyWarning: message => notify('warning', message),
+                });
+            } catch (error) {
+                if (error?.code !== 'TAURI_CAPABILITIES_UNAVAILABLE') throw error;
+                let context;
+                try { context = globalThis.SillyTavern?.getContext?.(); } catch { /* Use native fallback dialog. */ }
+                void showTauriTavernNotice({ context }).catch(error =>
+                    console.error('[Vertex PayGo] Could not display the compatibility notice.', error));
+            }
+            return;
         }
+        const context = globalThis.SillyTavern?.getContext?.();
         const localize = createLocalizer(
             typeof context?.translate === 'function'
                 ? (fallback, key) => context.translate(fallback, key)
                 : undefined,
         );
-        if (unsupportedHost) {
-            // Do not hold up host startup while the user reads the notice. Keep the
-            // initialization guard set so both activation paths show it only once.
-            void showTauriTavernNotice({ context, localize }).catch(error => {
-                console.error('[Vertex PayGo] Could not display the TauriTavern notice.', error);
-                notify('error', localize('vertex_paygo.tauritavern.unavailable'));
-            });
-            return;
-        }
         if (!context) {
             throw new Error(localize('vertex_paygo.error.context_unavailable'));
         }

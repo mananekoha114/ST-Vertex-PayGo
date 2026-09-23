@@ -1,16 +1,32 @@
 # ST Vertex AI PayGo 前端扩展
 
-这是一个为 **SillyTavern（酒馆）** 及 **Luker** 打造的前端扩展，在 Vertex AI 连接设置中提供 **Standard、Flex 和 Priority** 三种 PayGo 服务层级选择，并支持 **Google AI Studio 的 Standard / Flex** 弹性调度。
+这是一个支持 **SillyTavern（酒馆）、Luker 和 TauriTavern** 的前端扩展，提供 Vertex AI 的 **Standard、Flex 和 Priority** 服务层级选择，以及 **Google AI Studio 的 Standard / Flex** 调度。
 
-> ⚠️ **重要提示（必须同时安装后端插件）**  
-> 本项目**仅为浏览器前端 UI 扩展**。Gemini Standard、Flex、Priority、PayGo-only 及费用统计功能，**必须**同时在酒馆中安装配套的 [`ST-Vertex-PayGo-Server`](https://github.com/mananekoha114/ST-Vertex-PayGo-Server) 后端插件。\
-> 前后端请一起升级至 **0.4.0（协议 v2）**，重启酒馆并刷新前端页面。Standard 也经过本地代理采集用量，但不会自动启用 PayGo-only；非 Gemini 模型仍走酒馆原生 Standard 通道。
+> **SillyTavern / Luker 用户**：需安装配套的 [`ST-Vertex-PayGo-Server`](https://github.com/mananekoha114/ST-Vertex-PayGo-Server) **0.4.0 或更新版本（协议 v2）**。原有代理、费用账本及诊断流程保持不变。TauriTavern 用户无需安装此后端。
 
-> ⛔ **TauriTavern 用户请注意：**  
-> **请勿在 TauriTavern 中安装此扩展！**  
-> 扩展检测到 TauriTavern 后，会弹出不可用说明与 Service Tier 切换指引，并停止初始化，不会接管请求或访问配套后端。每次页面加载只提示一次；可在扩展程序中禁用或卸载本扩展。TauriTavern 用户请使用下方的原生设置方法。
+### TauriTavern 原生模式（0.5.0）
 
-### 在 TauriTavern 中切换 Service Tier
+按 **TauriTavern 2.3.0** 的公开接口适配。安装同一个前端扩展后，会自动使用 Tauri 原生认证和发送通道；不访问 Node 插件接口，也不要求手写 YAML。当前实现经过接口契约和模拟宿主集成测试，尚未完成真实 Tauri 应用及付费 API 联调。
+
+1. 在 TauriTavern 中安装本前端扩展，刷新页面。
+2. 在原生 API 设置中配置好 Google Vertex AI 或 Google AI Studio 的认证和模型。
+3. 打开 **扩展设置 → Vertex AI PayGo · TauriTavern**，配置对象选择“当前 Chat Completion 连接”，直接选择服务层级。Vertex Flex / Priority 使用非 `global` 区域时，会提示一并切换。
+4. 配置对象也可选择 **Agent 模型目标**，层级保存在该目标的连接选项中；主 Agent 和子 Agent 使用各自绑定的目标，无需改写所有连接。
+5. 从魔法棒菜单打开“对话费用估算”，查看已采集请求。
+
+**保存与参数冲突**：设置写入原生附加参数或所选 Model Target，只修改层级相关字段，保留其余参数。当前连接设置要随预设复用时，请保存原生预设。若已有 `exclude_body` 排除了 AI Studio 的 `service_tier`，扩展会报冲突，避免 Flex 参数被悄悄移除。禁用或卸载扩展不会撤销原生参数；选择 Standard 并关闭 PayGo-only 可清除层级设置。
+
+**费用范围与提醒**：
+
+- 普通聊天及经过兼容前端发送接口的请求会记录用量，涵盖流式与非流式；发送时绑定对话，保留当时的价格快照。
+- **由于 TauriTavern 非流式用量可能缺少思考 Token 等信息，费用估算可能不准确或偏低。** 面板和对应费用记录会明确提示，记录按“部分估算”呈现；缺少用量不会显示为免费。
+- **原生 Agent / 子 Agent 模型循环的费用暂未计入此账本**；界面持续显示此范围说明。Agent 层级配置可用，但不能把当前小计当作整个 Agent Run 的总成本。
+- 账本使用 Tauri `api.extension.store`，存放在数据目录的 `_tauritavern/extension-store/vertex-paygo/kv/chat-<对话ID>/`，每次请求一个记录，不保存提示词、回答或密钥。随 Tauri 数据目录及账户设置一并备份。
+- Tauri 模式不提供原 Node 服务端合并诊断日志。Flex 的宿主超时和移动端后台行为仍受 Tauri 原生实现约束。
+
+部分 iOS 分发构建默认关闭第三方扩展或附加参数能力；请以该构建的实际权限为准。缺少所需接口时会提示升级及备用手动方法。
+
+### TauriTavern 手动设置（旧版备用方法）
 
 适用于 **TauriTavern 2.1.0 及以上**（已核对 2.3.0 源码）。在 **API 连接设置 → Chat Completion** 中先选择对应 API 来源，再点击连接按钮旁的 **附加参数（Additional Parameters）**。这些设置按来源分别保存，输入会自动保存，编辑后关闭弹窗即可。保留已有的其他参数。
 
@@ -37,7 +53,7 @@ service_tier: flex
 
 ---
 
-## 主要功能
+## 主要功能（以下后端代理与服务端日志说明适用于 SillyTavern / Luker）
 
 - **原生无缝集成**：在酒馆原有的 Vertex AI 设置面板中直接嵌入 Standard / Flex / Priority 等级切换控件，开箱即用。
 - **Google AI Studio 弹性降本（Flex）**：切换到 Google AI Studio 时复用同一交互面板、后端转发链路与日志系统，按需展示可用选项，无需重复填写 API Key。
@@ -55,14 +71,14 @@ service_tier: flex
 
 ## 版本要求
 
-- **宿主程序**：SillyTavern ≥ 1.16.0（已通过 1.16/1.17/1.18 测试）或 Luker ≥ 2.7.0 (release 分支)
+- **宿主程序**：SillyTavern ≥ 1.16.0（已通过 1.16/1.17/1.18 测试）、Luker ≥ 2.7.0 (release 分支)，或提供上述接口的 TauriTavern（按 2.3.0 适配）
 - **Node.js 环境**：酒馆服务端运行环境需 Node.js ≥ 20
 - **前置认证**：酒馆内已成功配置 Vertex AI（快速模式 API Key 或服务账号 JSON 均可）
-- **配套组件**：前端扩展与 `ST-Vertex-PayGo-Server` 后端插件均更新至 0.4.0（协议 v2）
+- **配套组件**：SillyTavern/Luker 使用 0.5.0 前端与 0.4.0 或更新的后端插件（协议 v2）；TauriTavern 仅需前端
 
 ---
 
-## 安装教程
+## SillyTavern / Luker 安装教程
 
 本功能由 **后端插件** + **前端扩展** 配合运作，均无需安装额外的 npm 依赖包：
 
@@ -255,7 +271,7 @@ service_tier: flex
 
 ## 开发者与测试
 
-本项目为原生 ES 模块设计，无构建编译步骤。在项目根目录下可直接执行本地自动化测试：
+本项目为原生 ES 模块设计，无构建编译步骤。开发测试先执行 `npm ci` 安装仅用于测试的 YAML 解析库，再运行下面的测试；用户安装扩展不需要执行 npm，Tauri 模式复用宿主 YAML 库。
 
 ```bash
 node --test

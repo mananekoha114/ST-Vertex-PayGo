@@ -1,9 +1,13 @@
 # 更新日志
 
-## 未发布 · TauriTavern 兼容性提示
+## 0.5.0（未发布）· TauriTavern 原生适配
 
-- 识别 TauriTavern 后弹出不可用说明，提供 Vertex AI 的 Standard / Flex / Priority 及 Google AI Studio 的 Standard / Flex 切换指引，支持英文、简体与繁体中文。
-- 在 TauriTavern 上停止插件初始化，不再检查后端、注册请求钩子或启动费用统计与后台刷新；每次页面加载只提示一次。
+- 自动识别 TauriTavern，在扩展设置中提供层级选择、PayGo-only、区域同步及 Agent Model Target 配置，无需手写 YAML 或安装 Node 后端。
+- 复用原生认证、附加参数和扩展持久化接口；按请求校验模型、区域及参数冲突，不自动将失败的 Flex 请求改成 Standard 重试。
+- 普通聊天支持流式与非流式用量账本；非流式记录明确标注可能缺少思考 Token 等信息、费用可能不准确或偏低。
+- 费用窗口明确显示原生 Agent/子 Agent 模型循环暂不纳入账本，避免将局部小计误认为总费用。
+- 保留 SillyTavern/Luker 的协议 v2 代理流程；仅缺少原生接口的 Tauri 构建显示备用手动设置指引。
+- 新增真实 YAML、原生接口契约、请求隔离、流式取消、参数冲突与费用估算回归测试。未完成真实 Tauri 应用和付费 API 联调。
 
 ## 0.4.0 · 对话费用估算
 

@@ -89,13 +89,16 @@ function buildCard(documentRef, summary, onClose, localize) {
     if (qualifiers.length) cost.append(node(documentRef, 'small', '', qualifiers.join(' · ')));
     card.append(cost);
 
-    const details = node(documentRef, 'div', 'vertex-paygo-message-cost-details');
-    addMetric(documentRef, details, localize(messageKey('thinking')), summary.hasUsage ? formatTokens(summary.thinkingTokens) : '—');
-    addMetric(documentRef, details, localize(messageKey('cached')), summary.hasUsage ? formatTokens(summary.cachedTokens) : '—');
-    addMetric(documentRef, details, localize('vertex_paygo.costs.cache_hit_rate'),
+    const cache = node(documentRef, 'div', 'vertex-paygo-message-cost-cache');
+    addMetric(documentRef, cache, localize(messageKey('cached')), summary.hasUsage ? formatTokens(summary.cachedTokens) : '—');
+    addMetric(documentRef, cache, localize('vertex_paygo.costs.cache_hit_rate'),
         summary.cacheHitRate == null ? '—' : `${(summary.cacheHitRate * 100).toFixed(1)}%`,
         localize('vertex_paygo.costs.cache_hit_rate_hint'));
-    addMetric(documentRef, details, localize(messageKey('uncached')), summary.hasUsage ? formatTokens(summary.uncachedTokens) : '—');
+    addMetric(documentRef, cache, localize(messageKey('uncached')), summary.hasUsage ? formatTokens(summary.uncachedTokens) : '—');
+    card.append(cache);
+
+    const details = node(documentRef, 'div', 'vertex-paygo-message-cost-details');
+    addMetric(documentRef, details, localize(messageKey('thinking')), summary.hasUsage ? formatTokens(summary.thinkingTokens) : '—');
     addMetric(documentRef, details, localize(messageKey('first_content')), formatDuration(summary.firstTokenMs, localize),
         localize(messageKey(summary.firstTokenMs == null ? 'first_content_unavailable' : 'client_observed')));
     addMetric(documentRef, details, localize(messageKey('duration')), formatDuration(summary.durationMs, localize));

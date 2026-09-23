@@ -1,6 +1,6 @@
 {
   "vertex_paygo.costs.cache_hit_rate": "Cache hit rate",
-  "vertex_paygo.costs.cache_hit_rate_hint": "Cached tokens / input tokens; — if unavailable or input is zero",
+  "vertex_paygo.costs.cache_hit_rate_hint": "Cached tokens / input tokens",
   "vertex_paygo.message_cost.label_amount": "≈ {amount}",
   "vertex_paygo.message_cost.label_partial": "Partial ≈ {amount}",
   "vertex_paygo.message_cost.label_pending": "Estimating cost",

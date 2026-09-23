@@ -1,6 +1,6 @@
 {
   "vertex_paygo.costs.cache_hit_rate": "快取命中率",
-  "vertex_paygo.costs.cache_hit_rate_hint": "快取 token / 輸入 token；資料缺失或輸入為零時顯示 — 喵",
+  "vertex_paygo.costs.cache_hit_rate_hint": "快取 token / 輸入 token",
   "vertex_paygo.message_cost.label_amount": "≈ {amount}",
   "vertex_paygo.message_cost.label_partial": "部分算完囉 ≈ {amount}",
   "vertex_paygo.message_cost.label_pending": "正在努力算帳中喵…",

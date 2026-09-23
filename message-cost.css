@@ -59,7 +59,8 @@
 .vertex-paygo-message-cost-close:hover,
 .vertex-paygo-message-cost-close:focus-visible { background: color-mix(in srgb, var(--SmartThemeBodyColor) 16%, transparent); }
 .vertex-paygo-message-cost-top { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .55rem; margin: .85rem 0; }
-.vertex-paygo-message-cost-metric { display: grid; gap: .18rem; min-width: 0; }
+.vertex-paygo-message-cost-metric { display: grid; align-content: start; gap: .18rem; min-width: 0; overflow-wrap: anywhere; }
+.vertex-paygo-message-cost-metric strong { font-variant-numeric: tabular-nums; }
 .vertex-paygo-message-cost-top .vertex-paygo-message-cost-metric {
     padding: .65rem;
     border-radius: 8px;
@@ -76,6 +77,13 @@
 }
 .vertex-paygo-message-cost-amount strong { font-size: 1.15em; }
 .vertex-paygo-message-cost-amount small { grid-column: 1 / -1; opacity: .7; }
+.vertex-paygo-message-cost-cache {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: .55rem;
+    padding: .85rem 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--SmartThemeBodyColor) 12%, transparent);
+}
 .vertex-paygo-message-cost-details { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem 1rem; padding: .85rem 0; }
 .vertex-paygo-message-cost-card > footer { padding-top: .65rem; border-top: 1px solid color-mix(in srgb, var(--SmartThemeBodyColor) 12%, transparent); }
 @media (max-width: 600px) {
@@ -85,5 +93,6 @@
     .vertex-paygo-message-cost-details { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 380px) {
+    .vertex-paygo-message-cost-cache { grid-template-columns: 1fr; }
     .vertex-paygo-message-cost-details { grid-template-columns: 1fr; }
 }

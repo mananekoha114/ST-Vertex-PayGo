@@ -5,6 +5,7 @@
  */
 
 import { estimateRecord, priceKey } from './cost-model.js';
+import { createLocalizer } from './i18n.js';
 
 function count(value) {
     return Number.isSafeInteger(value) && value >= 0 ? value : null;
@@ -175,9 +176,12 @@ export function formatMessageMoney(amount) {
     return amount > 0 && amount < .00001 ? '< $0.00001' : `$${amount.toFixed(5)}`;
 }
 
-export function formatMessageCostLabel(summary) {
-    if (summary?.hasAmount) return `${summary.partial ? '部分 ' : ''}≈ ${formatMessageMoney(summary.amount)}`;
-    if (summary?.pending) return '费用估算中';
-    if (summary?.awaitingPrice) return '待计价';
-    return '费用未知';
+export function formatMessageCostLabel(summary, localize = createLocalizer()) {
+    const key = 'vertex_paygo.message_cost.';
+    if (summary?.hasAmount) return localize(`${key}${summary.partial ? 'label_partial' : 'label_amount'}`, {
+        amount: formatMessageMoney(summary.amount),
+    });
+    if (summary?.pending) return localize(`${key}label_pending`);
+    if (summary?.awaitingPrice) return localize(`${key}label_unpriced`);
+    return localize(`${key}label_unknown`);
 }

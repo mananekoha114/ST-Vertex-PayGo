@@ -28,6 +28,7 @@ body.documentstyle .mesAvatarWrapper { display:none!important; }
  <button id="switch">切换版本</button><button id="chat-switch">切换对话</button><button id="background">后台请求</button>
  <button id="stop">中断生成</button><button id="document">文档模式</button><button id="reload">重新加载消息</button>
  <button id="native-normalized">Tauri 非流式示例</button><button id="remount">模拟虚拟化重挂</button>
+ <label>卡片语言 <select id="locale"><option value="zh-cn">简体中文</option><option value="zh-tw">繁體中文</option><option value="en">English</option></select></label>
 </nav>
 <div id="status" role="status">就绪</div><div id="chat"></div>
 </main>
@@ -47,6 +48,10 @@ const eventTypes=Object.fromEntries(eventNames.map(name=>[name,name]));
 let active='fixture-a', busy=false, controller=null, serial=0, activeRecord=null;
 const chats=new Map([['fixture-a',[]],['fixture-b',[]]]), ledger=[];
 const context={eventSource,eventTypes,chat:chats.get(active),streamingProcessor:null,saveChat:async()=>{}};
+const catalogs=Object.fromEntries(await Promise.all(['en','zh-cn','zh-tw'].map(async language=>[language,
+ await (await fetch(`../../locales/${language}.json`)).json()])));
+let language='zh-cn';
+context.translate=(fallback,key)=>catalogs[language][key]??fallback;
 const serverClient={
  async prepare(data) {
   activeRecord={id:`request-${++serial}`,chatId:data.usageChatId,source:data.chat_completion_source,model:data.model,
@@ -151,6 +156,7 @@ document.getElementById('native-normalized').onclick=()=>{
  ui.render();status('模拟原生转换用量：缺失的推理与缓存不按零显示');
 };
 document.getElementById('remount').onclick=()=>{if(busy)return;renderMessages(false);status('只重挂 DOM，不发送宿主事件；观察费用入口自动恢复');};
+document.getElementById('locale').onchange=event=>{language=event.target.value;ui.render();};
 await generate();
 </script>
 </html>

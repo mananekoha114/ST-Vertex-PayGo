@@ -127,6 +127,7 @@ export async function init() {
             getContext: () => globalThis.SillyTavern.getContext(),
             getMessageCost,
             getPrices: costContext.getPrices,
+            localize,
             onOpen: () => void messageCosts?.refresh({ retry: true }),
         });
         messageCosts = createMessageCosts({

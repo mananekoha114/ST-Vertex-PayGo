@@ -95,7 +95,7 @@ export async function initTauriTavern({ target = globalThis, documentRef = targe
         usage = (factories.usage ?? createTauriUsageClient)({ store,
             notifyWarning: () => notifyWarning(localize('vertex_paygo.costs.recording_unavailable')) });
         messageCostUi = (factories.messageCostUi ?? createMessageCostUi)({ getContext, getMessageCost,
-            documentRef, getPrices: costs.getPrices,
+            documentRef, getPrices: costs.getPrices, localize,
             onOpen: () => void messageCosts?.refresh({ retry: true }),
         });
         messageCosts = (factories.messageCosts ?? createMessageCosts)({ getContext,

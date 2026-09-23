@@ -5,8 +5,10 @@
  */
 
 import { formatMessageCostLabel, formatMessageMoney, summarizeMessageCost } from './message-cost-view.js';
+import { createLocalizer, getTierLabel } from './i18n.js';
 
 const ROOT_CLASS = 'vertex-paygo-message-cost';
+const messageKey = name => `vertex_paygo.message_cost.${name}`;
 
 function node(documentRef, tag, className = '', text = '') {
     const result = documentRef.createElement(tag);
@@ -19,13 +21,14 @@ function formatTokens(value) {
     return value == null ? '—' : Number(value).toLocaleString();
 }
 
-function formatDuration(value) {
+function formatDuration(value, localize) {
     if (value == null) return '—';
-    return value < 1000 ? `${Math.round(value)} ms` : `${(value / 1000).toFixed(2)} s`;
+    return value < 1000 ? localize(messageKey('unit_ms'), { value: Math.round(value) })
+        : localize(messageKey('unit_seconds'), { value: (value / 1000).toFixed(2) });
 }
 
-function formatTps(value) {
-    return value == null ? '—' : `${value.toFixed(1)} token/s`;
+function formatTps(value, localize) {
+    return value == null ? '—' : localize(messageKey('unit_tps'), { value: value.toFixed(1) });
 }
 
 function addMetric(documentRef, parent, label, value, note = '') {
@@ -36,86 +39,78 @@ function addMetric(documentRef, parent, label, value, note = '') {
     parent.append(item);
 }
 
-const REASON_LABELS = {
-    pending: '请求仍在处理中',
-    unavailable: '用量轮询已结束，结果不可用',
-    usage_missing: '服务未返回用量',
-    usage_incomplete: '服务返回的用量不完整',
-    tauri_normalized: 'TauriTavern 非流式用量经过转换，可能缺少推理等信息，费用为部分估算',
-    price_missing: '缺少该模型与层级的价格',
-    long_price_missing: '缺少长上下文价格',
-    traffic_tier_mismatch: '返回的流量层级与请求不一致',
-    provisioned_throughput: '预置吞吐量不适用按量估算',
-    unsupported_modality: '包含暂不支持估算的非文本模态',
-    cache_exceeds_prompt: '缓存 token 超过输入 token',
-    amount_out_of_range: '费用结果超出可表示范围',
-    request_pending: '请求记录尚未完成',
-    request_incomplete: '请求记录不完整',
-    request_failed: '请求失败，费用可能不完整',
-    tool_use: '工具调用 token 可能未完整计价',
-    timing_missing: '缺少完整的客户端耗时观测',
-};
+const REASON_LABELS = new Set([
+    'pending', 'unavailable', 'usage_missing', 'usage_incomplete', 'tauri_normalized',
+    'price_missing', 'long_price_missing', 'traffic_tier_mismatch', 'provisioned_throughput',
+    'unsupported_modality', 'cache_exceeds_prompt', 'amount_out_of_range', 'request_pending',
+    'request_incomplete', 'request_failed', 'tool_use', 'timing_missing',
+]);
 
-function buildCard(documentRef, summary, onClose) {
+function buildCard(documentRef, summary, onClose, localize) {
     const card = node(documentRef, 'section', 'vertex-paygo-message-cost-card');
     card.setAttribute('role', 'dialog');
-    card.setAttribute('aria-label', '本条消息费用详情');
+    card.setAttribute('aria-label', localize(messageKey('dialog_label')));
     card.tabIndex = -1;
 
     const header = node(documentRef, 'header');
     const heading = node(documentRef, 'div', 'vertex-paygo-message-cost-heading');
-    heading.append(node(documentRef, 'strong', '', '消息用量与费用'));
-    heading.append(node(documentRef, 'span', '', summary.complete ? '完整估算' : '当前可用估算'));
+    heading.append(node(documentRef, 'strong', '', localize(messageKey('title'))));
+    heading.append(node(documentRef, 'span', '', localize(messageKey(summary.complete ? 'estimate_complete' : 'estimate_partial'))));
     const closeButton = node(documentRef, 'button', 'vertex-paygo-message-cost-close', '×');
     closeButton.type = 'button';
-    closeButton.setAttribute('aria-label', '关闭费用详情');
+    closeButton.setAttribute('aria-label', localize(messageKey('close')));
     closeButton.onclick = onClose;
     header.append(heading, closeButton);
     card.append(header);
 
     const top = node(documentRef, 'div', 'vertex-paygo-message-cost-top');
-    addMetric(documentRef, top, '输入', summary.hasUsage ? formatTokens(summary.promptTokens) : '—', 'token');
+    addMetric(documentRef, top, localize(messageKey('input')), summary.hasUsage ? formatTokens(summary.promptTokens) : '—', localize(messageKey('unit_tokens')));
     const thinkingKnown = summary.thinkingTokens != null;
-    addMetric(documentRef, top, thinkingKnown ? '输出（含推理）' : '输出（已报告）',
+    addMetric(documentRef, top, localize(messageKey(thinkingKnown ? 'output_with_thinking' : 'output_reported')),
         summary.hasUsage ? formatTokens(summary.outputTokens + (summary.thinkingTokens ?? 0)) : '—',
-        summary.hasUsage ? thinkingKnown ? `正文 ${formatTokens(summary.outputTokens)} · 推理 ${formatTokens(summary.thinkingTokens)}`
-            : '推理用量未报告' : 'token');
-    const generationNote = summary.generationTps != null ? '客户端观测'
-        : summary.reasons.includes('timing_missing') ? '流式耗时观测不完整' : '仅流式响应可用';
-    addMetric(documentRef, top, '生成速度', formatTps(summary.generationTps), generationNote);
+        summary.hasUsage ? thinkingKnown ? localize(messageKey('output_breakdown'), {
+            output: formatTokens(summary.outputTokens), thinking: formatTokens(summary.thinkingTokens),
+        }) : localize(messageKey('thinking_unreported')) : localize(messageKey('unit_tokens')));
+    const generationNote = summary.generationTps != null ? localize(messageKey('client_observed'))
+        : summary.reasons.includes('timing_missing') ? localize(messageKey('stream_timing_missing')) : localize(messageKey('stream_only'));
+    addMetric(documentRef, top, localize(messageKey('generation_speed')), formatTps(summary.generationTps, localize), generationNote);
     card.append(top);
 
     const cost = node(documentRef, 'div', 'vertex-paygo-message-cost-amount');
-    cost.append(node(documentRef, 'span', '', summary.hasAmount ? '本地估算费用' : '本地费用估算'));
-    cost.append(node(documentRef, 'strong', '', summary.hasAmount ? formatMessageMoney(summary.amount) : summary.awaitingPrice ? '待计价' : '无法估算'));
+    cost.append(node(documentRef, 'span', '', localize(messageKey('local_cost'))));
+    cost.append(node(documentRef, 'strong', '', summary.hasAmount ? formatMessageMoney(summary.amount)
+        : localize(messageKey(summary.awaitingPrice ? 'label_unpriced' : 'cost_unavailable'))));
     const qualifiers = [];
-    if (summary.priceSource === 'current' || summary.priceSource === 'mixed') qualifiers.push('含当前价格补估');
+    if (summary.priceSource === 'current' || summary.priceSource === 'mixed') qualifiers.push(localize(messageKey('current_price')));
     for (const reason of summary.reasons) {
-        const label = REASON_LABELS[reason];
+        const label = REASON_LABELS.has(reason) ? localize(messageKey(`reason.${reason}`)) : null;
         if (label && !qualifiers.includes(label)) qualifiers.push(label);
     }
     if (qualifiers.length) cost.append(node(documentRef, 'small', '', qualifiers.join(' · ')));
     card.append(cost);
 
     const details = node(documentRef, 'div', 'vertex-paygo-message-cost-details');
-    addMetric(documentRef, details, '推理 token', summary.hasUsage ? formatTokens(summary.thinkingTokens) : '—');
-    addMetric(documentRef, details, '缓存命中', summary.hasUsage ? formatTokens(summary.cachedTokens) : '—');
-    addMetric(documentRef, details, '未缓存输入', summary.hasUsage ? formatTokens(summary.uncachedTokens) : '—');
-    addMetric(documentRef, details, '首个有效内容', formatDuration(summary.firstTokenMs), summary.firstTokenMs == null ? '非流式或暂无观测' : '客户端观测');
-    addMetric(documentRef, details, '端到端耗时', formatDuration(summary.durationMs));
-    addMetric(documentRef, details, '端到端速度', formatTps(summary.endToEndTps));
+    addMetric(documentRef, details, localize(messageKey('thinking')), summary.hasUsage ? formatTokens(summary.thinkingTokens) : '—');
+    addMetric(documentRef, details, localize(messageKey('cached')), summary.hasUsage ? formatTokens(summary.cachedTokens) : '—');
+    addMetric(documentRef, details, localize(messageKey('uncached')), summary.hasUsage ? formatTokens(summary.uncachedTokens) : '—');
+    addMetric(documentRef, details, localize(messageKey('first_content')), formatDuration(summary.firstTokenMs, localize),
+        localize(messageKey(summary.firstTokenMs == null ? 'first_content_unavailable' : 'client_observed')));
+    addMetric(documentRef, details, localize(messageKey('duration')), formatDuration(summary.durationMs, localize));
+    addMetric(documentRef, details, localize(messageKey('end_to_end_speed')), formatTps(summary.endToEndTps, localize));
     card.append(details);
 
     const footer = node(documentRef, 'footer');
-    const model = summary.models.join(' · ') || '模型未知';
-    const tier = summary.tiers.length ? summary.tiers.join(' · ') : '未知';
-    footer.append(node(documentRef, 'span', '', `${model} · Tier: ${tier}`));
-    footer.append(node(documentRef, 'span', '', `${summary.requestCount} 次请求`));
+    const model = summary.models.join(' · ') || localize(messageKey('model_unknown'));
+    const tier = summary.tiers.length ? summary.tiers.map(value => getTierLabel(localize, value)).join(' · ')
+        : localize(messageKey('tier_unknown'));
+    footer.append(node(documentRef, 'span', '', localize(messageKey('model_tier'), { model, tier })));
+    footer.append(node(documentRef, 'span', '', localize(messageKey('request_count'), { count: summary.requestCount })));
     card.append(footer);
     return card;
 }
 
-export function createMessageCostUi({ getContext, getMessageCost, getPrices, documentRef = globalThis.document, onOpen } = {}) {
+export function createMessageCostUi({ getContext, getMessageCost, getPrices, documentRef = globalThis.document, onOpen, localize } = {}) {
+    localize ??= createLocalizer((fallback, key) => getContext?.()?.translate?.(fallback, key));
     let openCard = null;
     let openButton = null;
     let destroyed = false;
@@ -143,7 +138,7 @@ export function createMessageCostUi({ getContext, getMessageCost, getPrices, doc
 
     function open(button, summary) {
         close();
-        const card = buildCard(documentRef, summary, close);
+        const card = buildCard(documentRef, summary, close, localize);
         documentRef.body.append(card);
         openCard = card;
         openButton = button;
@@ -155,8 +150,9 @@ export function createMessageCostUi({ getContext, getMessageCost, getPrices, doc
 
     function refreshOpenCard(summary) {
         if (!openCard || !openButton) return;
-        const fresh = buildCard(documentRef, summary, close);
+        const fresh = buildCard(documentRef, summary, close, localize);
         openCard.replaceChildren(...fresh.children);
+        openCard.setAttribute('aria-label', fresh.getAttribute('aria-label'));
         openButton.setAttribute('aria-expanded', 'true');
         position(openCard, openButton);
     }
@@ -182,16 +178,16 @@ export function createMessageCostUi({ getContext, getMessageCost, getPrices, doc
         button.dataset.messageId = id;
         button.setAttribute('aria-haspopup', 'dialog');
         button.setAttribute('aria-expanded', openButton === button ? 'true' : 'false');
-        button.setAttribute('aria-label', `查看本条消息费用：${formatMessageCostLabel(summary)}`);
-        button.textContent = formatMessageCostLabel(summary);
+        button.setAttribute('aria-label', localize(messageKey('trigger_label'), { cost: formatMessageCostLabel(summary, localize) }));
+        button.textContent = formatMessageCostLabel(summary, localize);
         button.onclick = event => {
             event.stopPropagation?.();
             if (openButton === button) close();
             else {
                 // Manual/catalog price changes need no chat rerender to take effect.
                 const current = summarizeMessageCost(getMessageCost?.(message), getPrices?.() ?? {});
-                button.textContent = formatMessageCostLabel(current);
-                button.setAttribute('aria-label', `查看本条消息费用：${formatMessageCostLabel(current)}`);
+                button.textContent = formatMessageCostLabel(current, localize);
+                button.setAttribute('aria-label', localize(messageKey('trigger_label'), { cost: formatMessageCostLabel(current, localize) }));
                 open(button, current);
             }
         };

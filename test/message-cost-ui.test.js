@@ -6,7 +6,15 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createMessageCostUi } from '../src/message-cost-ui.js';
+import { createMessageCostUi as createUi } from '../src/message-cost-ui.js';
+import { readFile } from 'node:fs/promises';
+import { createLocalizer } from '../src/i18n.js';
+
+const catalogs = Object.fromEntries(await Promise.all(['en', 'zh-cn', 'zh-tw'].map(async language => [language,
+    JSON.parse(await readFile(new URL(`../locales/${language}.json`, import.meta.url), 'utf8'))])));
+const localize = createLocalizer((fallback, key) => catalogs['zh-cn'][key] ?? fallback);
+// Keep existing layout regressions in Chinese while testing host selection below.
+const createMessageCostUi = options => createUi({ localize, ...options });
 
 function fakeDom({ avatarVisible = true } = {}) {
     const listeners = new Map();
@@ -67,6 +75,31 @@ function fakeDom({ avatarVisible = true } = {}) {
 
 function allText(elements) { return elements.map(element => element.textContent).filter(Boolean); }
 function find(elements, className) { return elements.find(element => element.className === className); }
+
+test('message cards use the host locale, editable templates and English fallback', () => {
+    for (const language of ['en', 'zh-cn', 'zh-tw']) {
+        const dom = fakeDom();
+        const dictionary = { ...catalogs[language] };
+        const context = { chat: [{}], translate: (fallback, key) => dictionary[key] ?? fallback };
+        const ui = createUi({ documentRef: dom.document, getContext: () => context, getMessageCost: () => snapshot });
+        ui.render();
+        dom.avatar.children[0].onclick({ stopPropagation() {} });
+        assert.ok(allText(dom.walk()).includes(dictionary['vertex_paygo.message_cost.title']));
+        assert.equal(dom.document.body.children.at(-1).attributes['aria-label'], dictionary['vertex_paygo.message_cost.dialog_label']);
+        assert.ok(allText(dom.walk()).includes(dictionary['vertex_paygo.message_cost.request_count'].replace('{count}', '1')));
+        dictionary['vertex_paygo.message_cost.title'] = '<img src=x onerror=alert(1)> Custom title';
+        dictionary['vertex_paygo.message_cost.trigger_label'] = '{cost} / custom label';
+        dictionary['vertex_paygo.message_cost.dialog_label'] = 'Custom dialog';
+        delete dictionary['vertex_paygo.message_cost.input'];
+        ui.render();
+        assert.ok(allText(dom.walk()).includes('<img src=x onerror=alert(1)> Custom title'));
+        assert.ok(allText(dom.walk()).includes('Input'));
+        assert.ok(dom.avatar.children[0].attributes['aria-label'].endsWith(' / custom label'));
+        assert.equal(dom.document.body.children.at(-1).attributes['aria-label'], 'Custom dialog');
+        assert.equal(dom.walk().some(element => element.tagName === 'IMG'), false);
+        ui.destroy();
+    }
+});
 
 const snapshot = {
     version: 1,

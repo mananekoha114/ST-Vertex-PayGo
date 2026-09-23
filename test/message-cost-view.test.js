@@ -6,7 +6,21 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { formatMessageCostLabel, summarizeMessageCost } from '../src/message-cost-view.js';
+import { formatMessageCostLabel as formatLabel, summarizeMessageCost } from '../src/message-cost-view.js';
+import { readFile } from 'node:fs/promises';
+import { createLocalizer } from '../src/i18n.js';
+
+const chinese = JSON.parse(await readFile(new URL('../locales/zh-cn.json', import.meta.url), 'utf8'));
+const localize = createLocalizer((fallback, key) => chinese[key] ?? fallback);
+const formatMessageCostLabel = summary => formatLabel(summary, localize);
+
+test('message labels use English fallback and editable templates with reordered placeholders', () => {
+    assert.equal(formatLabel({ pending: true }), 'Estimating cost');
+    assert.equal(formatLabel({ awaitingPrice: true }), 'Price needed');
+    assert.equal(formatLabel({}), 'Cost unknown');
+    const custom = createLocalizer((fallback, key) => key.endsWith('.label_partial') ? '{amount} (custom partial)' : fallback);
+    assert.equal(formatLabel({ hasAmount: true, partial: true, amount: .5 }, custom), '$0.50000 (custom partial)');
+});
 
 const complete = (id, overrides = {}) => ({
     id, chatId: 'chat', source: 'vertexai', model: 'gemini-test', tier: 'standard', status: 'complete',

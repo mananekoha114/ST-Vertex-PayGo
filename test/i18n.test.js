@@ -37,6 +37,8 @@ test('manifest exposes exact SillyTavern locale IDs and package version matches'
     ]);
 
     assert.deepEqual(manifest.i18n, {
+        'default': 'locales/en.json',
+        'en': 'locales/en.json',
         'zh-cn': 'locales/zh-cn.json',
         'zh-tw': 'locales/zh-tw.json',
     });
@@ -47,7 +49,7 @@ test('manifest exposes exact SillyTavern locale IDs and package version matches'
 test('every locale has exactly one non-empty string for every message key', async () => {
     const expectedKeys = Object.keys(MESSAGES).sort();
 
-    for (const localePath of ['../locales/zh-cn.json', '../locales/zh-tw.json']) {
+    for (const localePath of ['../locales/en.json', '../locales/zh-cn.json', '../locales/zh-tw.json']) {
         const locale = await readJson(localePath);
         assert.deepEqual(Object.keys(locale).sort(), expectedKeys, localePath);
         for (const [key, value] of Object.entries(locale)) {

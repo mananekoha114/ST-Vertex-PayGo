@@ -8,6 +8,8 @@
   "author": "Mana Nekoha (@mananekoha114)",
   "version": "0.4.0",
   "i18n": {
+    "default": "locales/en.json",
+    "en": "locales/en.json",
     "zh-cn": "locales/zh-cn.json",
     "zh-tw": "locales/zh-tw.json"
   },

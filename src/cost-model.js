@@ -128,6 +128,7 @@ export function estimateRecord(record, currentPrice = null) {
         + (candidates + thoughts) * rates.output) / 1_000_000;
     if (!Number.isFinite(amount)) return { status: 'unknown', amount: null, reason: 'amount_out_of_range', priceSource: null };
     const partialReasons = [];
+    if (record?.usageAccuracy === 'tauri-normalized') partialReasons.push('tauri_normalized');
     if ((tokenCount(usage, 'toolUsePromptTokenCount') ?? 0) > 0) partialReasons.push('tool_use');
     if (record?.status !== 'complete') partialReasons.push(`request_${record?.status ?? 'unknown'}`);
     return {

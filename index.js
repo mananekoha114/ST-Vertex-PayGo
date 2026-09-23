@@ -19,6 +19,7 @@ import { createServerClient } from './src/server-client.js';
 import { createPayGoUi } from './src/ui.js';
 import { createCostContext } from './src/cost-context.js';
 import { createCostUi } from './src/cost-ui.js';
+import { isTauriTavern, showTauriTavernNotice } from './src/tauritavern.js';
 
 let initialized = false;
 let controller = null;
@@ -62,6 +63,22 @@ export async function init() {
     initialized = true;
 
     try {
+        if (isTauriTavern()) {
+            try {
+                const { initTauriTavern } = await import('./src/tauri-runtime.js');
+                controller = await initTauriTavern({
+                    notifyError: message => notify('error', message),
+                    notifyWarning: message => notify('warning', message),
+                });
+            } catch (error) {
+                if (error?.code !== 'TAURI_CAPABILITIES_UNAVAILABLE') throw error;
+                let context;
+                try { context = globalThis.SillyTavern?.getContext?.(); } catch { /* Use native fallback dialog. */ }
+                void showTauriTavernNotice({ context }).catch(error =>
+                    console.error('[Vertex PayGo] Could not display the compatibility notice.', error));
+            }
+            return;
+        }
         const context = globalThis.SillyTavern?.getContext?.();
         const localize = createLocalizer(
             typeof context?.translate === 'function'

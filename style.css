@@ -28,6 +28,25 @@
     min-width: 9rem;
 }
 
+#vertex-paygo-settings .vertex-paygo-settings-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    margin-top: 0.75rem;
+}
+
+#vertex-paygo-settings > select,
+#vertex-paygo-settings .vertex-paygo-settings-content > select {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+}
+
+#vertex-paygo-settings > small,
+#vertex-paygo-settings .vertex-paygo-settings-content > small {
+    overflow-wrap: anywhere;
+}
+
 #vertex-paygo-settings .vertex-paygo-only {
     justify-content: flex-start;
     gap: 0.35rem;
@@ -85,6 +104,32 @@
 #vertex-paygo-settings .vertex-paygo-log-actions[hidden],
 #vertex-paygo-settings .vertex-paygo-only[hidden] {
     display: none;
+}
+
+.vertex-paygo-tauritavern-notice {
+    text-align: left;
+    overflow-wrap: anywhere;
+}
+
+.vertex-paygo-tauritavern-notice pre {
+    padding: 0.75rem;
+    border: 1px solid var(--SmartThemeBorderColor, #888);
+    border-radius: 6px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    user-select: text;
+}
+
+.vertex-paygo-tauritavern-dialog {
+    box-sizing: border-box;
+    width: min(680px, 90vw);
+    max-height: 90vh;
+    overflow-y: auto;
+    color: var(--SmartThemeBodyColor, #eee);
+    background: var(--SmartThemeBlurTintColor, #222);
+    border: 1px solid var(--SmartThemeBorderColor, #888);
+    border-radius: 10px;
+    padding: 1.25rem;
 }
 
 .vertex-paygo-log-viewer {

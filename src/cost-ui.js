@@ -47,6 +47,7 @@ function statusText(record, estimate) {
         unsupported_modality: '非文本模态无法估算', traffic_tier_mismatch: '计费层级不匹配',
         price_missing: '未知价格，待配置', long_price_missing: '长上下文价格待配置',
         tool_use: '含工具调用，仅部分估算', request_incomplete: '用量不完整，仅部分估算',
+        tauri_normalized: 'TauriTavern 用量信息可能不完整，仅部分估算',
     };
     if (estimate.reason && reasons[estimate.reason]) {
         const suffix = estimate.priceSource === 'current' && estimate.amount !== null ? '（按当前价格）' : '';
@@ -80,6 +81,7 @@ export function createCostUi({
     setPrice,
     resetPrice,
     refreshCatalog,
+    coverageNotice = '',
     documentRef = globalThis.document,
 }) {
     if (!documentRef?.createElement) throw new TypeError('A document implementation is required.');
@@ -115,6 +117,7 @@ export function createCostUi({
         refresh.setAttribute('type', 'button');
         const tableWrap = element(documentRef, 'div', 'vertex-paygo-cost-table-wrap');
         root.append(summary, refresh, tableWrap);
+        if (coverageNotice) root.append(element(documentRef, 'p', 'vertex-paygo-cost-coverage-notice', coverageNotice));
 
         const pricing = element(documentRef, 'details', 'vertex-paygo-cost-pricing');
         pricing.append(element(documentRef, 'summary', '', '价格设置（美元 / 百万 token）'));
@@ -336,6 +339,10 @@ export function createCostUi({
                 summary.textContent = `已估算小计 ${subtotal} · 最近一次 ${latestAmount} · ${result.requestCount} 次请求 · 缓存命中 ${result.cachedTokenCount} token · 待计价 ${result.unpricedCount} · 不完整 ${result.incompleteCount}`;
                 if (response.truncated) summary.append(element(documentRef, 'strong', 'vertex-paygo-cost-truncated', ' · 记录过多，当前仅显示部分账本'));
                 tableWrap.replaceChildren();
+                if (records.some(record => record.usageAccuracy === 'tauri-normalized')) {
+                    tableWrap.append(element(documentRef, 'p', 'vertex-paygo-cost-tauri-warning',
+                        '由于 TauriTavern 非流式用量可能缺少思考 Token 等信息，估算可能不准确或偏低。'));
+                }
                 const table = element(documentRef, 'table', 'vertex-paygo-cost-table');
                 const head = element(documentRef, 'thead');
                 const headRow = element(documentRef, 'tr');

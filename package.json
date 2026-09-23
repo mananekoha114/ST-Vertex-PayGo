@@ -1,7 +1,7 @@
 {
   "name": "st-vertex-paygo",
   "version": "0.4.0",
-  "description": "SillyTavern extension for Vertex AI Standard, Flex, and Priority PayGo service tiers",
+  "description": "SillyTavern, Luker and TauriTavern extension for Google Gemini PayGo service tiers",
   "private": true,
   "license": "MPL-2.0",
   "author": {
@@ -12,5 +12,8 @@
   "scripts": {
     "test": "node --test",
     "preview:cost": "node scripts/preview-message-cost.mjs"
+  },
+  "devDependencies": {
+    "yaml": "2.8.3"
   }
 }

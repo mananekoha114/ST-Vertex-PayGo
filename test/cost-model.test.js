@@ -89,6 +89,15 @@ test('marks interrupted tool-use requests as partial', () => {
     assert.ok(result.amount > 0);
 });
 
+test('keeps Tauri normalized usage calculable but marks the estimate partial', () => {
+    const result = estimateRecord({ status: 'complete', usageAccuracy: 'tauri-normalized', price, usage: {
+        promptTokenCount: 10, candidatesTokenCount: 2,
+    } });
+    assert.equal(result.status, 'partial');
+    assert.equal(result.reason, 'tauri_normalized');
+    assert.ok(result.amount > 0);
+});
+
 test('Google modality detail arrays make non-text usage unknown', () => {
     const result = estimateRecord({ status: 'complete', price, usage: {
         promptTokenCount: 10, candidatesTokenCount: 2,

@@ -1,105 +1,107 @@
 # ST Vertex AI PayGo 前端扩展
 
-这是一个为 **SillyTavern（酒馆）** 及 **Luker** 打造的前端扩展，在 Vertex AI 连接设置中提供 **Standard、Flex 和 Priority** 三种 PayGo 服务层级选择，并支持 **Google AI Studio 的 Standard / Flex** 弹性调度。
+支持 **SillyTavern（酒馆）、Luker 和 TauriTavern**，为 Google Vertex AI 提供 **Standard / Flex / Priority** 层级选择，为 Google AI Studio 提供 **Standard / Flex** 选择，并按请求用量估算对话费用。
 
-> ⚠️ **重要提示（必须同时安装后端插件）**  
-> 本项目**仅为浏览器前端 UI 扩展**。Gemini Standard、Flex、Priority、PayGo-only 及费用统计功能，**必须**同时在酒馆中安装配套的 [`ST-Vertex-PayGo-Server`](https://github.com/mananekoha114/ST-Vertex-PayGo-Server) 后端插件。\
-> 前后端请一起升级至 **0.4.0（协议 v2）**，重启酒馆并刷新前端页面。Standard 也经过本地代理采集用量，但不会自动启用 PayGo-only；非 Gemini 模型仍走酒馆原生 Standard 通道。
-
-> ⛔ **TauriTavern 用户请注意：**  
-> **请勿在 TauriTavern 中安装此扩展！**  
-> 扩展检测到 TauriTavern 后，会弹出不可用说明与 Service Tier 切换指引，并停止初始化，不会接管请求或访问配套后端。每次页面加载只提示一次；可在扩展程序中禁用或卸载本扩展。TauriTavern 用户请使用下方的原生设置方法。
-
-### 在 TauriTavern 中切换 Service Tier
-
-适用于 **TauriTavern 2.1.0 及以上**（已核对 2.3.0 源码）。在 **API 连接设置 → Chat Completion** 中先选择对应 API 来源，再点击连接按钮旁的 **附加参数（Additional Parameters）**。这些设置按来源分别保存，输入会自动保存，编辑后关闭弹窗即可。保留已有的其他参数。
-
-**Google Vertex AI**：选择支持相应层级的 Gemini 模型，Flex / Priority 将 **Region 设为 `global`**。在 **Include Request Headers（包含请求头）** 中填入 YAML：
-
-```yaml
-X-Vertex-AI-LLM-Request-Type: shared
-X-Vertex-AI-LLM-Shared-Request-Type: flex
-```
-
-- **Flex**：使用上面的两行。
-- **Priority**：将第二行的 `flex` 改为 `priority`。
-- **Standard**：删除第二行；若不需要强制 PayGo（绕过预配吞吐量），也删除第一行。仅需 Standard PayGo 时保留第一行。
-
-**Google AI Studio**：先切换至该来源，使用已开通付费的 Gemini API 账号和支持 Flex 的模型，在 **Include Body Parameters（包含请求体参数）** 中填入 YAML：
-
-```yaml
-service_tier: flex
-```
-
-恢复 **Standard** 时删除 `service_tier` 字段。AI Studio 不使用上述 Vertex 请求头，也无需设置 Vertex 区域。找不到附加参数入口时，请更新 TauriTavern 至 2.1.0 或更新版本。
-
-核验依据：[TauriTavern 2.1.0 更新说明](https://github.com/Darkatse/TauriTavern/releases/tag/v2.1.0)、[附加参数字段](https://github.com/Darkatse/TauriTavern/blob/v2.3.0/src/scripts/templates/customEndpointAdditionalParameters.html)、[按来源保存逻辑](https://github.com/Darkatse/TauriTavern/blob/v2.3.0/src/scripts/openai.js#L7454-L7471)、[Vertex Flex](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/flex-paygo)、[Vertex Priority](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/priority-paygo)、[AI Studio Flex](https://ai.google.dev/gemini-api/docs/generate-content/flex-inference)。
-
----
+安装同一个前端扩展后，插件会自动识别宿主，复用已有的 Google 认证配置。通过界面选择层级即可，无需手动填写请求参数。
 
 ## 主要功能
 
-- **原生无缝集成**：在酒馆原有的 Vertex AI 设置面板中直接嵌入 Standard / Flex / Priority 等级切换控件，开箱即用。
-- **Google AI Studio 弹性降本（Flex）**：切换到 Google AI Studio 时复用同一交互面板、后端转发链路与日志系统，按需展示可用选项，无需重复填写 API Key。
-- **PayGo-only 专属开关**：强制请求绕过预配吞吐量（Provisioned Throughput），确保纯按量计费。
-- **智能区域同步提醒**：Flex 与 Priority 依赖 `global` 全局区域，切换层级时提供弹窗指引并支持一键同步修正。
-- **Gemini 原生模型防护**：仅对官方 `gemini-*` 系列模型生效，杜绝误影响 Claude、Llama 等第三方模型。
-- **模型名单与价格同步更新**：后台获取 GitHub 支持名单和公开文本价格，每 6 小时自动刷新，也可在费用页立即更新；离线时使用有效缓存或内置快照。
-- **配置与预设自动持久化**：层级设置自动随当前连接配置或 Chat Completion 预设保存，切换无缝。
-- **安全拦截与防静默回退**：实时监测后端插件运行状态。若插件未就绪或代理异常，**直接硬拦截发送，绝不在用户不知情时静默切回原版高价通道**。
-- **前后端合并运行诊断日志**：汇总经过白名单筛选的客户端与服务端关键事件，管理员可直接在面板内预览或导出当次运行日志。
-- **对话费用估算**：从输入框左侧魔法棒菜单打开，按实际用量估算费用，支持缓存命中、思考 Token、长上下文价格和单个模型的手动价格覆盖。
+- **服务层级与 PayGo-only**：按模型展示可用层级；Vertex AI 可单独开启 PayGo-only，或与 Flex / Priority 组合使用。
+- **区域同步**：选择 Vertex Flex / Priority 时，可一并将区域切换为所需的 `global`；AI Studio 无需配置区域。
+- **连接与预设配置**：保存当前连接的层级设置；TauriTavern 还支持分别配置 Agent 模型目标（Model Target）。
+- **对话费用估算**：从魔法棒菜单查看请求用量、缓存命中和费用小计，支持流式与非流式请求、长上下文价格及手动单价覆盖。统计范围取决于宿主，详见下文。
 - **单条回复费用**：角色头像下直接显示这一版回复的估算金额；点击打开用量与费用卡片，查看输入、输出、推理、缓存、耗时和观测速率。
-- **多语言适配**：自适应酒馆界面语言，完整支持简体中文与繁体中文。
+- **模型名单与价格更新**：启动后及页面开启期间每 6 小时同步一次，也可在费用页手动更新；离线时使用有效缓存或内置快照。
+- **请求校验**：检查模型、层级、区域和参数冲突，不因 Flex 请求失败而自动改用 Standard 重试。
+- **诊断日志**：SillyTavern / Luker 管理员可查看或导出前后端合并日志。
+- **界面语言**：支持简体中文与繁体中文。
 
----
+## 安装与版本要求
 
-## 版本要求
+当前前端版本为 **0.4.0**。不同宿主使用的发送通道如下：
 
-- **宿主程序**：SillyTavern ≥ 1.16.0（已通过 1.16/1.17/1.18 测试）或 Luker ≥ 2.7.0 (release 分支)
-- **Node.js 环境**：酒馆服务端运行环境需 Node.js ≥ 20
-- **前置认证**：酒馆内已成功配置 Vertex AI（快速模式 API Key 或服务账号 JSON 均可）
-- **配套组件**：前端扩展与 `ST-Vertex-PayGo-Server` 后端插件均更新至 0.4.0（协议 v2）
+| 宿主 | 版本与环境 | 需要安装的组件 | 请求通道 |
+| :--- | :--- | :--- | :--- |
+| SillyTavern | ≥ 1.16.0，已通过 1.16 / 1.17 / 1.18 测试；Node.js ≥ 20 | 本前端 + 后端插件 ≥ 0.4.0（协议 v2） | 配套后端代理 |
+| Luker | ≥ 2.7.0，release 分支；Node.js ≥ 20 | 本前端 + 后端插件 ≥ 0.4.0（协议 v2） | 配套后端代理 |
+| TauriTavern | 按 2.3.0 公开接口适配，构建需开放第三方扩展、原生附加参数及扩展存储接口 | 仅本前端 | 宿主原生认证与发送通道 |
 
----
+请先在宿主中配置可用的 Google Vertex AI 或 Google AI Studio 认证。Vertex AI 可使用快速模式 API Key 或服务账号；AI Studio Flex 需要已开通付费的 Gemini API 账号。
 
-## 安装教程
+部分 iOS 分发构建默认关闭第三方扩展或附加参数能力，请以所用构建的权限为准。缺少原生接口时，插件会显示兼容性提示。
 
-本功能由 **后端插件** + **前端扩展** 配合运作，均无需安装额外的 npm 依赖包：
+### 1. 安装后端（仅 SillyTavern / Luker）
 
-### 第一步：安装后端插件
-1. 彻底关闭 SillyTavern 或 Luker。
-2. 下载并解压 [`ST-Vertex-PayGo-Server`](https://github.com/mananekoha114/ST-Vertex-PayGo-Server) 仓库，放入酒馆根目录的 `plugins` 文件夹下：
-   ```text
-   <酒馆根目录>/plugins/ST-Vertex-PayGo-Server/
-   ```
-3. 打开酒馆根目录下的 `config.yaml`，确认服务端插件已启用：
+1. 彻底关闭宿主。
+2. 下载并解压 [`ST-Vertex-PayGo-Server`](https://github.com/mananekoha114/ST-Vertex-PayGo-Server)，放入 `<酒馆根目录>/plugins/ST-Vertex-PayGo-Server/`。
+3. 在宿主根目录的 `config.yaml` 中启用服务端插件：
+
    ```yaml
    enableServerPlugins: true
    ```
 
-### 第二步：安装前端扩展（本项目）
-1. 启动 SillyTavern 或 Luker 服务端。
-2. 打开酒馆 Web 页面，点击顶部导航栏 **扩展程序（三块积木图标） -> 安装扩展程序**。
-3. 粘贴本仓库的 Git URL，点击安装并确认加载。
+4. 重新启动宿主。后续更新后端插件时，也需要重启。
 
----
+TauriTavern 直接进行下一步，无需安装此后端或 Node.js。
+
+### 2. 安装前端（所有宿主）
+
+打开宿主的 **扩展程序 → 安装扩展程序**，粘贴[本仓库地址](https://github.com/mananekoha114/ST-Vertex-PayGo)，安装后刷新页面。用户安装无需执行 npm 或额外编译。
 
 ## 使用说明
 
-1. 点击酒馆顶部的 **API 连接设置（插头图标 🔌）**，接口类型选择 **Chat Completion**，服务商切换为 **Google Vertex AI**。
-2. 配置好 Vertex AI 账号、模型与区域，建议先成功发送一条测试消息，验证原生链路畅通。
-3. 在下方新增的 **“Vertex AI PayGo”** 面板中，选择需要的服务层级（Standard / Flex / Priority）。
-4. 若选择 Flex 或 Priority，按照弹窗指引将区域（Region）改为 `global`。
-5. 确认面板内的“服务端插件状态”显示为 **就绪（Ready）** 即可开始使用。
-6. *(管理员专享)* 可使用状态指示栏下方的“查看日志”或“保存日志”按钮调取本次运行周期的合并排错日志。
-7. 点击输入框左侧 **魔法棒 → 对话费用估算**，查看当前对话的请求用量、缓存命中与费用小计。
+### 选择连接与服务层级
 
----
+1. 在 **API 连接设置 → Chat Completion** 中选择 **Google Vertex AI** 或 **Google AI Studio**，配置认证、模型以及 Vertex 区域。
+2. 打开对应的层级面板：
 
-## 对话费用估算（0.4.0）
+   | 宿主 | 设置入口 |
+   | :--- | :--- |
+   | SillyTavern / Luker | API 连接设置中的 **Vertex AI PayGo** 或 **Google AI Studio Flex** 面板 |
+   | TauriTavern | **扩展设置 → Vertex AI PayGo · TauriTavern**，点击标题展开默认折叠的面板 |
 
-点击输入框左侧 **魔法棒 → 对话费用估算**。窗口显示已估算小计、最近一次费用、请求数、缓存命中，以及待计价和用量不完整的记录。
+3. TauriTavern 的“配置对象”默认选择 **当前 Chat Completion 连接**；需要设置 Agent 时，选择对应的 **Agent 模型目标**。主 Agent 和子 Agent 使用各自绑定目标的配置。
+4. 选择服务层级；Vertex AI 可按需开启 PayGo-only。Flex / Priority 要求 Vertex 区域为 `global`，选择时可确认同步修改。
+5. SillyTavern / Luker 需确认“服务端插件状态”为 **就绪（Ready）**。TauriTavern 使用原生通道，无需此后端状态。
+6. 发送请求后，从输入框左侧 **魔法棒 → 对话费用估算** 查看已采集的用量与费用。
+
+### 保存、预设与恢复 Standard
+
+SillyTavern / Luker 的层级设置与当前连接、Profile 和 Chat Completion 预设关联，后台请求按自身配置选择层级。
+
+TauriTavern 将设置写入当前来源的原生附加参数或所选 Model Target，仅修改层级相关字段，保留其他参数。要将当前连接设置随预设复用，请保存原生预设。
+
+恢复默认层级时，选择 **Standard** 并关闭 **PayGo-only**。TauriTavern 的参数已保存在宿主中，禁用或卸载扩展不会自动撤销，卸载前如需恢复默认，应先完成此操作。
+
+### 服务层级规则
+
+| 来源 | 层级 / 选项 | 行为与要求 |
+| :--- | :--- | :--- |
+| Vertex AI | Standard | 保留原有区域，使用标准层级。 |
+| Vertex AI | PayGo-only | 强制请求使用共享按量通道，绕过预配吞吐量；可与其他层级组合。 |
+| Vertex AI | Flex | 仅限支持模型，区域必须为 `global`。 |
+| Vertex AI | Priority | 仅限支持模型，区域必须为 `global`；实际服务行为以 Google 返回结果为准。 |
+| AI Studio | Standard | 使用标准层级，不添加 Flex 参数。 |
+| AI Studio | Flex | 仅限支持模型及付费账号；支持流式与非流式，无需配置区域。 |
+
+AI Studio 不使用 Vertex 的 PayGo-only 请求头，本扩展也不提供 AI Studio Priority 选项。Google 官方规则见 [Vertex Flex](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/flex-paygo)、[Vertex Priority](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/priority-paygo) 和 [AI Studio Flex](https://ai.google.dev/gemini-api/docs/generate-content/flex-inference)。
+
+Standard 与其他层级使用相同的宿主通道：SillyTavern / Luker 的 Gemini 请求经过后端代理采集用量；TauriTavern 通过原生附加参数发送，由前端采集可观察到的响应。Flex 的等待超时及移动端后台行为仍受宿主实现约束。
+
+## 对话费用估算
+
+点击 **魔法棒 → 对话费用估算**。窗口显示已估算小计、最近一次费用、请求数、缓存命中，以及待计价和用量不完整的记录。
+
+### 统计范围与准确性
+
+普通聊天及经过兼容前端发送接口的 Google Gemini 请求会记录用量，涵盖流式与非流式。重生成、滑动生成、续写及可采集的后台请求分别记账；非 Gemini 模型不纳入账本。
+
+- **TauriTavern 非流式用量可能缺少思考 Token 等信息，费用估算可能不准确或偏低。** 面板和对应记录会明确提示，并按“部分估算”呈现。
+- **TauriTavern 原生 Agent / 子 Agent 模型循环的费用暂未计入账本。** Agent 层级配置可用，但不能将当前小计当作整个 Agent Run 的总成本。
+- 中断、缺失用量和未知计价规则会明确标注；缺少用量或价格不会显示为免费。
+- 从升级后的请求开始统计，无法补回旧对话的缓存命中和隐藏思考用量；删除消息不会删除已经产生的费用。
+
+金额是本地估算，并非 Google 结算账单。工具调用、非文本模态、预配吞吐量、缓存存储、税费及赠金等不应据此视为已完整计入。查询账本不会额外调用 Google，也不会为统计再次生成回答。
 
 ### 单条回复费用
 
@@ -114,13 +116,11 @@ service_tier: flex
 
 ### 自动价格与手动设置
 
-- **自动匹配**：随支持名单同步公开付费文本价格，按来源、完整模型 ID 和服务层级匹配，单位为 **USD / 百万 Token**。价格设置中可查看核验日期和官方来源。
-- **手动覆盖**：可为单个模型与层级填写普通输入、缓存输入和输出价格；长上下文档位需填写阈值及全部对应单价。手动价格优先，在线更新不会覆盖，也可点击“恢复自动价格”。
-- **适用范围**：Vertex 自动价格采用 **Global 基础价**。地区差价、免费额度与合同折扣不会自动识别，请按实际情况调整。官方价格参考：[Vertex AI](https://cloud.google.com/gemini-enterprise-agent-platform/generative-ai/pricing)、[Gemini API](https://ai.google.dev/gemini-api/docs/pricing)。
-- **缺价与过期**：未收录或已过期的价格显示待配置，不推测折扣，也不将其当作免费请求。未配置价格仍会采集 Token；补充价格后可按当前单价补估，并明确标注。
-- **历史快照**：每次请求保存当时的有效价格，之后修改价格或更新目录不会重算已有价格快照的记录。
-
-### 用量与费用记录
+- **自动匹配**：随支持名单同步公开付费文本价格，按来源、完整模型 ID 和服务层级匹配，单位为 **USD / 百万 Token**。费用页可查看核验日期和官方来源。
+- **手动覆盖**：可填写普通输入、缓存输入和输出单价；长上下文档位需填写阈值及全部对应单价。手动价格优先，在线更新不会覆盖，也可恢复自动价格。
+- **适用范围**：Vertex 自动价格采用 Global 基础价，地区差价、免费额度与合同折扣不会自动识别。官方价格参考：[Vertex AI](https://cloud.google.com/gemini-enterprise-agent-platform/generative-ai/pricing)、[Gemini API](https://ai.google.dev/gemini-api/docs/pricing)。
+- **缺价与过期**：未收录或已过期的价格显示待配置，不推测折扣。未配置价格仍会采集用量，补价后可按当前单价补估，并明确标注。
+- **历史快照**：每次请求保存当时的有效价格，之后调价或更新目录不会重算已有价格快照的记录。
 
 文本费用按以下公式估算，超过长上下文阈值时使用对应档位的整段单价：
 
@@ -130,50 +130,22 @@ service_tier: flex
       + (回答 Token + 思考 Token) × 输出价) / 1,000,000
 ```
 
-- **统计起点**：从升级后的请求开始，无法补回旧对话的缓存命中和隐藏思考用量。重生成、滑动生成、续写及该对话发起的后台 Google 请求分别记账；删除消息不会删除已经产生的费用。没有活动对话的后台请求不归入任何对话。
-- **计价边界**：中断、缺失用量和未知计价规则会明确标注。工具费用、非文本模态、预配吞吐量、缓存存储费、税费及赠金不应据此当作完整账单。
-- **持久化**：账本保存在当前酒馆用户目录的 `vertex-paygo/usage-ledger.jsonl`，不会随诊断日志清空。仅记录模型、层级、时间、用量、价格与随机对话 ID，不保存提示词、回答或密钥；用户只能读取自己的账本。
-- **对话隔离**：不同角色、群聊和分支分别统计，使用酒馆重命名操作可保持关联。并发请求在发起时绑定对话，切换聊天不会将费用归到新聊天。
-- **设置与备份**：对话 ID 对应关系和手动价格保存在当前账户的扩展设置，自动价格缓存在浏览器。迁移时应同时备份账户设置与账本。
+### 账本、隐私与备份
 
-金额是本地估算，并非 Google 结算账单。查询账本不会额外调用 Google，也不会为了统计再次生成回答。Gemini Standard 在 Vertex AI 与 AI Studio 均经过插件；非 Gemini 模型不纳入账本。自定义 Google reverse proxy 与本插件代理不能同时启用。
+账本仅保存模型、层级、时间、用量、价格和对话标识，不保存提示词、回答或密钥。并发请求在发起时绑定对话，切换聊天不会将费用记入新聊天；没有活动对话的后台请求不归入任何对话。角色、群聊和分支分别统计，通过宿主重命名对话可保持关联。
 
----
+| 宿主 | 账本位置 |
+| :--- | :--- |
+| SillyTavern / Luker | 当前用户目录下的 `vertex-paygo/usage-ledger.jsonl`，不会随诊断日志清空 |
+| TauriTavern | 数据目录下的 `_tauritavern/extension-store/vertex-paygo/kv/chat-<对话ID>/`，每次请求一个记录 |
 
-## 工作模式与路由规则
-
-### Google AI Studio
-1. 在 Chat Completion 中切换为 **Google AI Studio**，填入已绑定结算账户的 Gemini API Key，并选择支持 Flex 的模型。
-2. 在 **Google AI Studio Flex** 面板中勾选 **Flex**，并确认后端插件状态为就绪。（*注：两端均需更新至 0.4.0（协议 v2），更新后请重启酒馆并刷新前端页面*）。
-3. **调度差异**：
-   - **Standard**：经过后端代理采集实际用量，保持 Standard 层级，不注入 Flex 参数。
-   - **Flex**：经由后端票据验证与本地回环代理，在发送给 Google 的最终请求体中注入顶层字段 `service_tier: "flex"`，同时支持流式与非流式传输。
-4. **特性约束**：
-   - AI Studio 模式无需调整区域，亦不会发送 Vertex 专用的 `PayGo-only` 或 `Shared-Request-Type` 请求头；
-   - 本扩展暂不支持 AI Studio 的 Priority 模式；
-   - 若遇到资源不足或排队失败，将直接向上层抛出明确错误，**绝不擅自降级为 Standard 费率重试**；
-   - 更多详情参考 [Google 官方 Flex 说明](https://ai.google.dev/gemini-api/docs/generate-content/flex-inference) 与 [价格表](https://ai.google.dev/gemini-api/docs/pricing)。
-
-### Vertex AI
-不同配置选项下，请求的具体走向如下：
-
-| 你选择的设置 | 实际请求走向 | 说明 |
-| :--- | :--- | :--- |
-| **Standard**（未勾选 PayGo-only） | **后端插件代理** | 采集用量，保持原有区域、认证与 Standard 层级；不注入 PayGo-only 标头。 |
-| **Standard**（勾选 PayGo-only） | **后端插件代理** | 注入 `PayGo-only` 标头，强制绕过预配额，走纯按量计费。 |
-| **Flex** | **后端插件代理** | 强制要求 `global` 区域，注入 `Flex` 标头，享受官方折扣但允许等待排队。 |
-| **Priority** | **后端插件代理** | 强制要求 `global` 区域，注入 `Priority` 高优先级抢占标头。 |
-
-> 💡 **提示**：`PayGo-only` 开关可与 `Flex` 或 `Priority` 叠加生效。\
-> ⚠️ **关于 Priority 的特别提醒**：配置 Priority 并不保证 Google 必然 100% 分配高优先级资源；当机房容量极度饱和或项目配额不足时，Google 服务端可能会按其策略以 Standard 费率降级处理。
-
----
+对话 ID 对应关系和手动价格保存在当前账户的扩展设置，自动价格缓存在浏览器。迁移时请同时备份账户设置与账本；TauriTavern 可随其数据目录一起备份。
 
 ## 模型支持与动态名单
 
 本扩展仅对 Google Vertex AI 与 Google AI Studio 的官方 **`gemini-*` 原生系列模型** 生效：
 
-- **白名单内收录的模型**：允许自由切换至该模型明确支持的 PayGo / Flex 层级。
+- **名单内收录的模型**：按来源允许选择该模型明确支持的服务层级。
 - **未来新增的 Gemini 模型**：若 Google 推出新模型而本地规则尚未更新，界面将显示黄色“未验证”警示，但**依然放行请求**，交由 Google 服务端作最终鉴权与处理。
 - **非 Gemini 模型（Claude、Llama 等）**：Google 官方不支持对此类模型进行层级调度，因此直接走酒馆原生默认通道，扩展不作干预。
 
@@ -182,16 +154,78 @@ service_tier: flex
 - **离线安全优先**：扩展初始化时优先加载内置支持名单和价格快照，再尝试从浏览器本地存储恢复，完全不阻断弱网或无外网环境下的酒馆启动。
 - **后台联合拉取**：就绪后，扩展会在后台拉取 [`data/model-support.json`](data/model-support.json)，并在页面开启期间每 6 小时静默轮询一次（内置 5 秒超时保护）。费用页也可点击“更新支持列表和价格”。请求失败或解析异常时继续使用当前有效名单和价格。
 - **校验规范**：远端文件由维护者根据 Google 官方文档维护并托管于 GitHub（非 Google 官方 API，也不实时抓取官方价格页）。更新前会严格校验 Schema、日期、模型 ID、历史集合、价格字段及文件大小；整份数据通过后才一次性替换内存状态并持久化，任一部分无效则保留原数据。
-- **维护原则（针对贡献者）**：
+## 诊断与请求保护
 
-  | 来源分类 | 更新时间字段 | 支持层级列表 | 历史追踪全集 |
-  | :--- | :--- | :--- | :--- |
-  | **Vertex AI** | `updatedAt` | `tiers.flex` / `tiers.priority` | `knownModels` |
-  | **Google AI Studio** | `aiStudio.updatedAt` | `aiStudio.tiers.flex` | `aiStudio.knownModels` |
+### 运行日志（SillyTavern / Luker）
 
-  *注：`knownModels` 历史集合采取**只增不减**原则。若某模型从支持列表中下架，仍须保留在历史集合中，防止被误判为未收录的全新模型。*
+前端扩展与后端插件将经过过滤的运行状态汇总到宿主根目录的 `st-vertex-paygo.log`。管理员可在设置面板中点击“查看日志”或“保存日志”；TauriTavern 不提供此 Node 服务端合并日志。
 
-### 价格表维护与兼容（针对贡献者）
+- **生命周期**：服务端冷启动或插件重载时覆写文件，仅刷新浏览器不会清空。
+- **格式与容量**：UTF-8 JSON Lines，包含时间、来源、级别、事件名和元数据；单文件上限 5 MiB，客户端上报配额最多 2 MiB，准备失败和未经认证的探测事件另有 2 MiB 预算。
+- **权限与隐私**：仅管理员可上报、查看和导出。不记录 Google 认证头、密钥、服务账号内容、Ticket、完整请求 URL、请求正文、提示词、模型输出或异常调用栈。
+
+### 认证、配置隔离与冲突
+
+各宿主都按请求配置校验模型、层级与区域，不因请求失败而自动改用 Standard 重试。
+
+**SillyTavern / Luker** 使用后端票据和回环代理：
+
+- 在最终生成请求准备完成后申请临时票据，保留单次请求覆盖的 `secret_id`。显式指定的密钥或服务账号必须存在；宿主缺少所需认证接口时明确报错，不改用默认密钥。未指定 ID 时保留宿主认证方式。
+- Connection Manager 请求（含 `/profile-genstream`）按当次 Profile 的层级字段或预设取值，未配置时使用 Standard；独立 `ChatCompletionService` 请求也有请求级配置，避免跨连接串用。
+- 后端未就绪、回环鉴权失效或层级不兼容时拦截发送。自定义 Google reverse proxy 不能与本插件代理混用。
+
+**TauriTavern** 使用原生认证和附加参数：
+
+- 当前连接、预设及 Model Target 的参数分别保存，后台请求保留自身的配置与对话归属。
+- 修改层级时保留其他附加参数；无法解析或相互冲突的参数会报错。例如已有 `exclude_body` 排除 AI Studio 的 `service_tier` 时，会阻止 Flex 请求，避免层级字段被悄悄删除。
+- 原生 Agent 使用所绑定 Model Target 的配置；其模型循环不经过普通聊天的费用采集通道。
+
+## 常见问题
+
+### 找不到设置面板，或提示宿主不兼容？
+
+SillyTavern / Luker 的面板位于 API 连接设置，需先选择 Google Vertex AI 或 Google AI Studio。TauriTavern 的面板位于 **扩展设置 → Vertex AI PayGo · TauriTavern**，默认折叠，点击标题展开。若提示缺少原生接口，请更新至兼容版本，并确认所用构建允许第三方扩展及附加参数。
+
+### “服务端插件状态”始终显示未就绪？
+
+此状态仅适用于 SillyTavern / Luker。确认后端位于 `<酒馆根目录>/plugins/ST-Vertex-PayGo-Server/`，`config.yaml` 中已设置 `enableServerPlugins: true`，且前后端版本符合要求。安装或更新后端后需彻底关闭并重启宿主。TauriTavern 无需安装后端。
+
+### 为什么无法选择 Flex 或 Priority？
+
+确认当前模型是官方 `gemini-*` 模型，且支持相应层级。名单中明确不支持的选项会被禁用；AI Studio 不提供 Priority。Vertex Flex / Priority 还需要 `global` 区域，修改区域后请检查面板状态，按提示同步区域或切换 Standard。
+
+### 为什么非流式费用显示“部分估算”，或 Agent 请求没有计入？
+
+TauriTavern 非流式响应可能缺少思考 Token 等计费信息，原生 Agent / 子 Agent 模型循环也暂未纳入账本。详见“统计范围与准确性”，请勿将小计当作完整账单。
+
+### 找不到“查看日志”和“保存日志”按钮？
+
+这两个按钮仅适用于 SillyTavern / Luker 管理员。请确认前后端均已更新至 0.4.0（协议 v2）或兼容版本，并已重启宿主。TauriTavern 没有此服务端日志功能。
+
+### 禁用插件后，为什么 TauriTavern 仍在使用原来的层级？
+
+层级参数保存在宿主的原生设置中。禁用前请选择 Standard 并关闭 PayGo-only；已经禁用时，可重新启用插件完成此操作。
+
+## 开发者与测试
+
+本项目使用原生 ES 模块，无构建编译步骤。开发测试先执行 `npm ci` 安装仅用于测试的 YAML 解析库，再运行：
+
+```bash
+node --test
+```
+
+用户安装扩展不需要执行 npm，TauriTavern 模式复用宿主 YAML 库。TauriTavern 适配已通过接口契约和模拟宿主集成测试，尚未完成真实 Tauri 应用及付费 API 联调。
+
+### 支持名单维护
+
+| 来源分类 | 更新时间字段 | 支持层级列表 | 历史追踪全集 |
+| :--- | :--- | :--- | :--- |
+| **Vertex AI** | `updatedAt` | `tiers.flex` / `tiers.priority` | `knownModels` |
+| **Google AI Studio** | `aiStudio.updatedAt` | `aiStudio.tiers.flex` | `aiStudio.knownModels` |
+
+*注：`knownModels` 历史集合采取**只增不减**原则。若某模型从支持列表中下架，仍须保留在历史集合中，防止被误判为未收录的全新模型。*
+
+### 价格表维护与兼容
 
 继续使用 schema v1 和原有缓存键，在同一 JSON 中增加可选 `pricing` 字段：
 
@@ -208,73 +242,6 @@ service_tier: flex
 
 维护价格时须同步更新 `data/model-support.json` 与 `src/bundled-pricing.js`，测试会检查两者一致。数据发布至仓库 `main` 后，已安装客户端才能通过原地址自动获取；本地文件修改不会直接更新远端目录。
 
----
-
-## 运行日志系统
-
-自 0.3.0 版本起，前端扩展与后端插件建立了统一的安全审计通道：
-
-- **集中式写入**：前端将过滤后的客户端运行状态异步上报给后端，统一写入宿主根目录下的 `st-vertex-paygo.log`。
-- **生命周期机制**：服务端每次冷启动或插件重载时自动覆写该文件（仅刷新浏览器不会清空）。
-- **格式与配额预算**：
-  - 标准 UTF-8 JSON Lines 格式（包含时间戳、来源 `server`/`client`、级别、事件名与上下文元数据）；
-  - 单文件容量硬上限为 **5 MiB**；
-  - 客户端上报事件配额最多占 **2 MiB**；准备阶段（prepare）失败与未经认证的探测事件享有独立的 2 MiB 预算，耗尽后只丢弃低级噪声，优先保障关键业务诊断日志的完整性。
-- **权限与隐私保护**：
-  - **仅管理员可用**：出于安全隔离考量，仅具备管理员权限的会话允许上报、查看和导出日志；
-  - **绝不落盘敏感数据**：系统严禁收集任何 Google 鉴权 Header、API Key、服务账号内容、Ticket 凭证、请求完整 URL、请求 Payload、提示词内容、模型输出或异常调用栈。
-
----
-
-## 安全与防坑设计
-
-- 🔒 **密钥生命周期安全**：
-  - 扩展会在最终生成请求序列化完成后，才向服务端申请换取临时 PayGo 票据，以此保证 Luker 在单次请求中所覆盖的 `secret_id` 不会丢失；
-  - AI Studio 请求中携带的显式密钥 ID 必须存在于当前用户的密钥库中，校验失败即时拦截；
-  - Vertex Express/Full 按显式密钥 ID 读取对应 API Key 或服务账号；指定密钥不存在，或宿主缺少所需认证接口时会明确报错，不回退到默认密钥或其他服务账号。未指定 ID 时保留宿主原有认证方式。
-- ⚙️ **多 Profile 与预设隔离**：
-  - 连接管理器（含 `/profile-genstream`）严格按照当次请求所绑定的 Profile 中的 `vertex-paygo` 字段提取调度层级；缺失时读取预设，未配置则默认按 Standard 处理，绝不跨 Profile 产生状态污染；
-  - 独立 `ChatCompletionService` 请求若未显式指定，亦默认使用 Standard，防止盲目猜度计费层级。
-- 🚫 **拒绝隐式静默回退**：若后端无响应、回环鉴权失效或层级不兼容，插件**直接中断链路并弹窗告警**，杜绝“因故障自动切回原生通道导致天价账单”的隐患。
-- 🛡️ **第三方反向代理防护**：若 Gemini 请求配置了自定义 Google 反代 URL，扩展会报错并拦截发送，避免与本插件代理混用。
-
----
-
-## 常见问题 (FAQ)
-
-### Q: “服务端插件状态”始终显示未就绪？
-**A**: 请依序检查：
-1. 确认后端插件目录完整存放于 `<酒馆根目录>/plugins/ST-Vertex-PayGo-Server/`；
-2. 检查酒馆根目录 `config.yaml` 中是否已将 `enableServerPlugins` 设为 `true`；
-3. 确认酒馆内核满足版本限制（SillyTavern ≥ 1.16.0 / Luker ≥ 2.7.0）；
-4. 文件放入或配置改动后，**必须彻底关闭进程并重新启动酒馆**。
-
-### Q: 为什么无法勾选 Flex 或 Priority 选项？
-**A**:
-1. 请确认当前选中的模型是否为官方 `gemini-*` 系列；
-2. 若当前模型在远端名单中明确被标注为不支持相应特性，对应控件将自动置灰禁用。
-
-### Q: 为什么切换区域（Region）后，层级选项会自动跌回 Standard？
-**A**: Google 官方规范强制要求 **Flex 与 Priority 调度必须在 `global` 全局区域下运行**。一旦将区域切换为具体机房（如 `us-central1`），扩展会触发防护，自动回退到 Standard 模式以防调用失败。
-
-### Q: 勾选了 Priority，但在 Google 控制台里看似乎不是优先调度？
-**A**: 插件已规范注入 `X-Vertex-AI-LLM-Shared-Request-Type: priority` 请求标头。但实际是否获得抢占调度，最终取决于你的 GCP 结算账户等级、项目专属配额及该区域 Google 算力集群的实时排队状况。
-
-### Q: 设置面板中找不到“查看日志”与“保存日志”按钮？
-**A**: 日志查看与导出接口**仅限酒馆管理员权限**使用。此外请确保前后端插件均已更新到 0.4.0（协议 v2）并已重启酒馆。
-
----
-
-## 开发者与测试
-
-本项目为原生 ES 模块设计，无构建编译步骤。在项目根目录下可直接执行本地自动化测试：
-
-```bash
-node --test
-```
-
----
-
 ## 开源协议
 
-本项目基于 **[Mozilla Public License 2.0 (MPL-2.0)](LICENSE)** 协议开源。凡修改并分发本项目源文件的衍生作品，必须继续遵从 MPL 2.0 开源并完整保留原作者署名与版权声明。
+本项目基于 **[Mozilla Public License 2.0 (MPL-2.0)](LICENSE)** 协议开源。修改并分发本项目源文件的衍生作品，必须继续遵守 MPL 2.0，并完整保留原作者署名与版权声明。

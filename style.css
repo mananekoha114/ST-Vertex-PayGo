@@ -29,6 +29,25 @@
     min-width: 9rem;
 }
 
+#vertex-paygo-settings .vertex-paygo-settings-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    margin-top: 0.75rem;
+}
+
+#vertex-paygo-settings > select,
+#vertex-paygo-settings .vertex-paygo-settings-content > select {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+}
+
+#vertex-paygo-settings > small,
+#vertex-paygo-settings .vertex-paygo-settings-content > small {
+    overflow-wrap: anywhere;
+}
+
 #vertex-paygo-settings .vertex-paygo-only {
     justify-content: flex-start;
     gap: 0.35rem;

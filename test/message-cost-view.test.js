@@ -15,6 +15,28 @@ const complete = (id, overrides = {}) => ({
     ...overrides,
 });
 
+test('native normalized usage preserves known counts without inventing reasoning or cache totals', () => {
+    const request = { id: 'native', record: complete('native', {
+        usageAccuracy: 'tauri-normalized', usage: { promptTokenCount: 100, candidatesTokenCount: 20 },
+    }), timing: { stream: false, durationMs: 1000 } };
+    const result = summarizeMessageCost({ requests: [request] });
+    assert.equal(result.partial, true);
+    assert.equal(result.hasAmount, true);
+    assert.equal(result.promptTokens, 100);
+    assert.equal(result.outputTokens, 20);
+    assert.equal(result.thinkingTokens, null);
+    assert.equal(result.cachedTokens, null);
+    assert.equal(result.uncachedTokens, null);
+    assert.equal(result.endToEndTps, null);
+    assert.ok(result.reasons.includes('tauri_normalized'));
+    request.record.usage.cachedContentTokenCount = 30;
+    const cached = summarizeMessageCost({ requests: [request] });
+    assert.equal(cached.cachedTokens, 30);
+    assert.equal(cached.uncachedTokens, 70);
+    request.record.price = null;
+    assert.equal(summarizeMessageCost({ requests: [request] }).awaitingPrice, true);
+});
+
 test('zero-duration observations never show Infinity TPS', () => {
     const result = summarizeMessageCost({ version: 1, requests: [{ id: 'instant', record: complete('instant'),
         timing: { durationMs: 0, firstTokenMs: 0, stream: true } }] });

@@ -11,6 +11,7 @@ import { createMessageCostUi } from '../src/message-cost-ui.js';
 function fakeDom({ avatarVisible = true } = {}) {
     const listeners = new Map();
     const windowListeners = new Map();
+    const observers = [];
     class Element {
         constructor(tag) {
             this.tagName = tag.toUpperCase(); this.children = []; this.parentElement = null;
@@ -24,6 +25,7 @@ function fakeDom({ avatarVisible = true } = {}) {
         remove() { if (this.parentElement) this.parentElement.children.splice(this.parentElement.children.indexOf(this), 1); this.parentElement = null; }
         setAttribute(name, value) { this.attributes[name] = String(value); }
         getAttribute(name) { return this.attributes[name] ?? null; }
+        matches(selector) { return matches(this, selector); }
         contains(target) { return target === this || this.children.some(child => child.contains(target)); }
         focus() { this.focused = true; }
         getBoundingClientRect() { return { left: 780, top: 500, bottom: 520 }; }
@@ -41,6 +43,11 @@ function fakeDom({ avatarVisible = true } = {}) {
     const document = {
         body: new Element('body'), defaultView: {
             innerWidth: 1_000, innerHeight: 700,
+            MutationObserver: class {
+                constructor(callback) { this.callback = callback; observers.push(this); }
+                observe(target, options) { this.target = target; this.options = options; }
+                disconnect() { this.disconnected = true; }
+            },
             addEventListener: (name, handler) => windowListeners.set(name, handler),
             removeEventListener: name => windowListeners.delete(name),
         },
@@ -48,13 +55,14 @@ function fakeDom({ avatarVisible = true } = {}) {
         addEventListener: (name, handler) => listeners.set(name, handler),
         removeEventListener: name => listeners.delete(name),
         querySelectorAll(selector) { return walk(this.body).filter(element => matches(element, selector)); },
+        getElementById(id) { return id === 'chat' ? this.body : null; },
     };
     const message = new Element('div'); message.className = 'mes'; message.setAttribute('mesid', '0');
     const avatar = new Element('div'); avatar.className = 'mesAvatarWrapper'; avatar.offsetParent = avatarVisible ? {} : null;
     const block = new Element('div'); block.className = 'mes_block';
     const text = new Element('div'); text.className = 'mes_text'; block.append(text);
     message.append(avatar, block); document.body.append(message);
-    return { document, listeners, windowListeners, message, avatar, block, walk: () => [document.body, ...walk(document.body)] };
+    return { document, listeners, windowListeners, observers, message, avatar, block, walk: () => [document.body, ...walk(document.body)] };
 }
 
 function allText(elements) { return elements.map(element => element.textContent).filter(Boolean); }
@@ -72,6 +80,50 @@ const snapshot = {
         timing: { stream: true, durationMs: 3_000, firstTokenMs: 1_000 },
     }],
 };
+
+test('remounts costs after native virtualization and ignores its own button mutations', async () => {
+    const dom = fakeDom();
+    const ui = createMessageCostUi({ documentRef: dom.document, getContext: () => ({ chat: [{}] }),
+        getMessageCost: () => snapshot });
+    ui.render();
+    const observer = dom.observers.find(item => item.options.childList);
+    const button = dom.avatar.children[0];
+    button.onclick({ stopPropagation() {} });
+    dom.message.remove();
+    observer.callback([{ type: 'childList', addedNodes: [], removedNodes: [dom.message] }]);
+    await Promise.resolve();
+    assert.equal(find(dom.walk(), 'vertex-paygo-message-cost-card'), undefined);
+    button.remove();
+    dom.document.body.append(dom.message);
+    observer.callback([{ type: 'childList', addedNodes: [dom.message], removedNodes: [] }]);
+    await Promise.resolve();
+    const replacement = dom.avatar.children[0];
+    assert.equal(replacement.textContent, '≈ $0.00220');
+    replacement.textContent = 'no rerender';
+    observer.callback([{ type: 'childList', addedNodes: [replacement], removedNodes: [] }]);
+    await Promise.resolve();
+    assert.equal(replacement.textContent, 'no rerender');
+    ui.destroy();
+    assert.ok(dom.observers.every(item => item.disconnected));
+});
+
+test('native normalized details label partial costs and do not display unknown reasoning as zero', () => {
+    const dom = fakeDom();
+    const native = structuredClone(snapshot);
+    native.requests[0].record.usageAccuracy = 'tauri-normalized';
+    delete native.requests[0].record.usage.thoughtsTokenCount;
+    const ui = createMessageCostUi({ documentRef: dom.document, getContext: () => ({ chat: [{}] }),
+        getMessageCost: () => native });
+    ui.render();
+    const button = dom.avatar.children[0];
+    assert.match(button.textContent, /^部分/);
+    button.onclick({ stopPropagation() {} });
+    const text = allText(dom.walk());
+    assert.ok(text.includes('输出（已报告）'));
+    assert.ok(text.includes('推理用量未报告'));
+    assert.ok(text.some(value => value.includes('TauriTavern 非流式用量经过转换')));
+    ui.destroy();
+});
 
 test('renders an accessible avatar trigger and a text-only details card that closes with Escape', () => {
     const dom = fakeDom();

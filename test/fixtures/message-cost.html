@@ -27,6 +27,7 @@ body.documentstyle .mesAvatarWrapper { display:none!important; }
  <button id="normal">生成回复</button><button id="continue">续写</button><button id="swipe">生成新版本</button>
  <button id="switch">切换版本</button><button id="chat-switch">切换对话</button><button id="background">后台请求</button>
  <button id="stop">中断生成</button><button id="document">文档模式</button><button id="reload">重新加载消息</button>
+ <button id="native-normalized">Tauri 非流式示例</button><button id="remount">模拟虚拟化重挂</button>
 </nav>
 <div id="status" role="status">就绪</div><div id="chat"></div>
 </main>
@@ -78,7 +79,7 @@ tracker=createMessageCosts({getContext:()=>context,getChatId:()=>active,serverCl
 const ready=installRequestTransport({context,target,stateProvider:()=>({tier:'standard',paygoOnly:false}),serverClient,
  captureUsageContext:()=>active,getUsagePrice:()=>({input:1.25,cachedInput:.125,output:3.75}),messageCosts:tracker,
  logger:{error(){}},origin:location.origin});
-function renderMessages(){
+function renderMessages(refresh=true){
  const chat=document.getElementById('chat');chat.replaceChildren();
  for(const [i,message] of context.chat.entries()) {
   const row=document.createElement('div');row.className='mes';row.setAttribute('mesid',i);
@@ -89,7 +90,7 @@ function renderMessages(){
   const text=document.createElement('div');text.className='mes_text';text.textContent=message.mes;
   block.append(name,text);row.append(avatar,block);chat.append(row);
  }
- ui.render();
+ if(refresh)ui.render();
 }
 const status=text=>document.getElementById('status').textContent=text;
 async function generate(type='normal') {
@@ -139,6 +140,17 @@ document.getElementById('background').onclick=async()=>{
 };
 document.getElementById('document').onclick=()=>{document.body.classList.toggle('documentstyle');ui.render();};
 document.getElementById('reload').onclick=async()=>{if(busy)return;context.chat=structuredClone(context.chat);chats.set(active,context.chat);renderMessages();await eventSource.emit('CHAT_CHANGED');status('从保存的消息元数据恢复');};
+document.getElementById('native-normalized').onclick=()=>{
+ if(busy)return;const message=context.chat.at(-1), snapshot=getMessageCost(message);if(!snapshot)return;
+ for(const request of snapshot.requests){
+  request.record.usageAccuracy='tauri-normalized';
+  delete request.record.usage.thoughtsTokenCount;delete request.record.usage.cachedContentTokenCount;
+  request.timing.stream=false;request.timing.firstTokenMs=null;
+ }
+ message.swipe_info[message.swipe_id]={extra:structuredClone(message.extra)};
+ ui.render();status('模拟原生转换用量：缺失的推理与缓存不按零显示');
+};
+document.getElementById('remount').onclick=()=>{if(busy)return;renderMessages(false);status('只重挂 DOM，不发送宿主事件；观察费用入口自动恢复');};
 await generate();
 </script>
 </html>

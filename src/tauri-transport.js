@@ -369,6 +369,7 @@ export function installTauriTransport({
     target = globalThis,
     yaml,
     usageClient,
+    messageCosts,
     captureUsageContext = () => null,
     getUsagePrice = () => null,
     notifyError = () => {},
@@ -380,6 +381,10 @@ export function installTauriTransport({
     const originalFetch = target.fetch;
     const wrappedServices = [];
     let destroyed = false;
+    const observeCost = (method, ...args) => {
+        try { return messageCosts?.[method]?.(...args); }
+        catch (error) { console.warn('[Vertex PayGo] Message cost observation failed.', error); }
+    };
 
     function stateForEvent(data) {
         // Request/preset parameters are authoritative.  The foreground state
@@ -407,6 +412,9 @@ export function installTauriTransport({
                 startedAt: Date.now(),
             });
             data[REQUEST_STATE] = marked[REQUEST_STATE];
+            if (data[REQUEST_STATE].background !== true && !data[REQUEST_STATE].messageCostToken) {
+                data[REQUEST_STATE].messageCostToken = observeCost('capture', data, data[REQUEST_STATE].chatId) ?? null;
+            }
         } catch (error) {
             // Preserve the intended request-local state even though the event
             // bus may swallow this error.  The final fetch gate will retry the
@@ -418,6 +426,9 @@ export function installTauriTransport({
                 startedAt: Date.now(),
             });
             data[REQUEST_STATE] = marked[REQUEST_STATE];
+            if (data[REQUEST_STATE].background !== true && !data[REQUEST_STATE].messageCostToken) {
+                data[REQUEST_STATE].messageCostToken = observeCost('capture', data, data[REQUEST_STATE].chatId) ?? null;
+            }
             notifyBlocked(notifyError, localize, error);
         }
         return data;
@@ -443,6 +454,8 @@ export function installTauriTransport({
                 startedAt: Date.now(),
                 metadataData: preset ? { ...preset, ...data, chat_completion_source: source } : data,
             });
+            marked[REQUEST_STATE].background = true;
+            marked[REQUEST_STATE].messageCostToken = null;
             return original.call(this, marked, options, ...args);
         };
         service.processRequest = wrapped;
@@ -464,6 +477,8 @@ export function installTauriTransport({
                 getUsagePrice,
                 startedAt: Date.now(),
             });
+            marked[REQUEST_STATE].background = true;
+            marked[REQUEST_STATE].messageCostToken = null;
             return original.call(this, marked, ...args);
         };
         service.sendRequest = wrapped;
@@ -494,6 +509,8 @@ export function installTauriTransport({
             const payload = { ...overridePayload };
             payload[REQUEST_STATE] = {
                 state: normalizeState(state),
+                background: true,
+                messageCostToken: null,
                 ...(metadataFor({
                     data: { ...profileData, ...payload },
                     state: normalizeState(state),
@@ -517,7 +534,19 @@ export function installTauriTransport({
         }
 
         const signal = init?.signal ?? input?.signal;
-        signalAbort(signal);
+        if (signal?.aborted) {
+            // Never wait for a Request body that may not finish after cancellation.
+            // A settings-ready token can still be recovered from an inline body.
+            let abortedMetadata;
+            if (typeof init?.body === 'string') {
+                try { abortedMetadata = JSON.parse(init.body)?.[REQUEST_STATE]; }
+                catch { /* Cancellation takes precedence over malformed JSON. */ }
+            }
+            if (abortedMetadata?.background !== true && abortedMetadata?.messageCostToken) {
+                observeCost('failed', abortedMetadata.messageCostToken);
+            }
+            signalAbort(signal);
+        }
         // Request.clone().text() can yield after the active chat changes.  A
         // direct fetch therefore captures its fallback conversation before
         // awaiting the body, just like the service wrappers do synchronously.
@@ -529,6 +558,7 @@ export function installTauriTransport({
         }
         const data = JSON.parse(rawBody);
         const requestMetadata = isRecord(data[REQUEST_STATE]) ? data[REQUEST_STATE] : null;
+        const costToken = requestMetadata?.background === true ? null : requestMetadata?.messageCostToken;
         const source = sourceOf(data);
         // Providers outside the Google Gemini adapters are passed through
         // byte-for-byte, including their own custom parameters.
@@ -539,6 +569,7 @@ export function installTauriTransport({
         let prepared;
         let usageMetadata = requestMetadata;
         try {
+            signalAbort(signal);
             const state = hasExplicitTauriState(data, { yaml })
                 ? readTauriState(data, { yaml })
                 : (requestMetadata?.state ? normalizeState(requestMetadata.state) : { ...DEFAULT_STATE });
@@ -585,10 +616,20 @@ export function installTauriTransport({
                 price: finalPrice !== undefined ? finalPrice : (samePricingIdentity ? undefined : null),
                 startedAt: requestMetadata?.startedAt ?? fallbackStartedAt,
             });
+            if (costToken) observeCost('prepared', costToken, usageMetadata?.id, {
+                chatId: usageMetadata?.chatId,
+                model: modelOf(prepared), source: sourceOf(prepared),
+                tier: validationState.tier, stream: Boolean(prepared.stream),
+                price: usageMetadata?.price,
+            });
+            signalAbort(signal);
+            if (costToken) observeCost('started', costToken);
             const response = await originalFetch.call(this, input, { ...init, body: JSON.stringify(prepared) });
-            return callObservation(usageClient, response, usageMetadata, signal);
+            const observed = await callObservation(usageClient, response, usageMetadata, signal);
+            return costToken ? observeCost('response', costToken, observed, signal) ?? observed : observed;
         } catch (error) {
             callFailure(usageClient, error, usageMetadata);
+            if (costToken) observeCost('failed', costToken);
             notifyBlocked(notifyError, localize, error);
             throw error;
         }

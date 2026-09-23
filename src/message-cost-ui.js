@@ -16,7 +16,7 @@ function node(documentRef, tag, className = '', text = '') {
 }
 
 function formatTokens(value) {
-    return Number(value).toLocaleString();
+    return value == null ? '—' : Number(value).toLocaleString();
 }
 
 function formatDuration(value) {
@@ -41,6 +41,7 @@ const REASON_LABELS = {
     unavailable: '用量轮询已结束，结果不可用',
     usage_missing: '服务未返回用量',
     usage_incomplete: '服务返回的用量不完整',
+    tauri_normalized: 'TauriTavern 非流式用量经过转换，可能缺少推理等信息，费用为部分估算',
     price_missing: '缺少该模型与层级的价格',
     long_price_missing: '缺少长上下文价格',
     traffic_tier_mismatch: '返回的流量层级与请求不一致',
@@ -74,8 +75,11 @@ function buildCard(documentRef, summary, onClose) {
 
     const top = node(documentRef, 'div', 'vertex-paygo-message-cost-top');
     addMetric(documentRef, top, '输入', summary.hasUsage ? formatTokens(summary.promptTokens) : '—', 'token');
-    addMetric(documentRef, top, '输出（含推理）', summary.hasUsage ? formatTokens(summary.outputTokens + summary.thinkingTokens) : '—',
-        summary.hasUsage ? `正文 ${formatTokens(summary.outputTokens)} · 推理 ${formatTokens(summary.thinkingTokens)}` : 'token');
+    const thinkingKnown = summary.thinkingTokens != null;
+    addMetric(documentRef, top, thinkingKnown ? '输出（含推理）' : '输出（已报告）',
+        summary.hasUsage ? formatTokens(summary.outputTokens + (summary.thinkingTokens ?? 0)) : '—',
+        summary.hasUsage ? thinkingKnown ? `正文 ${formatTokens(summary.outputTokens)} · 推理 ${formatTokens(summary.thinkingTokens)}`
+            : '推理用量未报告' : 'token');
     const generationNote = summary.generationTps != null ? '客户端观测'
         : summary.reasons.includes('timing_missing') ? '流式耗时观测不完整' : '仅流式响应可用';
     addMetric(documentRef, top, '生成速度', formatTps(summary.generationTps), generationNote);
@@ -202,11 +206,9 @@ export function createMessageCostUi({ getContext, getMessageCost, getPrices, doc
         const elements = new Map([...(documentRef.querySelectorAll?.('.mes[mesid]') ?? [])]
             .map(element => [element.getAttribute?.('mesid'), element]));
         let keptOpen = false;
-        for (let index = 0; index < messages.length; index += 1) {
-            const message = messages[index];
-            const id = String(index);
+        for (const [id, messageElement] of elements) {
+            const message = messages[Number(id)];
             if (messageId != null && String(messageId) !== id) continue;
-            const messageElement = elements.get(id);
             if (messageElement) {
                 const attached = attach(messageElement, message, id);
                 if (attached && attached === openButton) keptOpen = true;
@@ -238,6 +240,20 @@ export function createMessageCostUi({ getContext, getMessageCost, getPrices, doc
     const Observer = documentRef?.defaultView?.MutationObserver;
     const layoutObserver = Observer && documentRef.body ? new Observer(() => render()) : null;
     layoutObserver?.observe(documentRef.body, { attributes: true, attributeFilter: ['class'] });
+    // Native chat virtualization can remount a message without a generation
+    // event. Only react to message roots, ignoring our own button/card changes.
+    const chat = documentRef?.getElementById?.('chat');
+    const containsMessage = element => element?.matches?.('.mes[mesid]')
+        || element?.querySelector?.('.mes[mesid]');
+    let renderQueued = false;
+    const messageObserver = Observer && chat ? new Observer(records => {
+        if (!records.some(record => record.type === 'attributes'
+            || [...record.addedNodes, ...record.removedNodes].some(containsMessage))) return;
+        if (renderQueued) return;
+        renderQueued = true;
+        queueMicrotask(() => { renderQueued = false; render(); });
+    }) : null;
+    messageObserver?.observe(chat, { childList: true, subtree: true, attributes: true, attributeFilter: ['mesid'] });
 
     function destroy() {
         if (destroyed) return;
@@ -249,6 +265,7 @@ export function createMessageCostUi({ getContext, getMessageCost, getPrices, doc
         documentRef?.defaultView?.removeEventListener?.('scroll', reposition, true);
         if (chatChanged) context.eventSource?.removeListener?.(chatChanged, close);
         layoutObserver?.disconnect();
+        messageObserver?.disconnect();
         for (const trigger of documentRef?.querySelectorAll?.(`.${ROOT_CLASS}-trigger`) ?? []) trigger.remove();
     }
 

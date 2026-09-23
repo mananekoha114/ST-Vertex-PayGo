@@ -181,6 +181,7 @@ export function createMessageCosts({
     function failed(token) {
         const entry = entries.get(token);
         if (!entry) return;
+        if (!entry.hasUsageId) entry.request.status = 'unavailable';
         finished(entry, { stream: entry.stream, durationMs: entry.startedAt === null ? null : Math.max(0, now() - entry.startedAt),
             firstTokenMs: null, interrupted: true });
     }

@@ -67,6 +67,8 @@ export function summarizeMessageCost(snapshot, prices = {}) {
     let durationCount = 0;
     let streamTimingCount = 0;
     let firstTokenObserved = null;
+    let thinkingUnknown = false;
+    let cacheUnknown = false;
 
     for (let index = 0; index < requests.length; index += 1) {
         const request = requests[index];
@@ -106,6 +108,8 @@ export function summarizeMessageCost(snapshot, prices = {}) {
         if (record.tier) tiers.add(String(record.tier));
         const estimate = estimateRecord(record, prices?.[priceKey(record)]);
         if (estimate.reason && !(pending && estimate.reason === 'usage_missing')) reasons.add(estimate.reason);
+        for (const reason of estimate.reasons ?? []) reasons.add(reason);
+        if (record.usageAccuracy === 'tauri-normalized') reasons.add('tauri_normalized');
         if (estimate.amount !== null) {
             summary.amount += estimate.amount;
             summary.pricedRequestCount += 1;
@@ -119,6 +123,12 @@ export function summarizeMessageCost(snapshot, prices = {}) {
 
         const prompt = count(record.usage?.promptTokenCount);
         const output = count(record.usage?.candidatesTokenCount);
+        // The native non-streaming adapter drops optional Gemini usage fields.
+        // Absence in that normalized shape is not evidence of zero usage.
+        if (record.usageAccuracy === 'tauri-normalized') {
+            thinkingUnknown ||= record.usage?.thoughtsTokenCount == null;
+            cacheUnknown ||= record.usage?.cachedContentTokenCount == null;
+        }
         const thinking = record.usage?.thoughtsTokenCount == null ? 0 : count(record.usage.thoughtsTokenCount);
         const cached = record.usage?.cachedContentTokenCount == null ? 0 : count(record.usage.cachedContentTokenCount);
         if (prompt === null || output === null || thinking === null || cached === null || cached > prompt) {
@@ -141,10 +151,12 @@ export function summarizeMessageCost(snapshot, prices = {}) {
     summary.tiers = [...tiers];
     summary.firstTokenMs = firstTokenObserved;
     summary.durationMs = requests.length > 0 && durationCount === requests.length ? totalDuration : null;
-    summary.generationTps = requests.length > 0 && streamTimingCount === requests.length && knownUsageCount === requests.length
+    summary.generationTps = !thinkingUnknown && requests.length > 0 && streamTimingCount === requests.length && knownUsageCount === requests.length
         ? streamOutput / (streamDuration / 1000) : null;
-    summary.endToEndTps = summary.durationMs > 0 && knownUsageCount === requests.length
+    summary.endToEndTps = !thinkingUnknown && summary.durationMs > 0 && knownUsageCount === requests.length
         ? (summary.outputTokens + summary.thinkingTokens) / (summary.durationMs / 1000) : null;
+    if (thinkingUnknown) summary.thinkingTokens = null;
+    if (cacheUnknown) summary.cachedTokens = summary.uncachedTokens = null;
     summary.partial ||= summary.pending || summary.unavailable || unique.missingIdCount > 0
         || summary.missingRequestCount > 0 || knownUsageCount < requests.length;
     summary.complete = requests.length > 0 && !summary.pending && !summary.unavailable && !summary.partial;
@@ -152,7 +164,7 @@ export function summarizeMessageCost(snapshot, prices = {}) {
     summary.hasUsage = knownUsageCount > 0;
     summary.awaitingPrice = !summary.hasAmount && summary.hasUsage
         && [...reasons].some(reason => reason === 'price_missing' || reason === 'long_price_missing')
-        && ![...reasons].some(reason => !['price_missing', 'long_price_missing', 'timing_missing'].includes(reason));
+        && ![...reasons].some(reason => !['price_missing', 'long_price_missing', 'timing_missing', 'tauri_normalized'].includes(reason));
     summary.reasons = [...reasons];
     summary.priceSource = currentPriceUsed ? (snapshotPriceUsed ? 'mixed' : 'current')
         : snapshotPriceUsed ? 'snapshot' : null;

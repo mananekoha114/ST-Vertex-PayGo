@@ -17,6 +17,7 @@ import {
 import { installRequestTransport } from './src/request-transport.js';
 import { createServerClient } from './src/server-client.js';
 import { createPayGoUi } from './src/ui.js';
+import { createOpenAiBridgeUi } from './src/openai-bridge-ui.js';
 import { createCostContext } from './src/cost-context.js';
 import { createCostUi } from './src/cost-ui.js';
 import { createMessageCosts, getMessageCost } from './src/message-costs.js';
@@ -31,6 +32,7 @@ let costUi = null;
 let costContext = null;
 let messageCosts = null;
 let messageCostUi = null;
+let openAiBridgeUi = null;
 
 function notify(kind, message) {
     const toaster = globalThis.toastr?.[kind];
@@ -121,6 +123,7 @@ export async function init() {
             logger: clientLogger,
             localize,
         });
+        openAiBridgeUi = createOpenAiBridgeUi({ context, serverClient, localize });
 
         costContext = createCostContext({ getContext: () => globalThis.SillyTavern.getContext() });
         messageCostUi = createMessageCostUi({
@@ -203,6 +206,8 @@ export async function init() {
         clientLogger.event('info', 'extension.init_ready', { phase: 'ready' });
     } catch (error) {
         messageCosts?.destroy();
+        openAiBridgeUi?.destroy();
+        openAiBridgeUi = null;
         messageCostUi?.destroy();
         costUi?.destroy();
         costContext?.destroy();

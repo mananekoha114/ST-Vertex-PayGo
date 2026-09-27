@@ -1,5 +1,25 @@
 @import url("./cost.css");
 @import url("./message-cost.css");
+
+#vertex-paygo-openai-bridge .vertex-paygo-bridge-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.6rem;
+    overflow-wrap: anywhere;
+}
+
+#vertex-paygo-openai-bridge .vertex-paygo-bridge-actions,
+#vertex-paygo-openai-bridge .vertex-paygo-bridge-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+#vertex-paygo-openai-bridge .vertex-paygo-bridge-row label { min-width: 5rem; }
+#vertex-paygo-openai-bridge .vertex-paygo-bridge-row input { flex: 1 1 12rem; min-width: 0; }
+#vertex-paygo-openai-bridge .vertex-paygo-status--error { color: var(--error-color, #ef7777); }
 /*
  * Copyright (c) 2026 Mana Nekoha
  *

@@ -1,5 +1,13 @@
 # 更新日志
 
+## 未发布 · Google OpenAI 兼容桥接
+
+- 新增默认关闭的桥接设置，供独立 API 插件手动填写 Base URL、桥接 key 和 `st-current` 模型别名。
+- 固定启用时的 Google 连接，提供手动更新连接、刷新状态与轮换访问 key；不自动跟随主聊天切换账号。
+- 仅连接 Google 官方 OpenAI 兼容端点，不进行 Gemini 原生协议转换或失败回退。
+- 仅支持 SillyTavern / Luker；TauriTavern 显示功能不可用说明。Vertex Express 模式暂不支持。
+- 桥接状态仅存后端内存，重启需重新启用；现有 PayGo 调度和主聊天费用统计不变。
+
 ## 0.4.0 · 2026-09-23
 
 本次更新新增单条回复与对话费用估算，并支持 TauriTavern 原生运行。

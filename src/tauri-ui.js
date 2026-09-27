@@ -47,6 +47,7 @@ export function createTauriUi({ getContext, connections, yaml, documentRef = glo
     root.append(header, drawerContent);
     const content = element('div', '', { class: 'vertex-paygo-settings-content' });
     content.append(element('small', localize('vertex_paygo.tauri.native'), { class: 'vertex-paygo-guidance' }));
+    content.append(element('small', localize('vertex_paygo.bridge.tauri_unavailable'), { class: 'vertex-paygo-guidance' }));
     const scope = element('select', '', { id: 'vertex-paygo-scope', class: 'text_pole' });
     const scopeLabel = element('label', localize('vertex_paygo.tauri.scope'), { for: 'vertex-paygo-scope' });
     const refresh = element('button', localize('vertex_paygo.tauri.refresh'), { type: 'button', class: 'menu_button' });

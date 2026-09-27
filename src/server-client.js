@@ -225,6 +225,46 @@ export function createServerClient({ fetchImpl = globalThis.fetch, getRequestHea
     }
 
     return {
+        async readActiveGoogleSecretId(source) {
+            const secretKey = source === 'makersuite' ? 'api_key_makersuite'
+                : source === 'vertexai' ? 'vertexai_service_account_json' : null;
+            if (!secretKey) throw new TypeError('A Google source is required.');
+            const data = await fetchJson(fetchImpl, '/api/secrets/read', {
+                method: 'POST',
+                headers: { ...getRequestHeaders(), Accept: 'application/json', 'Content-Type': 'application/json' },
+                body: '{}',
+                cache: 'no-store',
+            }, HEALTH_TIMEOUT_MS);
+            const entries = data?.[secretKey];
+            if (entries === true) return null; // Legacy host: server snapshots the active credential.
+            if (!Array.isArray(entries)) {
+                throw new ServerPluginError('No active Google credential is available.', { code: 'ACTIVE_GOOGLE_SECRET_UNAVAILABLE' });
+            }
+            const active = entries.filter(entry => entry?.active === true);
+            if (active.length !== 1 || typeof active[0].id !== 'string'
+                || !/^[A-Za-z0-9_-]{1,128}$/u.test(active[0].id)) {
+                throw new ServerPluginError('No valid active Google credential is available.', { code: 'ACTIVE_GOOGLE_SECRET_UNAVAILABLE' });
+            }
+            return active[0].id;
+        },
+
+        async readOpenAiBridge() {
+            return await fetchJson(fetchImpl, SERVER_ROUTES.OPENAI_BRIDGE, {
+                method: 'GET',
+                headers: { ...getRequestHeaders(), Accept: 'application/json' },
+                cache: 'no-store',
+            }, HEALTH_TIMEOUT_MS);
+        },
+
+        async updateOpenAiBridge(payload) {
+            return await fetchJson(fetchImpl, SERVER_ROUTES.OPENAI_BRIDGE, {
+                method: 'POST',
+                headers: { ...getRequestHeaders(), Accept: 'application/json', 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+                cache: 'no-store',
+            }, PREPARE_TIMEOUT_MS);
+        },
+
         async checkHealth() {
             const data = await fetchJson(fetchImpl, SERVER_ROUTES.HEALTH, {
                 method: 'GET',

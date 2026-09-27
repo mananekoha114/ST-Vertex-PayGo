@@ -39,6 +39,7 @@ export const SERVER_ROUTES = Object.freeze({
     LOGS: '/api/plugins/vertex-paygo/logs',
     CLIENT_LOG: '/api/plugins/vertex-paygo/logs/client',
     USAGE: '/api/plugins/vertex-paygo/usage',
+    OPENAI_BRIDGE: '/api/plugins/vertex-paygo/openai-bridge',
 });
 
 export const HEALTH_TIMEOUT_MS = 5_000;

@@ -10,7 +10,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createServerClient, parseLoopbackProxyUrl, ServerPluginError } from '../src/server-client.js';
-import { MAX_LOG_RESPONSE_BYTES, PREPARE_TIMEOUT_MS } from '../src/constants.js';
+import { MAX_LOG_RESPONSE_BYTES, MAX_BRIDGE_LOG_RESPONSE_BYTES, PREPARE_TIMEOUT_MS } from '../src/constants.js';
 
 function jsonResponse(data, { ok = true, status = 200 } = {}) {
     return { ok, status, json: async () => data };
@@ -226,4 +226,38 @@ test('plain-text log HTTP errors preserve a safe JSON message', async () => {
         () => client.readLogs(),
         error => error.code === 'HTTP_ERROR' && error.status === 403 && error.message === 'Administrator access is required.',
     );
+});
+
+test('bridge log reader allows the larger store but bounds declared and streamed response bytes', async () => {
+    const content = 'x'.repeat(MAX_LOG_RESPONSE_BYTES + 1);
+    const valid = createServerClient({ fetchImpl: async () => new Response(JSON.stringify({ ok: true, entries: [{ responseBody: content }] }), {
+        headers: { 'Content-Type': 'application/json' },
+    }) });
+    assert.equal((await valid.readOpenAiBridgeLogs()).entries[0].responseBody, content);
+
+    let aborted = false;
+    const declared = createServerClient({ fetchImpl: async (_url, { signal }) => {
+        signal.addEventListener('abort', () => { aborted = true; });
+        return { ok: true, status: 200, headers: new Map([['content-length', String(MAX_BRIDGE_LOG_RESPONSE_BYTES + 1)]]),
+            text() { assert.fail('Oversized body must not be read'); } };
+    } });
+    await assert.rejects(declared.readOpenAiBridgeLogs(), error => error.code === 'LOG_TOO_LARGE');
+    assert.equal(aborted, true);
+
+    let cancelled = false;
+    const chunk = new Uint8Array(1024 * 1024).fill(32);
+    const streamed = createServerClient({ fetchImpl: async () => new Response(new ReadableStream({
+        pull(controller) { controller.enqueue(chunk); },
+        cancel() { cancelled = true; },
+    }), { headers: { 'Content-Type': 'application/json' } }) });
+    await assert.rejects(streamed.readOpenAiBridgeLogs(), error => error.code === 'LOG_TOO_LARGE');
+    assert.equal(cancelled, true);
+});
+
+test('an interrupted response body is reported as a timeout rather than invalid JSON', async () => {
+    const client = createServerClient({ fetchImpl: async () => new Response(new ReadableStream({
+        start(controller) { controller.error(new DOMException('The operation was aborted', 'AbortError')); },
+    }), { headers: { 'Content-Type': 'application/json' } }) });
+    await assert.rejects(client.readOpenAiBridge(), error => error.code === 'TIMEOUT');
+    await assert.rejects(client.readOpenAiBridgeLogs(), error => error.code === 'TIMEOUT');
 });

@@ -149,6 +149,7 @@ export function createOpenAiBridgeUi({ context, serverClient, localize, document
         busy = true; errorText = ''; render();
         try {
             const health = await serverClient.checkHealth();
+            if (disposed) return;
             if (health.capabilities?.openaiBridge !== true) {
                 healthy = false;
                 debugSupported = false;

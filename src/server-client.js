@@ -12,6 +12,8 @@ import {
     EXTENSION_ID,
     LOG_TIMEOUT_MS,
     MAX_LOG_RESPONSE_BYTES,
+    MAX_BRIDGE_LOG_RESPONSE_BYTES,
+    BRIDGE_LOG_TIMEOUT_MS,
     PREPARE_TIMEOUT_MS,
     PROTOCOL_VERSION,
     REQUIRED_TRANSPORT,
@@ -69,6 +71,7 @@ async function fetchJson(fetchImpl, url, options, timeoutMs) {
         try {
             data = await response.json();
         } catch (cause) {
+            if (cause?.name === 'AbortError') throw cause;
             throw new ServerPluginError('Server Plugin returned a non-JSON response.', {
                 code: 'INVALID_RESPONSE',
                 status: response.status,
@@ -94,14 +97,18 @@ async function fetchJson(fetchImpl, url, options, timeoutMs) {
     }
 }
 
-async function fetchText(fetchImpl, url, options, timeoutMs) {
+async function fetchText(fetchImpl, url, options, timeoutMs, {
+    maxBytes = MAX_LOG_RESPONSE_BYTES,
+    contentTypePattern = /^text\/plain(?:\s*;|$)/iu,
+} = {}) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
         const response = await fetchImpl(url, { ...options, signal: controller.signal });
         const contentLength = Number(response.headers?.get?.('content-length'));
-        if (Number.isFinite(contentLength) && contentLength > MAX_LOG_RESPONSE_BYTES) {
+        if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+            controller.abort();
             throw new ServerPluginError('Server Plugin log response is too large.', {
                 code: 'LOG_TOO_LARGE',
                 status: response.status,
@@ -119,7 +126,7 @@ async function fetchText(fetchImpl, url, options, timeoutMs) {
                     const { done, value } = await reader.read();
                     if (done) break;
                     totalBytes += value.byteLength;
-                    if (totalBytes > MAX_LOG_RESPONSE_BYTES) {
+                    if (totalBytes > maxBytes) {
                         await reader.cancel();
                         throw new ServerPluginError('Server Plugin log response is too large.', {
                             code: 'LOG_TOO_LARGE',
@@ -134,7 +141,7 @@ async function fetchText(fetchImpl, url, options, timeoutMs) {
                 const byteLength = typeof TextEncoder === 'function'
                     ? new TextEncoder().encode(data).byteLength
                     : data.length;
-                if (byteLength > MAX_LOG_RESPONSE_BYTES) {
+                if (byteLength > maxBytes) {
                     throw new ServerPluginError('Server Plugin log response is too large.', {
                         code: 'LOG_TOO_LARGE',
                         status: response.status,
@@ -142,6 +149,7 @@ async function fetchText(fetchImpl, url, options, timeoutMs) {
                 }
             }
         } catch (cause) {
+            if (cause?.name === 'AbortError') throw cause;
             if (cause instanceof ServerPluginError) throw cause;
             throw new ServerPluginError('Server Plugin returned an invalid text response.', {
                 code: 'INVALID_LOG_RESPONSE',
@@ -160,7 +168,7 @@ async function fetchText(fetchImpl, url, options, timeoutMs) {
             throw new ServerPluginError(message, { code: 'HTTP_ERROR', status: response.status });
         }
         const contentType = response.headers?.get?.('content-type');
-        if (contentType && !/^text\/plain(?:\s*;|$)/iu.test(contentType)) {
+        if (contentType && !contentTypePattern.test(contentType)) {
             throw new ServerPluginError('Server Plugin returned an invalid log content type.', {
                 code: 'INVALID_LOG_RESPONSE',
                 status: response.status,
@@ -225,11 +233,16 @@ export function createServerClient({ fetchImpl = globalThis.fetch, getRequestHea
     }
 
     async function fetchBridgeLogs(url, method) {
-        const data = await fetchJson(fetchImpl, url, {
+        const text = await fetchText(fetchImpl, url, {
             method, headers: { ...getRequestHeaders(), Accept: 'application/json',
                 ...(method === 'POST' ? { 'Content-Type': 'application/json' } : {}) },
             ...(method === 'POST' ? { body: '{}' } : {}), cache: 'no-store',
-        }, LOG_TIMEOUT_MS);
+        }, BRIDGE_LOG_TIMEOUT_MS, { maxBytes: MAX_BRIDGE_LOG_RESPONSE_BYTES,
+            contentTypePattern: /^application\/json(?:\s*;|$)/iu });
+        let data;
+        try { data = JSON.parse(text); } catch (cause) {
+            throw new ServerPluginError('Invalid bridge API log response.', { code: 'INVALID_BRIDGE_LOG_RESPONSE', cause });
+        }
         if (data?.ok !== true || !Array.isArray(data.entries)
             || data.entries.some(entry => !entry || typeof entry !== 'object' || Array.isArray(entry))
             || (method === 'POST' && data.entries.length !== 0)) {

@@ -146,6 +146,21 @@ test('UI gates management fetch on capability, then snapshots and updates curren
     assert.equal(documentRef.getElementById('vertex-paygo-openai-bridge'), null);
 });
 
+test('destroy during health check prevents subsequent bridge requests', async () => {
+    let resolveHealth;
+    let reads = 0;
+    const documentRef = nativeDocument();
+    const ui = createOpenAiBridgeUi({ context: nativeContext(), documentRef, localize: createLocalizer(), serverClient: {
+        checkHealth: () => new Promise(resolve => { resolveHealth = resolve; }),
+        readOpenAiBridge: async () => { reads++; return enabled; },
+    } });
+    ui.destroy();
+    resolveHealth({ capabilities: { openaiBridge: true } });
+    await tick();
+    assert.equal(reads, 0);
+    assert.equal(documentRef.getElementById('vertex-paygo-openai-bridge'), null);
+});
+
 test('Debug choice is sent on enable and update; live toggles preserve binding, failures require refresh', async () => {
     const context = nativeContext(); context.chatCompletionSettings.chat_completion_source = 'makersuite';
     const documentRef = nativeDocument();
@@ -290,7 +305,7 @@ test('API log client sends host headers, uses dedicated routes, and rejects inva
     const requests = [];
     let result = { ok: true, entries: [] };
     const client = createServerClient({ getRequestHeaders: () => ({ 'X-CSRF-Token': 'token' }),
-        fetchImpl: async (url, options) => { requests.push({ url, options }); return { ok: true, json: async () => result }; } });
+        fetchImpl: async (url, options) => { requests.push({ url, options }); return new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json' } }); } });
     await client.readOpenAiBridgeLogs();
     await client.clearOpenAiBridgeLogs();
     assert.deepEqual(requests.map(({ url, options }) => [url, options.method]), [

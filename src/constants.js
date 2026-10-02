@@ -47,6 +47,9 @@ export const SERVER_ROUTES = Object.freeze({
 export const HEALTH_TIMEOUT_MS = 5_000;
 export const LOG_TIMEOUT_MS = 5_000;
 export const MAX_LOG_RESPONSE_BYTES = 5 * 1024 * 1024;
+// Bridge logs can retain 20 MiB, plus the JSON response envelope.
+export const MAX_BRIDGE_LOG_RESPONSE_BYTES = 21 * 1024 * 1024;
+export const BRIDGE_LOG_TIMEOUT_MS = 30_000;
 // Full service-account authentication may need an OAuth token exchange before
 // the ticket can be issued.
 export const PREPARE_TIMEOUT_MS = 30_000;

@@ -224,6 +224,20 @@ export function createServerClient({ fetchImpl = globalThis.fetch, getRequestHea
         throw new TypeError('A fetch implementation is required.');
     }
 
+    async function fetchBridgeLogs(url, method) {
+        const data = await fetchJson(fetchImpl, url, {
+            method, headers: { ...getRequestHeaders(), Accept: 'application/json',
+                ...(method === 'POST' ? { 'Content-Type': 'application/json' } : {}) },
+            ...(method === 'POST' ? { body: '{}' } : {}), cache: 'no-store',
+        }, LOG_TIMEOUT_MS);
+        if (data?.ok !== true || !Array.isArray(data.entries)
+            || data.entries.some(entry => !entry || typeof entry !== 'object' || Array.isArray(entry))
+            || (method === 'POST' && data.entries.length !== 0)) {
+            throw new ServerPluginError('Invalid bridge API log response.', { code: 'INVALID_BRIDGE_LOG_RESPONSE' });
+        }
+        return data;
+    }
+
     return {
         async readActiveGoogleSecretId(source) {
             const secretKey = source === 'makersuite' ? 'api_key_makersuite'
@@ -254,6 +268,14 @@ export function createServerClient({ fetchImpl = globalThis.fetch, getRequestHea
                 headers: { ...getRequestHeaders(), Accept: 'application/json' },
                 cache: 'no-store',
             }, HEALTH_TIMEOUT_MS);
+        },
+
+        async readOpenAiBridgeLogs() {
+            return await fetchBridgeLogs(SERVER_ROUTES.OPENAI_BRIDGE_LOGS, 'GET');
+        },
+
+        async clearOpenAiBridgeLogs() {
+            return await fetchBridgeLogs(SERVER_ROUTES.OPENAI_BRIDGE_LOGS_CLEAR, 'POST');
         },
 
         async updateOpenAiBridge(payload) {

@@ -58,11 +58,25 @@ export function createOpenAiBridgeUi({ context, serverClient, localize, document
         field('vertex_paygo.bridge.api_key', apiKey, showKey, copyKey),
         field('vertex_paygo.bridge.model', modelValue, copyModel),
         make('small', 'vertex_paygo.bridge.limitations', { class: 'vertex-paygo-guidance' }));
+    const logs = make('section', '', { class: 'vertex-paygo-bridge-logs', 'aria-label': localize('vertex_paygo.bridge.logs.title') });
+    const logsRefresh = make('button', 'vertex_paygo.bridge.logs.refresh', { id: 'vertex-paygo-bridge-logs-refresh', type: 'button', class: 'menu_button' });
+    const logsClear = make('button', 'vertex_paygo.bridge.logs.clear', { id: 'vertex-paygo-bridge-logs-clear', type: 'button', class: 'menu_button' });
+    const logsActions = make('div', '', { class: 'vertex-paygo-bridge-actions' });
+    const logsStatus = make('small', '', { id: 'vertex-paygo-bridge-logs-status', class: 'vertex-paygo-guidance', 'aria-live': 'polite' });
+    const logsEntries = make('div', '', { id: 'vertex-paygo-bridge-logs-entries' });
+    logsActions.append(logsRefresh, logsClear);
+    logs.append(make('b', 'vertex_paygo.bridge.logs.title'), make('small', 'vertex_paygo.bridge.logs.guidance', { class: 'vertex-paygo-guidance' }), logsActions, logsStatus, logsEntries);
+    content.append(logs);
     root.append(header, drawerContent);
     host.append(root);
     let state = null;
     let healthy = false;
     let debugSupported = false;
+    let logsSupported = false;
+    let logsBusy = false;
+    let logsLoaded = false;
+    let logsError = '';
+    let entries = [];
     let busy = false;
     let disposed = false;
     let errorText = '';
@@ -97,6 +111,12 @@ export function createOpenAiBridgeUi({ context, serverClient, localize, document
         update.disabled = busy || !healthy || !enabled || !selected.ok;
         rotate.disabled = busy || !healthy || !enabled;
         refresh.disabled = busy;
+        logsRefresh.disabled = busy || logsBusy || !healthy || !logsSupported;
+        logsClear.disabled = busy || logsBusy || !healthy || !logsSupported;
+        logsStatus.textContent = logsError || localize(!healthy || !logsSupported ? 'vertex_paygo.bridge.logs.upgrade'
+            : logsBusy ? 'vertex_paygo.bridge.logs.loading' : !logsLoaded ? 'vertex_paygo.bridge.logs.not_loaded'
+                : entries.length ? 'vertex_paygo.bridge.logs.loaded' : 'vertex_paygo.bridge.logs.empty');
+        logsStatus.classList.toggle('vertex-paygo-status--error', Boolean(logsError));
         debug.disabled = busy || !healthy || !debugSupported;
         debugGuidance.textContent = localize(debugSupported ? 'vertex_paygo.bridge.debug_guidance' : 'vertex_paygo.bridge.debug_upgrade');
         baseUrl.value = enabled ? state.baseUrl : '';
@@ -115,12 +135,14 @@ export function createOpenAiBridgeUi({ context, serverClient, localize, document
             if (health.capabilities?.openaiBridge !== true) {
                 healthy = false;
                 debugSupported = false;
+                logsSupported = false;
                 debug.checked = false;
                 state = null;
                 errorText = localize('vertex_paygo.bridge.upgrade');
                 return;
             }
             healthy = true;
+            logsSupported = health.capabilities?.openaiBridgeLogs === true;
             debugSupported = health.capabilities?.openaiBridgeDebug === true;
             const result = await serverClient.readOpenAiBridge();
             if (disposed) return;
@@ -157,6 +179,47 @@ export function createOpenAiBridgeUi({ context, serverClient, localize, document
             errorText = describeError(error);
         } finally { busy = false; render(); }
     }
+    const rawText = value => value == null ? '' : typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+    function renderLogs() {
+        logsEntries.replaceChildren();
+        for (const entry of entries) {
+            const details = make('details', '', { class: 'vertex-paygo-bridge-log-entry' });
+            const summary = make('summary');
+            summary.textContent = `${entry.timestamp ?? ''} · ${entry.method ?? ''} ${entry.path ?? ''} · ${entry.status ?? '—'} · ${entry.durationMs ?? '—'} ms`;
+            details.append(summary);
+            if (entry.truncated) details.append(make('small', 'vertex_paygo.bridge.logs.truncated', { class: 'vertex-paygo-guidance' }));
+            if (entry.interrupted) details.append(make('small', 'vertex_paygo.bridge.logs.interrupted', { class: 'vertex-paygo-guidance' }));
+            if (entry.requestIncomplete) details.append(make('small', 'vertex_paygo.bridge.logs.request_incomplete', { class: 'vertex-paygo-guidance' }));
+            const bodies = [['request', entry.requestBody], ['forwarded', entry.forwardedBody], ['response', entry.responseBody]];
+            if (entry.upstreamResponseBody != null) bodies.push(['upstream_response', entry.upstreamResponseBody]);
+            bodies.push(['error', entry.error]);
+            for (const [key, value] of bodies) {
+                const pre = make('pre', '', { class: 'vertex-paygo-bridge-log-body', tabindex: '0' });
+                pre.textContent = rawText(value) || localize('vertex_paygo.bridge.logs.no_body');
+                details.append(make('b', `vertex_paygo.bridge.logs.${key}`), pre);
+            }
+            logsEntries.append(details);
+        }
+    }
+    async function manageLogs(clear = false) {
+        if (busy || logsBusy || disposed || !healthy || !logsSupported) return;
+        logsBusy = true; logsError = ''; render();
+        try {
+            const result = await (clear ? serverClient.clearOpenAiBridgeLogs() : serverClient.readOpenAiBridgeLogs());
+            if (disposed) return;
+            if (result?.ok !== true || !Array.isArray(result.entries)
+                || result.entries.some(entry => !entry || typeof entry !== 'object' || Array.isArray(entry))) {
+                throw new Error(localize('vertex_paygo.bridge.invalid_response'));
+            }
+            entries = result.entries;
+            logsLoaded = true;
+            renderLogs();
+        } catch (error) {
+            if (!disposed) logsError = describeError(error);
+        } finally { logsBusy = false; render(); }
+    }
+    listen(logsRefresh, 'click', () => void manageLogs());
+    listen(logsClear, 'click', () => void manageLogs(true));
     const connectionPayload = connection => ({ enabled: true, connection,
         ...(debugSupported ? { debugLocalAccess: debug.checked === true } : {}) });
     listen(enable, 'click', () => { const selected = current(); if (selected.ok) void change(connectionPayload(selected.connection), { resolveSecret: true }); });
@@ -197,5 +260,5 @@ export function createOpenAiBridgeUi({ context, serverClient, localize, document
     render();
     void read();
     return { refresh: read, render, destroy() { disposed = true; for (const dispose of disposers) dispose();
-        apiKey.value = ''; state = null; root.remove(); } };
+        apiKey.value = ''; state = null; entries = []; logsEntries.replaceChildren(); root.remove(); } };
 }

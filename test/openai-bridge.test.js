@@ -246,3 +246,61 @@ test('Tauri settings explain bridge unavailability without a management client',
     assert.ok(texts.some(value => value.includes('Google OpenAI-compatible bridge is unavailable in TauriTavern')));
     ui.destroy();
 });
+
+test('bridge API logs load only on demand, render raw text safely, clear, and gate older backends', async () => {
+    const documentRef = nativeDocument();
+    let supported = true;
+    let reads = 0;
+    let clears = 0;
+    const raw = '<script>alert("raw")</script>\n' + 'long'.repeat(100);
+    const ui = createOpenAiBridgeUi({ context: nativeContext(), documentRef, localize: createLocalizer(), serverClient: {
+        checkHealth: async () => ({ capabilities: { openaiBridge: true, openaiBridgeLogs: supported } }),
+        readOpenAiBridge: async () => enabled,
+        readOpenAiBridgeLogs: async () => { reads++; return { ok: true, entries: [{ timestamp: 'now', method: 'POST', path: '/chat/completions', status: 502, durationMs: 45, requestBody: raw, forwardedBody: '{"contents":[]}', responseBody: 'upstream failure', error: { code: 'UPSTREAM', message: 'failed' }, truncated: true, interrupted: true, requestIncomplete: true }] }; },
+        clearOpenAiBridgeLogs: async () => { clears++; return { ok: true, entries: [] }; },
+    } });
+    await tick();
+    assert.equal(reads, 0);
+    const refresh = documentRef.getElementById('vertex-paygo-bridge-logs-refresh');
+    const clear = documentRef.getElementById('vertex-paygo-bridge-logs-clear');
+    assert.equal(refresh.disabled, false);
+    await refresh.fire('click'); await tick();
+    assert.equal(reads, 1);
+    const entries = documentRef.getElementById('vertex-paygo-bridge-logs-entries');
+    const details = entries.children[0];
+    assert.equal(details.tagName, 'DETAILS');
+    const bodies = details.children.filter(node => node.tagName === 'PRE');
+    assert.equal(bodies.length, 4);
+    assert.equal(bodies[0].textContent, raw);
+    assert.equal(bodies[0].children.length, 0);
+    assert.ok(bodies[3].textContent.includes('UPSTREAM'));
+    assert.ok(details.children.some(node => node.textContent === 'Response interrupted.'));
+    assert.ok(details.children.some(node => node.textContent === 'Request body was not fully received.'));
+    await clear.fire('click'); await tick();
+    assert.equal(clears, 1);
+    assert.equal(entries.children.length, 0);
+    supported = false; await ui.refresh();
+    assert.equal(refresh.disabled, true);
+    await refresh.fire('click'); await tick();
+    assert.equal(reads, 1);
+    ui.destroy();
+});
+
+test('API log client sends host headers, uses dedicated routes, and rejects invalid results', async () => {
+    const requests = [];
+    let result = { ok: true, entries: [] };
+    const client = createServerClient({ getRequestHeaders: () => ({ 'X-CSRF-Token': 'token' }),
+        fetchImpl: async (url, options) => { requests.push({ url, options }); return { ok: true, json: async () => result }; } });
+    await client.readOpenAiBridgeLogs();
+    await client.clearOpenAiBridgeLogs();
+    assert.deepEqual(requests.map(({ url, options }) => [url, options.method]), [
+        ['/api/plugins/vertex-paygo/openai-bridge/logs', 'GET'],
+        ['/api/plugins/vertex-paygo/openai-bridge/logs/clear', 'POST'],
+    ]);
+    assert.equal(requests[1].options.headers['X-CSRF-Token'], 'token');
+    assert.equal(requests[0].options.cache, 'no-store');
+    result = { ok: true, entries: [null] };
+    await assert.rejects(client.readOpenAiBridgeLogs(), error => error.code === 'INVALID_BRIDGE_LOG_RESPONSE');
+    result = { ok: true, entries: [{ id: 'uncleared' }] };
+    await assert.rejects(client.clearOpenAiBridgeLogs(), error => error.code === 'INVALID_BRIDGE_LOG_RESPONSE');
+});

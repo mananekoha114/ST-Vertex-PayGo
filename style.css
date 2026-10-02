@@ -253,3 +253,8 @@
     white-space: pre-wrap;
     user-select: text;
 }
+#vertex-paygo-openai-bridge .vertex-paygo-bridge-debug {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+}

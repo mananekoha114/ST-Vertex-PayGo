@@ -20,21 +20,42 @@
 1. 在宿主中配置好 Google AI Studio，或使用服务账号的 Vertex AI Full 模式。Vertex Express/API key 模式暂不支持此桥接。
 2. 在扩展设置的 Google OpenAI 兼容桥接面板启用功能。桥接固定启用时的提供商、模型、区域和凭据选择；后续切换主聊天连接不会改变它。需要变更时，点击“更新为当前连接”。
 3. 将面板提供的 **Base URL** 和 **桥接 API key** 填入其他插件的独立 API 配置，协议选择 OpenAI Chat Completions。桥接 key 不是 Google key。
-4. 模型填写 `st-current`，代表桥接绑定的模型（不是实时跟随主界面的模型）。也可以填写具体的 `gemini-*` 模型；Vertex 的 `google/` 前缀由桥接处理。模型列表只列出别名和绑定模型，不枚举 Google 的全部模型。
+4. 模型可填写 `st-current`，代表桥接绑定的模型（不是实时跟随主界面的模型）；也可让调用端通过 `GET /models` 拉取 Google 模型目录，选择其中的具体模型。AI Studio 返回 `gemini-*`，Vertex 返回 `google/gemini-*`；调用时也接受不带 `google/` 的名称，不受绑定模型或 PayGo 名单限制。
 5. 用完后关闭。关闭、更新连接或轮换 key 都会取消未完成请求。关闭会撤销桥接 key；轮换 key 后也需要更新其他插件中的 key。
 
 ### 边界与限制
 
-- 地址形如 `http://127.0.0.1:<动态端口>/openai/v1`，只接受运行 ST/Luker 后端的同一台机器上的请求。插件必须经宿主后端发起请求；浏览器直接请求、其他电脑直接连接及公网访问不支持。ST 部署于远程服务器时，`127.0.0.1` 指服务器，不是手机或浏览器所在设备。
+- 地址形如 `http://127.0.0.1:<动态端口>/openai/v1`，只监听运行 ST/Luker 后端的本机回环地址。本机命令行、SDK 和其他服务均可携带桥接 key 调用，并不限于 ST/Luker 插件。默认不开放浏览器跨域调用；其他电脑和公网不能直接连接。ST 部署于远程服务器时，`127.0.0.1` 指服务器，不是手机或浏览器所在设备。
 - 桥接配置和访问 key 只保存在后端内存中。**重启宿主后默认关闭，需要重新启用并重新复制地址与 key。** 刷新网页可读取当前后端状态。
 - 宿主不能提供活动凭据 ID 时，桥接绑定凭据快照；检测到活动凭据改变或删除后会停止请求，需手动更新连接，不会自动使用新账号。
 - 支持 `/models` 和 `/chat/completions`，包括非流式 JSON 和流式 SSE。Gemini 特有参数、工具与结构化输出能否使用，以 Google 官方兼容端点及所选模型为准。
+- 模型列表每次查询 Google：AI Studio 使用官方 OpenAI `/models`，Vertex 使用官方 `publishers/google/models` 目录并遍历分页。列表筛选 Gemini，排除明确用于 embedding、Live、原生音频和 TTS 的专用模型；保留 `st-current` 和绑定模型。目录不能保证所有模型在当前项目、区域或 Chat Completions 接口可用；不通过真实生成探测权限，也不拼造目录内部版本号。上游查询失败时返回错误，不用静态名单代替。
 - 单次请求体上限 16 MiB，总时限 180 秒（包含流式输出）；每用户最多 4 个、全局最多 16 个并发请求。
 - 桥接不继承主聊天的提示词、世界书、历史、采样预设或 PayGo 层级；请求参数由调用插件提供。已有 PayGo 面板的 Flex/Priority 开关不会自动应用到桥接请求。
 - 不支持反向代理连接、任意自定义上游、账号池、失败换号和原生 API 回退。上游错误直接返回调用方；第三方插件自身是否重试，由它的设置决定。
 - 桥接请求不计入本扩展现有的主对话费用账本，避免把数据库或摘要的用量归入角色回复。
 
 官方协议参考：[AI Studio OpenAI 兼容接口](https://ai.google.dev/gemini-api/docs/openai)、[Vertex AI OpenAI 兼容接口](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/start/openai)。
+
+### 本机浏览器 Debug
+
+开发检测时，在桥接面板开启 **Debug：允许 localhost 浏览器调用**。此选项默认关闭、仅保存在当前服务器会话中；仍需填写桥接 API key，不会提供免鉴权访问。前后端须一并更新，旧后端会提示升级。
+
+允许来源为 `http://` 或 `https://` 的 `localhost`、`127.0.0.1`、`[::1]` 页面（任意端口）；不放行公网网页或 `file://` 页面。每个用户的桥接 key 独立检查此开关。修改 Debug 设置会取消当前桥接的未完成请求。
+
+例如在本机开发网页中调用，替换为面板显示的地址和 key：
+
+```js
+const baseUrl = 'http://127.0.0.1:12345/openai/v1';
+const apiKey = 'YOUR_BRIDGE_API_KEY';
+const response = await fetch(`${baseUrl}/models`, {
+    headers: { Authorization: `Bearer ${apiKey}` },
+});
+const models = await response.json();
+console.log(models);
+```
+
+Debug 只开放桥接数据接口的本机跨域访问，不开放 ST 管理接口，不改变 Google 上游。浏览器自身的本地网络权限限制仍可能需要在浏览器中处理。
 
 ---
 

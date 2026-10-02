@@ -178,8 +178,8 @@
   "vertex_paygo.bridge.status_unavailable": "桥接状态未知，请刷新确认。",
   "vertex_paygo.bridge.connection": "固定连接：{source} · {model} · {region}",
   "vertex_paygo.bridge.current": "当前连接：{source} · {model}",
-  "vertex_paygo.bridge.guidance": "请在第三方 OpenAI 兼容插件中手动填写基础 URL 和 API 密钥，模型填 st-current。切换主连接不会改变桥接；需要时点击“更新为当前连接”。",
-  "vertex_paygo.bridge.limitations": "仅支持 Google 官方 OpenAI 兼容 API；不回退到原生接口，也不保证账号安全。仅限同一台电脑上的 SillyTavern/Luker 服务器使用，浏览器不能直连。重启后需重新启用并填写地址和密钥。",
+  "vertex_paygo.bridge.guidance": "请在 OpenAI 兼容客户端中手动填写基础 URL 和 API 密钥。st-current 使用绑定连接的模型；/models 从 Google 官方目录列出 Gemini 候选，也可显式指定模型。切换主连接不会改变桥接；需要时点击“更新为当前连接”。",
+  "vertex_paygo.bridge.limitations": "使用 Google 官方 OpenAI 兼容 API；目录列出不代表每个模型均支持该接口。不回退到原生接口，也不保证账号安全。本机服务器及 CLI 可用；默认不开浏览器跨域，Debug 允许 localhost 页面携带桥接密钥调用。重启后需重新启用并填写地址和密钥。",
   "vertex_paygo.bridge.tauri_unavailable": "TauriTavern 不支持 Google OpenAI 兼容桥接；原有 PayGo 控件仍可使用。",
   "vertex_paygo.bridge.upgrade": "请更新服务器插件以使用 Google OpenAI 兼容桥接。",
   "vertex_paygo.bridge.invalid_response": "服务器插件返回了无效的桥接响应。",
@@ -188,5 +188,8 @@
   "vertex_paygo.bridge.validation.model": "启用桥接前请选择原生 Gemini 模型。",
   "vertex_paygo.bridge.validation.express": "不支持 Vertex AI Express；请选择完整服务账号认证。",
   "vertex_paygo.bridge.validation.region": "启用桥接前请选择有效的 Vertex AI 区域。",
-  "vertex_paygo.bridge.active_secret_unavailable": "没有有效的活动 Google 凭据。请在连接设置中选择，然后刷新。"
+  "vertex_paygo.bridge.active_secret_unavailable": "没有有效的活动 Google 凭据。请在连接设置中选择，然后刷新。",
+  "vertex_paygo.bridge.debug": "Debug：允许 localhost 浏览器调用",
+  "vertex_paygo.bridge.debug_guidance": "允许来自 HTTP(S) localhost、127.0.0.1 或 [::1] 页面的调用，仍须桥接 API 密钥。本机 CLI 客户端无需 Debug 即可使用。",
+  "vertex_paygo.bridge.debug_upgrade": "请更新服务器插件以使用 localhost 浏览器 Debug 访问。"
 }

@@ -29,6 +29,11 @@ export function createOpenAiBridgeUi({ context, serverClient, localize, document
     const refresh = make('button', 'vertex_paygo.bridge.refresh', { type: 'button', class: 'menu_button' });
     const update = make('button', 'vertex_paygo.bridge.update', { type: 'button', class: 'menu_button' });
     const rotate = make('button', 'vertex_paygo.bridge.rotate', { type: 'button', class: 'menu_button' });
+    const debug = make('input', '', { id: 'vertex-paygo-bridge-debug', type: 'checkbox' });
+    debug.checked = false;
+    const debugLabel = make('label', '', { class: 'vertex-paygo-bridge-debug', for: debug.id });
+    debugLabel.append(debug, make('span', 'vertex_paygo.bridge.debug'));
+    const debugGuidance = make('small', '', { class: 'vertex-paygo-guidance' });
     const baseUrl = make('textarea', '', { id: 'vertex-paygo-bridge-url', class: 'text_pole', rows: '2', readonly: '', 'aria-label': localize('vertex_paygo.bridge.base_url'), spellcheck: 'false' });
     const copyUrl = make('button', 'vertex_paygo.bridge.copy', { type: 'button', class: 'menu_button' });
     const apiKey = make('input', '', { id: 'vertex-paygo-bridge-key', class: 'text_pole', type: 'password', readonly: '', 'aria-label': localize('vertex_paygo.bridge.api_key'), autocomplete: 'off', spellcheck: 'false' });
@@ -48,7 +53,7 @@ export function createOpenAiBridgeUi({ context, serverClient, localize, document
     };
     const actions = make('div', '', { class: 'vertex-paygo-bridge-actions' });
     actions.append(enable, disable, refresh, update, rotate);
-    content.append(status, actions, connection, make('small', 'vertex_paygo.bridge.guidance', { class: 'vertex-paygo-guidance' }),
+    content.append(status, actions, debugLabel, debugGuidance, connection, make('small', 'vertex_paygo.bridge.guidance', { class: 'vertex-paygo-guidance' }),
         field('vertex_paygo.bridge.base_url', baseUrl, copyUrl),
         field('vertex_paygo.bridge.api_key', apiKey, showKey, copyKey),
         field('vertex_paygo.bridge.model', modelValue, copyModel),
@@ -57,6 +62,7 @@ export function createOpenAiBridgeUi({ context, serverClient, localize, document
     host.append(root);
     let state = null;
     let healthy = false;
+    let debugSupported = false;
     let busy = false;
     let disposed = false;
     let errorText = '';
@@ -91,6 +97,8 @@ export function createOpenAiBridgeUi({ context, serverClient, localize, document
         update.disabled = busy || !healthy || !enabled || !selected.ok;
         rotate.disabled = busy || !healthy || !enabled;
         refresh.disabled = busy;
+        debug.disabled = busy || !healthy || !debugSupported;
+        debugGuidance.textContent = localize(debugSupported ? 'vertex_paygo.bridge.debug_guidance' : 'vertex_paygo.bridge.debug_upgrade');
         baseUrl.value = enabled ? state.baseUrl : '';
         apiKey.value = enabled ? state.apiKey : '';
         if (!enabled) { apiKey.type = 'password'; showKey.textContent = localize('vertex_paygo.bridge.show'); }
@@ -106,19 +114,24 @@ export function createOpenAiBridgeUi({ context, serverClient, localize, document
             const health = await serverClient.checkHealth();
             if (health.capabilities?.openaiBridge !== true) {
                 healthy = false;
+                debugSupported = false;
+                debug.checked = false;
                 state = null;
                 errorText = localize('vertex_paygo.bridge.upgrade');
                 return;
             }
             healthy = true;
+            debugSupported = health.capabilities?.openaiBridgeDebug === true;
             const result = await serverClient.readOpenAiBridge();
             if (disposed) return;
             if (!validateBridgeState(result)) throw new Error(localize('vertex_paygo.bridge.invalid_response'));
             state = result;
+            debug.checked = debugSupported && result.debugLocalAccess === true;
         } catch (error) {
             if (disposed) return;
             healthy = false;
             state = null;
+            debug.checked = false;
             errorText = describeError(error);
         } finally { busy = false; render(); }
     }
@@ -135,16 +148,24 @@ export function createOpenAiBridgeUi({ context, serverClient, localize, document
             if (disposed) return;
             if (!validateBridgeState(result)) throw new Error(localize('vertex_paygo.bridge.invalid_response'));
             state = result;
+            debug.checked = debugSupported && result.debugLocalAccess === true;
         } catch (error) {
             if (disposed) return;
             healthy = false;
             state = null;
+            debug.checked = false;
             errorText = describeError(error);
         } finally { busy = false; render(); }
     }
-    listen(enable, 'click', () => { const selected = current(); if (selected.ok) void change({ enabled: true, connection: selected.connection }, { resolveSecret: true }); });
+    const connectionPayload = connection => ({ enabled: true, connection,
+        ...(debugSupported ? { debugLocalAccess: debug.checked === true } : {}) });
+    listen(enable, 'click', () => { const selected = current(); if (selected.ok) void change(connectionPayload(selected.connection), { resolveSecret: true }); });
     listen(disable, 'click', () => void change({ enabled: false }));
-    listen(update, 'click', () => { const selected = current(); if (selected.ok) void change({ enabled: true, connection: selected.connection }, { resolveSecret: true }); });
+    listen(update, 'click', () => { const selected = current(); if (selected.ok) void change(connectionPayload(selected.connection), { resolveSecret: true }); });
+    listen(debug, 'change', () => {
+        if (debug.disabled) { debug.checked = state?.debugLocalAccess === true; return; }
+        if (state?.enabled) void change({ enabled: true, debugLocalAccess: debug.checked === true });
+    });
     listen(rotate, 'click', () => void change({ enabled: true, rotateKey: true }));
     listen(refresh, 'click', () => void read());
     listen(showKey, 'click', () => { apiKey.type = apiKey.type === 'password' ? 'text' : 'password';

@@ -53,6 +53,8 @@ export function currentBridgeConnection(context, documentRef = globalThis.docume
 
 export function validateBridgeState(data) {
     if (data?.ok !== true || typeof data.enabled !== 'boolean' || data.model !== 'st-current') return false;
+    if (data.debugLocalAccess !== undefined && typeof data.debugLocalAccess !== 'boolean') return false;
+    if (!data.enabled && data.debugLocalAccess === true) return false;
     if (!data.enabled) return data.baseUrl === null && data.apiKey === null && data.connection === null;
     try {
         const url = new URL(data.baseUrl);

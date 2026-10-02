@@ -53,6 +53,9 @@ test('connection snapshot accepts native Google only and matches selected profil
 test('bridge response accepts only authenticated loopback endpoint', () => {
     assert.equal(validateBridgeState(disabled), true);
     assert.equal(validateBridgeState(enabled), true);
+    assert.equal(validateBridgeState({ ...enabled, debugLocalAccess: true }), true);
+    assert.equal(validateBridgeState({ ...enabled, debugLocalAccess: 'true' }), false);
+    assert.equal(validateBridgeState({ ...disabled, debugLocalAccess: true }), false);
     assert.equal(validateBridgeState({ ...enabled, baseUrl: 'http://localhost:4321/openai/v1' }), false);
     assert.equal(validateBridgeState({ ...enabled, apiKey: null }), false);
     assert.equal(validateBridgeState({ ...enabled, baseUrl: 'http://name:pass@127.0.0.1:4321/openai/v1' }), false);
@@ -117,6 +120,7 @@ test('UI gates management fetch on capability, then snapshots and updates curren
     capability = true;
     await ui.refresh();
     assert.equal(reads, 1);
+    assert.equal(documentRef.getElementById('vertex-paygo-bridge-debug').disabled, true);
     const findButton = text => {
         const visit = node => node.tagName === 'BUTTON' && node.textContent === text ? node
             : node.children.map(visit).find(Boolean);
@@ -140,6 +144,54 @@ test('UI gates management fetch on capability, then snapshots and updates curren
     assert.deepEqual(payloads[2], { enabled: false });
     ui.destroy();
     assert.equal(documentRef.getElementById('vertex-paygo-openai-bridge'), null);
+});
+
+test('Debug choice is sent on enable and update; live toggles preserve binding, failures require refresh', async () => {
+    const context = nativeContext(); context.chatCompletionSettings.chat_completion_source = 'makersuite';
+    const documentRef = nativeDocument();
+    const payloads = [];
+    let actual = { ...disabled, debugLocalAccess: false };
+    let fail = false;
+    const ui = createOpenAiBridgeUi({ context, documentRef, localize: createLocalizer(), serverClient: {
+        checkHealth: async () => ({ capabilities: { openaiBridge: true, openaiBridgeDebug: true } }),
+        readOpenAiBridge: async () => actual,
+        readActiveGoogleSecretId: async () => 'active-key',
+        updateOpenAiBridge: async payload => {
+            payloads.push(payload);
+            if (fail) throw new Error('Lost management response');
+            actual = payload.enabled ? { ...enabled, debugLocalAccess: payload.debugLocalAccess ?? actual.debugLocalAccess }
+                : { ...disabled, debugLocalAccess: false };
+            return actual;
+        },
+    } });
+    const button = text => {
+        const visit = node => node.tagName === 'BUTTON' && node.textContent === text ? node
+            : node.children.map(visit).find(Boolean);
+        return visit(documentRef);
+    };
+    await tick();
+    const debug = documentRef.getElementById('vertex-paygo-bridge-debug');
+    assert.equal(debug.checked, false);
+    assert.equal(debug.disabled, false);
+    debug.checked = true; await debug.fire('change');
+    assert.equal(payloads.length, 0);
+    await button('Enable bridge').fire('click'); await tick();
+    assert.equal(payloads[0].debugLocalAccess, true);
+    await button('Update to current connection').fire('click'); await tick();
+    assert.equal(payloads[1].debugLocalAccess, true);
+    debug.checked = false; await debug.fire('change'); await tick();
+    assert.deepEqual(payloads[2], { enabled: true, debugLocalAccess: false });
+    actual = { ...enabled, debugLocalAccess: true };
+    await ui.refresh(); assert.equal(debug.checked, true);
+    fail = true; debug.checked = false; await debug.fire('change'); await tick();
+    assert.equal(debug.disabled, true);
+    assert.equal(debug.checked, false);
+    assert.equal(button('Enable bridge').disabled, true);
+    fail = false; await ui.refresh(); assert.equal(debug.checked, true);
+    await button('Disable bridge').fire('click'); await tick();
+    assert.equal(debug.checked, false);
+    assert.deepEqual(payloads.at(-1), { enabled: false });
+    ui.destroy();
 });
 
 test('missing active credential aborts enable without bridge update', async () => {

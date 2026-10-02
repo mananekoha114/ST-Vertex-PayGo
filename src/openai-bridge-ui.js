@@ -51,22 +51,37 @@ export function createOpenAiBridgeUi({ context, serverClient, localize, document
         row.append(make(input.id ? 'label' : 'span', label, input.id ? { for: input.id } : {}), controls);
         return row;
     };
+    const subsection = (id, title, ...children) => {
+        const details = make('details', '', { id, class: 'vertex-paygo-bridge-subsection' });
+        const summary = make('summary', title);
+        const body = make('div', '', { class: 'vertex-paygo-bridge-subsection-body' });
+        body.append(...children);
+        details.append(summary, body);
+        return { details, summary, body };
+    };
     const actions = make('div', '', { class: 'vertex-paygo-bridge-actions' });
-    actions.append(enable, disable, refresh, update, rotate);
-    content.append(status, actions, debugLabel, debugGuidance, connection, make('small', 'vertex_paygo.bridge.guidance', { class: 'vertex-paygo-guidance' }),
+    actions.append(enable, disable, refresh);
+    const setup = subsection('vertex-paygo-bridge-setup', 'vertex_paygo.bridge.sections.setup',
         field('vertex_paygo.bridge.base_url', baseUrl, copyUrl),
         field('vertex_paygo.bridge.api_key', apiKey, showKey, copyKey),
-        field('vertex_paygo.bridge.model', modelValue, copyModel),
+        field('vertex_paygo.bridge.model', modelValue, copyModel));
+    const advancedActions = make('div', '', { class: 'vertex-paygo-bridge-actions' });
+    advancedActions.append(update, rotate);
+    const advanced = subsection('vertex-paygo-bridge-advanced', 'vertex_paygo.bridge.sections.advanced',
+        advancedActions, debugLabel, debugGuidance);
+    const help = subsection('vertex-paygo-bridge-help', 'vertex_paygo.bridge.sections.help',
+        make('small', 'vertex_paygo.bridge.guidance', { class: 'vertex-paygo-guidance' }),
         make('small', 'vertex_paygo.bridge.limitations', { class: 'vertex-paygo-guidance' }));
-    const logs = make('section', '', { class: 'vertex-paygo-bridge-logs', 'aria-label': localize('vertex_paygo.bridge.logs.title') });
+    content.append(status, connection, actions, setup.details, advanced.details);
+    const logs = subsection('vertex-paygo-bridge-logs', 'vertex_paygo.bridge.logs.title');
     const logsRefresh = make('button', 'vertex_paygo.bridge.logs.refresh', { id: 'vertex-paygo-bridge-logs-refresh', type: 'button', class: 'menu_button' });
     const logsClear = make('button', 'vertex_paygo.bridge.logs.clear', { id: 'vertex-paygo-bridge-logs-clear', type: 'button', class: 'menu_button' });
     const logsActions = make('div', '', { class: 'vertex-paygo-bridge-actions' });
     const logsStatus = make('small', '', { id: 'vertex-paygo-bridge-logs-status', class: 'vertex-paygo-guidance', 'aria-live': 'polite' });
     const logsEntries = make('div', '', { id: 'vertex-paygo-bridge-logs-entries' });
     logsActions.append(logsRefresh, logsClear);
-    logs.append(make('b', 'vertex_paygo.bridge.logs.title'), make('small', 'vertex_paygo.bridge.logs.guidance', { class: 'vertex-paygo-guidance' }), logsActions, logsStatus, logsEntries);
-    content.append(logs);
+    logs.body.append(make('small', 'vertex_paygo.bridge.logs.guidance', { class: 'vertex-paygo-guidance' }), logsActions, logsStatus, logsEntries);
+    content.append(logs.details, help.details);
     root.append(header, drawerContent);
     host.append(root);
     let state = null;
@@ -118,6 +133,8 @@ export function createOpenAiBridgeUi({ context, serverClient, localize, document
                 : entries.length ? 'vertex_paygo.bridge.logs.loaded' : 'vertex_paygo.bridge.logs.empty');
         logsStatus.classList.toggle('vertex-paygo-status--error', Boolean(logsError));
         debug.disabled = busy || !healthy || !debugSupported;
+        advanced.summary.textContent = localize(debug.checked
+            ? 'vertex_paygo.bridge.sections.advanced_debug' : 'vertex_paygo.bridge.sections.advanced');
         debugGuidance.textContent = localize(debugSupported ? 'vertex_paygo.bridge.debug_guidance' : 'vertex_paygo.bridge.debug_upgrade');
         baseUrl.value = enabled ? state.baseUrl : '';
         apiKey.value = enabled ? state.apiKey : '';

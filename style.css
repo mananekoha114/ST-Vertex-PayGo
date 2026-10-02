@@ -259,13 +259,30 @@
     gap: 0.5em;
 }
 
-#vertex-paygo-openai-bridge .vertex-paygo-bridge-logs {
+#vertex-paygo-openai-bridge .vertex-paygo-bridge-subsection {
+    min-width: 0;
+    border: 1px solid var(--SmartThemeBorderColor, #888);
+    border-radius: 5px;
+}
+#vertex-paygo-openai-bridge .vertex-paygo-bridge-subsection > summary {
+    display: list-item;
+    padding: 0.55rem 0.65rem;
+    cursor: pointer;
+    font-weight: 600;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+#vertex-paygo-openai-bridge .vertex-paygo-bridge-subsection > summary:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: -2px;
+    border-radius: 5px;
+}
+#vertex-paygo-openai-bridge .vertex-paygo-bridge-subsection-body {
     display: flex;
     flex-direction: column;
     gap: 0.6rem;
     min-width: 0;
-    padding-top: 0.75rem;
-    border-top: 1px solid var(--SmartThemeBorderColor, #888);
+    padding: 0 0.65rem 0.65rem;
 }
 #vertex-paygo-openai-bridge .vertex-paygo-bridge-log-entry {
     min-width: 0;

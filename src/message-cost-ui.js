@@ -6,6 +6,7 @@
 
 import { formatMessageCostLabel, formatMessageMoney, summarizeMessageCost } from './message-cost-view.js';
 import { createLocalizer, getTierLabel } from './i18n.js';
+import { normalizeMessageCostPlacement } from './message-cost-settings.js';
 
 const ROOT_CLASS = 'vertex-paygo-message-cost';
 const messageKey = name => `vertex_paygo.message_cost.${name}`;
@@ -115,7 +116,8 @@ function buildCard(documentRef, summary, onClose, localize) {
     return card;
 }
 
-export function createMessageCostUi({ getContext, getMessageCost, getPrices, documentRef = globalThis.document, onOpen, localize } = {}) {
+export function createMessageCostUi({ getContext, getMessageCost, getPrices, getPlacement = () => 'footer',
+    documentRef = globalThis.document, onOpen, localize } = {}) {
     localize ??= createLocalizer((fallback, key) => getContext?.()?.translate?.(fallback, key));
     let openCard = null;
     let openButton = null;
@@ -163,18 +165,40 @@ export function createMessageCostUi({ getContext, getMessageCost, getPrices, doc
         position(openCard, openButton);
     }
 
-    function placeButton(messageElement, button) {
-        const avatar = messageElement.querySelector?.('.mesAvatarWrapper, .avatar-container, .avatar');
-        const body = messageElement.querySelector?.('.mes_text, .mes_block');
-        if (avatar && avatar.offsetParent !== null) avatar.append(button);
-        else if (body?.parentElement) body.parentElement.insertBefore(button, body);
-        else messageElement.prepend?.(button);
+    function isVisible(element) {
+        if (!element || element.offsetParent === null) return false;
+        const style = documentRef.defaultView?.getComputedStyle?.(element);
+        return style?.visibility !== 'hidden' && style?.visibility !== 'collapse' && style?.display !== 'none';
     }
 
-    function attach(messageElement, message, id) {
+    function placeButton(messageElement, button, placement) {
+        // Select the content block explicitly: a selector list chooses in DOM
+        // order, so '.mes_text, .mes_block' returns the outer block first.
+        const block = messageElement.querySelector?.('.mes_block')
+            ?? messageElement.querySelector?.('.mes_text')?.parentElement;
+        if (!block) { button.remove(); return false; }
+        let target = block;
+        let actualPlacement = 'footer';
+        if (placement === 'avatar') {
+            const avatar = messageElement.querySelector?.('.mesAvatarWrapper, .avatar-container');
+            if (isVisible(avatar)) { target = avatar; actualPlacement = placement; }
+        } else if (placement === 'header') {
+            const header = block.querySelector?.('.ch_name');
+            // Use the metadata group, keeping clear of the action/edit buttons.
+            const metadata = header?.querySelector?.('.timestamp')?.parentElement ?? header;
+            if (isVisible(header) && isVisible(metadata)) { target = metadata; actualPlacement = placement; }
+        }
+        button.dataset.placement = actualPlacement;
+        // Stay outside .mes_text, which the host rewrites during streaming,
+        // editing and swipes. The footer follows media, attachments and bias.
+        if (button.parentElement !== target || target.children[target.children.length - 1] !== button) target.append(button);
+        return true;
+    }
+
+    function attach(messageElement, message, id, placement) {
         const snapshot = message?.is_user || message?.is_system ? null : getMessageCost?.(message);
         const existing = messageElement.querySelector?.(`.${ROOT_CLASS}-trigger`);
-        if (!snapshot) {
+        if (!snapshot || placement === 'hidden') {
             existing?.remove();
             return;
         }
@@ -197,13 +221,14 @@ export function createMessageCostUi({ getContext, getMessageCost, getPrices, doc
                 open(button, current);
             }
         };
-        placeButton(messageElement, button);
+        if (!placeButton(messageElement, button, placement)) return;
         if (openButton === button) refreshOpenCard(summary);
         return button;
     }
 
     function render(messageId) {
         if (destroyed || !documentRef) return;
+        const placement = normalizeMessageCostPlacement(getPlacement());
         const messages = getContext?.()?.chat ?? [];
         const elements = new Map([...(documentRef.querySelectorAll?.('.mes[mesid]') ?? [])]
             .map(element => [element.getAttribute?.('mesid'), element]));
@@ -212,7 +237,7 @@ export function createMessageCostUi({ getContext, getMessageCost, getPrices, doc
             const message = messages[Number(id)];
             if (messageId != null && String(messageId) !== id) continue;
             if (messageElement) {
-                const attached = attach(messageElement, message, id);
+                const attached = attach(messageElement, message, id, placement);
                 if (attached && attached === openButton) keptOpen = true;
             }
         }
@@ -232,7 +257,8 @@ export function createMessageCostUi({ getContext, getMessageCost, getPrices, doc
     documentRef?.addEventListener?.('pointerdown', outside);
     documentRef?.addEventListener?.('keydown', keydown);
     const reposition = () => { if (openCard && openButton) position(openCard, openButton); };
-    documentRef?.defaultView?.addEventListener?.('resize', reposition);
+    const resize = () => { render(); reposition(); };
+    documentRef?.defaultView?.addEventListener?.('resize', resize);
     documentRef?.defaultView?.addEventListener?.('scroll', reposition, true);
     const context = getContext?.();
     const chatChanged = context?.eventTypes?.CHAT_CHANGED;
@@ -242,6 +268,11 @@ export function createMessageCostUi({ getContext, getMessageCost, getPrices, doc
     const Observer = documentRef?.defaultView?.MutationObserver;
     const layoutObserver = Observer && documentRef.body ? new Observer(() => render()) : null;
     layoutObserver?.observe(documentRef.body, { attributes: true, attributeFilter: ['class'] });
+    // Custom CSS changes need not change body classes. SillyTavern keeps
+    // #custom-style in head; watch style text/link changes, not chat token DOM.
+    const themeObserver = Observer && documentRef.head ? new Observer(() => render()) : null;
+    themeObserver?.observe(documentRef.head, { childList: true, subtree: true, characterData: true,
+        attributes: true, attributeFilter: ['href', 'media', 'disabled'] });
     // Native chat virtualization can remount a message without a generation
     // event. Only react to message roots, ignoring our own button/card changes.
     const chat = documentRef?.getElementById?.('chat');
@@ -263,10 +294,11 @@ export function createMessageCostUi({ getContext, getMessageCost, getPrices, doc
         close();
         documentRef?.removeEventListener?.('pointerdown', outside);
         documentRef?.removeEventListener?.('keydown', keydown);
-        documentRef?.defaultView?.removeEventListener?.('resize', reposition);
+        documentRef?.defaultView?.removeEventListener?.('resize', resize);
         documentRef?.defaultView?.removeEventListener?.('scroll', reposition, true);
         if (chatChanged) context.eventSource?.removeListener?.(chatChanged, close);
         layoutObserver?.disconnect();
+        themeObserver?.disconnect();
         messageObserver?.disconnect();
         for (const trigger of documentRef?.querySelectorAll?.(`.${ROOT_CLASS}-trigger`) ?? []) trigger.remove();
     }

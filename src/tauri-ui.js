@@ -7,6 +7,8 @@ import { getModelPolicy, getTierSupport } from './model-policy.js';
 import { validatePluginState } from './state-machine.js';
 import { applyTauriParameters, readTauriState } from './tauri-parameters.js';
 
+import { createMessageCostPlacementControl } from './message-cost-settings.js';
+
 const CURRENT = '__current__';
 
 export function currentTauriRequest(context) {
@@ -27,6 +29,7 @@ export function currentTauriRequest(context) {
 // The native settings are the source of truth: presets and manual Additional
 // Parameters edits therefore cannot diverge from a second extension-only tier.
 export function createTauriUi({ getContext, connections, yaml, documentRef = globalThis.document,
+    getMessageCostPlacement = () => 'footer', setMessageCostPlacement = () => {},
     localize = createLocalizer(), notifyError = () => {}, notifyWarning = () => {} }) {
     const container = documentRef.getElementById('extensions_settings2')
         ?? documentRef.getElementById('extensions_settings');
@@ -62,6 +65,8 @@ export function createTauriUi({ getContext, connections, yaml, documentRef = glo
     content.append(scopeLabel, scope, refresh, modelLabel, tierLabel, tier, paygoLabel, status,
         element('small', localize('vertex_paygo.tauri.persistence'), { class: 'vertex-paygo-guidance' }),
         element('small', localize('vertex_paygo.tauri.cost_notice'), { class: 'vertex-paygo-guidance' }));
+    const placementControl = createMessageCostPlacementControl({ documentRef, localize, getMessageCostPlacement, setMessageCostPlacement });
+    content.append(placementControl.root);
     drawerContent.append(content);
     container.append(root);
     let busy = false;
@@ -93,6 +98,7 @@ export function createTauriUi({ getContext, connections, yaml, documentRef = glo
     }
     function render() {
         if (destroyed) return;
+        placementControl.render();
         try {
             const item = selected();
             if (!item) throw new Error(localize('vertex_paygo.tauri.target_missing'));
@@ -224,6 +230,6 @@ export function createTauriUi({ getContext, connections, yaml, documentRef = glo
             return { source: item?.source, model: item?.model, tier: item?.state?.tier ?? 'standard' };
         },
         onModelPolicyChanged: reload,
-        destroy() { destroyed = true; for (const dispose of disposers) dispose(); root.remove(); },
+        destroy() { destroyed = true; placementControl.destroy(); for (const dispose of disposers) dispose(); root.remove(); },
     };
 }

@@ -10,6 +10,12 @@ import { PROTOCOL_VERSION, REQUIRED_TRANSPORT } from './constants.js';
 import { MODEL_POLICY_SNAPSHOT } from './model-policy.js';
 
 export const MESSAGES = Object.freeze({
+    "vertex_paygo.message_cost.placement": "Message cost position",
+    "vertex_paygo.message_cost.placement.footer": "Message footer (default)",
+    "vertex_paygo.message_cost.placement.header": "Message header",
+    "vertex_paygo.message_cost.placement.avatar": "Below avatar",
+    "vertex_paygo.message_cost.placement.hidden": "Hidden",
+    "vertex_paygo.message_cost.placement.guidance": "Applies globally to all chats and API sources. Hiding costs does not stop usage and cost recording.",
     'vertex_paygo.bridge.logs.request_incomplete': 'Request body was not fully received.',
     'vertex_paygo.bridge.logs.upstream_response': 'Raw Google upstream response',
     "vertex_paygo.bridge.logs.title": "Bridge API logs",

@@ -213,5 +213,11 @@
   "vertex_paygo.bridge.logs.error": "错误",
   "vertex_paygo.bridge.logs.no_body": "未记录内容。",
   "vertex_paygo.bridge.logs.upstream_response": "Google 上游原始响应",
-  "vertex_paygo.bridge.logs.request_incomplete": "请求体未接收完整。"
+  "vertex_paygo.bridge.logs.request_incomplete": "请求体未接收完整。",
+  "vertex_paygo.message_cost.placement": "消息费用位置",
+  "vertex_paygo.message_cost.placement.footer": "消息底部（默认）",
+  "vertex_paygo.message_cost.placement.header": "消息头",
+  "vertex_paygo.message_cost.placement.avatar": "头像下方",
+  "vertex_paygo.message_cost.placement.hidden": "隐藏",
+  "vertex_paygo.message_cost.placement.guidance": "此设置全局应用于所有聊天和 API 来源。隐藏费用不会停止记录用量和费用。"
 }

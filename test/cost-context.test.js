@@ -18,6 +18,25 @@ function fixture() {
     return { current, api, listeners };
 }
 
+test('message placement defaults to footer and persists globally without changing pricing or chat data', () => {
+    const { current, api } = fixture();
+    assert.equal(api.getMessageCostPlacement(), 'footer');
+    assert.equal(current.saves, 0);
+    for (const placement of ['header', 'avatar', 'hidden', 'footer']) {
+        api.setMessageCostPlacement(placement);
+        const reload = createCostContext({ getContext: () => current });
+        current.chatId = `another-${placement}`;
+        assert.equal(reload.getMessageCostPlacement(), placement);
+        reload.destroy();
+    }
+    assert.equal(current.saves, 4);
+    assert.deepEqual(current.extensionSettings['vertex-paygo-costs'].conversations, {});
+    assert.deepEqual(current.extensionSettings['vertex-paygo-costs'].prices, {});
+    current.extensionSettings['vertex-paygo-costs'].messageCostPlacement = 'unsupported';
+    assert.equal(api.getMessageCostPlacement(), 'footer');
+    api.destroy();
+});
+
 test('conversation IDs persist across reload and separate characters, groups and branches', () => {
     const { current, api } = fixture();
     assert.equal(api.getChatId(), null);

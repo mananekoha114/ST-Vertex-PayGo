@@ -57,6 +57,7 @@ function createHostDom() {
             const handlers = this.listeners.get(name) ?? [];
             this.listeners.set(name, [...handlers, callback]);
         }
+        removeEventListener(name, callback) { this.listeners.set(name, (this.listeners.get(name) ?? []).filter(handler => handler !== callback)); }
         async fire(name) {
             for (const handler of this.listeners.get(name) ?? []) await handler({ target: this });
         }
@@ -104,8 +105,18 @@ test('one settings controller moves between sources, preserves profiles, and app
         POPUP_RESULT: { AFFIRMATIVE: 1, NEGATIVE: 0 },
         saveSettingsDebounced() {},
     };
-    const ui = createPayGoUi({ context, serverClient: { checkHealth: async () => ({ capabilities: {} }) } });
+    let placement = 'avatar';
+    const placementCalls = [];
+    const ui = createPayGoUi({ context, getMessageCostPlacement: () => placement,
+        setMessageCostPlacement: value => { placement = value; placementCalls.push(value); }, serverClient: { checkHealth: async () => ({ capabilities: {} }) } });
     await Promise.resolve();
+    const placementSelect = dom.document.getElementById('vertex-paygo-message-cost-placement');
+    assert.equal(placementSelect.value, 'avatar');
+    assert.equal(placementSelect.disabled, undefined);
+    placementSelect.value = 'hidden';
+    await placementSelect.fire('change');
+    assert.deepEqual(placementCalls, ['hidden']);
+    assert.equal(ui.getState().tier, 'standard');
     const root = dom.document.getElementById('vertex-paygo-settings');
     const select = dom.document.getElementById('vertex-paygo-tier');
     const paygo = dom.document.getElementById('vertex-paygo-only');
@@ -136,4 +147,9 @@ test('one settings controller moves between sources, preserves profiles, and app
     assert.equal(dom.elements.filter(element => element.id === root.id).length, 1);
     assert.equal(select.listeners.get('change').length, 1);
     assert.equal(vertex[EXTENSION_ID].tier, 'standard');
+    assert.equal(placementSelect.value, 'hidden');
+    ui.destroy();
+    placementSelect.value = 'footer';
+    await placementSelect.fire('change');
+    assert.deepEqual(placementCalls, ['hidden']);
 });

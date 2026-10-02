@@ -1,20 +1,37 @@
 .vertex-paygo-message-cost-trigger {
     display: block;
-    width: max-content;
-    max-width: none;
-    margin: .25rem auto 0;
+    box-sizing: border-box;
+    width: fit-content;
+    max-width: 100%;
+    margin: .35rem 0 .15rem;
     padding: .08rem .12rem;
     border: 1px solid transparent;
     border-radius: 3px;
     background: transparent;
-    color: var(--SmartThemeBodyColor);
+    color: var(--SmartThemeBodyColor, inherit);
     font: inherit;
-    font-size: clamp(.58rem, .9vw, .68rem);
+    font-size: .75em;
     line-height: 1.2;
     letter-spacing: -.02em;
-    white-space: nowrap;
+    white-space: normal;
+    overflow-wrap: anywhere;
     cursor: pointer;
     opacity: .72;
+}
+.vertex-paygo-message-cost-trigger[data-placement="footer"] {
+    max-width: calc(100% - var(--mes-right-spacing, 30px));
+    text-align: start;
+}
+.vertex-paygo-message-cost-trigger[data-placement="header"] {
+    display: inline-block;
+    flex: 0 1 auto;
+    min-width: 0;
+    margin: 0 .35rem;
+    vertical-align: baseline;
+}
+.vertex-paygo-message-cost-trigger[data-placement="avatar"] {
+    margin: .25rem auto 0;
+    font-size: .68rem;
 }
 .vertex-paygo-message-cost-trigger:hover,
 .vertex-paygo-message-cost-trigger:focus-visible { opacity: 1; }

@@ -115,6 +115,7 @@ export async function init() {
         });
         await waitForVertexControls(10_000, localize);
 
+        costContext = createCostContext({ getContext: () => globalThis.SillyTavern.getContext() });
         controller = createPayGoUi({
             context,
             serverClient,
@@ -122,14 +123,19 @@ export async function init() {
             notifyWarning: message => notify('warning', message),
             logger: clientLogger,
             localize,
+            getMessageCostPlacement: costContext.getMessageCostPlacement,
+            setMessageCostPlacement(value) {
+                costContext.setMessageCostPlacement(value);
+                messageCostUi?.render();
+            },
         });
         openAiBridgeUi = createOpenAiBridgeUi({ context, serverClient, localize });
 
-        costContext = createCostContext({ getContext: () => globalThis.SillyTavern.getContext() });
         messageCostUi = createMessageCostUi({
             getContext: () => globalThis.SillyTavern.getContext(),
             getMessageCost,
             getPrices: costContext.getPrices,
+            getPlacement: costContext.getMessageCostPlacement,
             localize,
             onOpen: () => void messageCosts?.refresh({ retry: true }),
         });

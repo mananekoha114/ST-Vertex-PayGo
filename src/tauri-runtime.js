@@ -90,12 +90,19 @@ export async function initTauriTavern({ target = globalThis, documentRef = targe
     try {
         restoreCachedModelPolicy();
         const connections = (factories.connections ?? createTauriConnections)({ getContext, api: target.__TAURITAVERN__.api, yaml });
-        controller = (factories.ui ?? createTauriUi)({ getContext, connections, yaml, documentRef, localize, notifyError, notifyWarning });
         costs = (factories.costContext ?? createCostContext)({ getContext });
+        controller = (factories.ui ?? createTauriUi)({ getContext, connections, yaml, documentRef, localize, notifyError, notifyWarning,
+            getMessageCostPlacement: costs.getMessageCostPlacement,
+            setMessageCostPlacement(value) {
+                costs.setMessageCostPlacement(value);
+                messageCostUi?.render();
+            },
+        });
         usage = (factories.usage ?? createTauriUsageClient)({ store,
             notifyWarning: () => notifyWarning(localize('vertex_paygo.costs.recording_unavailable')) });
         messageCostUi = (factories.messageCostUi ?? createMessageCostUi)({ getContext, getMessageCost,
             documentRef, getPrices: costs.getPrices, localize,
+            getPlacement: costs.getMessageCostPlacement,
             onOpen: () => void messageCosts?.refresh({ retry: true }),
         });
         messageCosts = (factories.messageCosts ?? createMessageCosts)({ getContext,

@@ -17,9 +17,11 @@ export function createOpenAiBridgeUi({ context, serverClient, localize, document
     const root = make('section', '', { id: 'vertex-paygo-openai-bridge', class: 'inline-drawer' });
     const header = make('div', '', { class: 'inline-drawer-toggle inline-drawer-header', role: 'button',
         tabindex: '0', 'aria-expanded': 'false', 'aria-controls': 'vertex-paygo-openai-bridge-content' });
-    header.append(make('b', 'vertex_paygo.bridge.title'),
-        make('div', '', { class: 'inline-drawer-icon fa-solid fa-circle-chevron-down down', 'aria-hidden': 'true' }));
-    const content = make('div', '', { id: 'vertex-paygo-openai-bridge-content', class: 'inline-drawer-content vertex-paygo-bridge-content' });
+    const drawerIcon = make('div', '', { class: 'inline-drawer-icon fa-solid fa-circle-chevron-down down', 'aria-hidden': 'true' });
+    header.append(make('b', 'vertex_paygo.bridge.title'), drawerIcon);
+    const drawerContent = make('div', '', { id: 'vertex-paygo-openai-bridge-content', class: 'inline-drawer-content' });
+    const content = make('div', '', { class: 'vertex-paygo-bridge-content' });
+    drawerContent.append(content);
     const status = make('small', '', { class: 'vertex-paygo-status', 'aria-live': 'polite' });
     const connection = make('small', '', { class: 'vertex-paygo-guidance' });
     const enable = make('button', 'vertex_paygo.bridge.enable', { type: 'button', class: 'menu_button' });
@@ -27,9 +29,9 @@ export function createOpenAiBridgeUi({ context, serverClient, localize, document
     const refresh = make('button', 'vertex_paygo.bridge.refresh', { type: 'button', class: 'menu_button' });
     const update = make('button', 'vertex_paygo.bridge.update', { type: 'button', class: 'menu_button' });
     const rotate = make('button', 'vertex_paygo.bridge.rotate', { type: 'button', class: 'menu_button' });
-    const baseUrl = make('input', '', { type: 'text', readonly: '', 'aria-label': localize('vertex_paygo.bridge.base_url') });
+    const baseUrl = make('textarea', '', { id: 'vertex-paygo-bridge-url', class: 'text_pole', rows: '2', readonly: '', 'aria-label': localize('vertex_paygo.bridge.base_url'), spellcheck: 'false' });
     const copyUrl = make('button', 'vertex_paygo.bridge.copy', { type: 'button', class: 'menu_button' });
-    const apiKey = make('input', '', { type: 'password', readonly: '', 'aria-label': localize('vertex_paygo.bridge.api_key') });
+    const apiKey = make('input', '', { id: 'vertex-paygo-bridge-key', class: 'text_pole', type: 'password', readonly: '', 'aria-label': localize('vertex_paygo.bridge.api_key'), autocomplete: 'off', spellcheck: 'false' });
     const showKey = make('button', 'vertex_paygo.bridge.show', { type: 'button', class: 'menu_button' });
     const copyKey = make('button', 'vertex_paygo.bridge.copy', { type: 'button', class: 'menu_button' });
     const copyModel = make('button', 'vertex_paygo.bridge.copy_model', { type: 'button', class: 'menu_button' });
@@ -37,7 +39,11 @@ export function createOpenAiBridgeUi({ context, serverClient, localize, document
     modelValue.textContent = 'st-current';
     const field = (label, input, ...buttons) => {
         const row = make('div', '', { class: 'vertex-paygo-bridge-row' });
-        row.append(make('label', label), input, ...buttons);
+        const controls = make('div', '', { class: 'vertex-paygo-bridge-controls' });
+        const actions = make('div', '', { class: 'vertex-paygo-bridge-field-actions' });
+        actions.append(...buttons);
+        controls.append(input, actions);
+        row.append(make(input.id ? 'label' : 'span', label, input.id ? { for: input.id } : {}), controls);
         return row;
     };
     const actions = make('div', '', { class: 'vertex-paygo-bridge-actions' });
@@ -47,7 +53,7 @@ export function createOpenAiBridgeUi({ context, serverClient, localize, document
         field('vertex_paygo.bridge.api_key', apiKey, showKey, copyKey),
         field('vertex_paygo.bridge.model', modelValue, copyModel),
         make('small', 'vertex_paygo.bridge.limitations', { class: 'vertex-paygo-guidance' }));
-    root.append(header, content);
+    root.append(header, drawerContent);
     host.append(root);
     let state = null;
     let healthy = false;
@@ -152,11 +158,21 @@ export function createOpenAiBridgeUi({ context, serverClient, localize, document
     listen(copyModel, 'click', () => void copy('st-current'));
     listen(documentRef, 'change', render);
     listen(documentRef, 'input', render);
+    // Own this toggle so both hosts keep visual state and ARIA in sync.
+    // Their delegated jQuery drawer events do not include an open/closed state.
+    listen(header, 'click', event => {
+        event.stopPropagation();
+        const open = header.getAttribute('aria-expanded') !== 'true';
+        header.setAttribute('aria-expanded', String(open));
+        drawerContent.style.display = open ? 'block' : 'none';
+        drawerIcon.classList.toggle('down', !open);
+        drawerIcon.classList.toggle('up', open);
+        drawerIcon.classList.toggle('fa-circle-chevron-down', !open);
+        drawerIcon.classList.toggle('fa-circle-chevron-up', open);
+    });
     listen(header, 'keydown', event => { if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault(); header.click();
     } });
-    listen(root, 'inline-drawer-toggle', event => { if (event.target === root && typeof event.detail?.open === 'boolean')
-        header.setAttribute('aria-expanded', String(event.detail.open)); });
     render();
     void read();
     return { refresh: read, render, destroy() { disposed = true; for (const dispose of disposers) dispose();

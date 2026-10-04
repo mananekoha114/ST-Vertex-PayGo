@@ -52,6 +52,7 @@
 }
 
 #vertex-paygo-openai-bridge .vertex-paygo-bridge-row input,
+#vertex-paygo-openai-bridge .vertex-paygo-bridge-row select,
 #vertex-paygo-openai-bridge .vertex-paygo-bridge-row textarea {
     box-sizing: border-box;
     flex: 1 1 16rem;

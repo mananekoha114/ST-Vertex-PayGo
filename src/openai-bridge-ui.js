@@ -59,6 +59,28 @@ export function createOpenAiBridgeUi({ context, serverClient, localize, document
         details.append(summary, body);
         return { details, summary, body };
     };
+    const select = (id, items) => {
+        const node = make('select', '', { id, class: 'text_pole' });
+        for (const [value, key] of items) node.append(make('option', key, { value }));
+        node.value = items[0][0];
+        return node;
+    };
+    const mode = select('vertex-paygo-bridge-mode', [
+        ['openai', 'vertex_paygo.bridge.mode.openai'], ['gemini', 'vertex_paygo.bridge.mode.gemini'],
+    ]);
+    const tierSource = select('vertex-paygo-bridge-tier-source', [
+        ['independent', 'vertex_paygo.bridge.tier_source.independent'], ['follow', 'vertex_paygo.bridge.tier_source.follow'],
+    ]);
+    const tier = select('vertex-paygo-bridge-tier', ['standard', 'flex', 'priority'].map(value => [value, `vertex_paygo.tier.${value}`]));
+    const applyPolicy = make('button', 'vertex_paygo.bridge.policy.apply', { id: 'vertex-paygo-bridge-policy-apply', type: 'button', class: 'menu_button' });
+    const policyStatus = make('small', '', { id: 'vertex-paygo-bridge-policy-status', class: 'vertex-paygo-guidance', 'aria-live': 'polite' });
+    const policy = subsection('vertex-paygo-bridge-policy', 'vertex_paygo.bridge.sections.policy',
+        field('vertex_paygo.bridge.mode.label', mode),
+        field('vertex_paygo.bridge.tier_source.label', tierSource),
+        field('vertex_paygo.bridge.tier.label', tier),
+        make('small', 'vertex_paygo.bridge.policy.guidance', { class: 'vertex-paygo-guidance' }),
+        make('small', 'vertex_paygo.bridge.policy.follow_hint', { class: 'vertex-paygo-guidance' }),
+        policyStatus, applyPolicy);
     const actions = make('div', '', { class: 'vertex-paygo-bridge-actions' });
     actions.append(enable, disable, refresh);
     const setup = subsection('vertex-paygo-bridge-setup', 'vertex_paygo.bridge.sections.setup',
@@ -72,7 +94,7 @@ export function createOpenAiBridgeUi({ context, serverClient, localize, document
     const help = subsection('vertex-paygo-bridge-help', 'vertex_paygo.bridge.sections.help',
         make('small', 'vertex_paygo.bridge.guidance', { class: 'vertex-paygo-guidance' }),
         make('small', 'vertex_paygo.bridge.limitations', { class: 'vertex-paygo-guidance' }));
-    content.append(status, connection, actions, setup.details, advanced.details);
+    content.append(status, connection, actions, setup.details, policy.details, advanced.details);
     const logs = subsection('vertex-paygo-bridge-logs', 'vertex_paygo.bridge.logs.title');
     const logsRefresh = make('button', 'vertex_paygo.bridge.logs.refresh', { id: 'vertex-paygo-bridge-logs-refresh', type: 'button', class: 'menu_button' });
     const logsClear = make('button', 'vertex_paygo.bridge.logs.clear', { id: 'vertex-paygo-bridge-logs-clear', type: 'button', class: 'menu_button' });
@@ -88,6 +110,8 @@ export function createOpenAiBridgeUi({ context, serverClient, localize, document
     let healthy = false;
     let debugSupported = false;
     let logsSupported = false;
+    let gatewaySupported = false;
+    let policyDirty = false;
     let logsBusy = false;
     let logsLoaded = false;
     let logsError = '';
@@ -105,10 +129,32 @@ export function createOpenAiBridgeUi({ context, serverClient, localize, document
         ? localize('vertex_paygo.bridge.active_secret_unavailable')
         : error instanceof Error ? error.message : String(error);
     const current = () => currentBridgeConnection(context, documentRef);
+    const syncPolicy = () => {
+        if (!state?.enabled) return;
+        mode.value = state.mode ?? 'openai';
+        tierSource.value = state.tierSource ?? 'independent';
+        tier.value = state.tier ?? 'standard';
+        policyDirty = false;
+    };
+    const policyPayload = () => ({ mode: mode.value, tierSource: tierSource.value, tier: tier.value });
+    const invalidPolicy = () => mode.value === 'openai' && tierSource.value === 'independent' && tier.value === 'flex';
     function render() {
         if (disposed) return;
         const selected = current();
         const enabled = state?.enabled === true;
+        const vertex = (enabled ? state.connection?.source : selected.connection?.source) === 'vertexai';
+        policy.details.hidden = !vertex;
+        mode.disabled = tierSource.disabled = busy || !healthy || !gatewaySupported || !vertex;
+        tier.disabled = mode.disabled || tierSource.value === 'follow';
+        applyPolicy.disabled = mode.disabled || !enabled || !policyDirty || invalidPolicy();
+        const effective = state?.effectiveTier;
+        policyStatus.textContent = !gatewaySupported ? localize('vertex_paygo.bridge.policy.upgrade')
+            : invalidPolicy() ? localize('vertex_paygo.bridge.policy.no_flex')
+                : policyDirty ? localize(enabled ? 'vertex_paygo.bridge.policy.unsaved' : 'vertex_paygo.bridge.policy.on_enable')
+                    : state?.tierError || (effective ? localize('vertex_paygo.bridge.policy.effective', {
+                        tier: localize(`vertex_paygo.tier.${effective}`),
+                    }) : localize('vertex_paygo.bridge.policy.on_enable'));
+        policyStatus.classList.toggle('vertex-paygo-status--error', invalidPolicy() || Boolean(state?.tierError));
         status.textContent = errorText || localize(healthy
             ? (enabled ? 'vertex_paygo.bridge.status_on' : 'vertex_paygo.bridge.status_off')
             : 'vertex_paygo.bridge.status_unavailable');
@@ -121,7 +167,7 @@ export function createOpenAiBridgeUi({ context, serverClient, localize, document
                 ? localize('vertex_paygo.bridge.current', { source: selected.connection.source,
                     model: selected.connection.model })
                 : issueText(selected.code);
-        enable.disabled = busy || !healthy || enabled || !selected.ok;
+        enable.disabled = busy || !healthy || enabled || !selected.ok || (vertex && gatewaySupported && invalidPolicy());
         disable.disabled = busy || !healthy || !enabled;
         update.disabled = busy || !healthy || !enabled || !selected.ok;
         rotate.disabled = busy || !healthy || !enabled;
@@ -160,12 +206,14 @@ export function createOpenAiBridgeUi({ context, serverClient, localize, document
                 return;
             }
             healthy = true;
+            gatewaySupported = health.capabilities?.openaiBridgeGateway === true;
             logsSupported = health.capabilities?.openaiBridgeLogs === true;
             debugSupported = health.capabilities?.openaiBridgeDebug === true;
             const result = await serverClient.readOpenAiBridge();
             if (disposed) return;
             if (!validateBridgeState(result)) throw new Error(localize('vertex_paygo.bridge.invalid_response'));
             state = result;
+            syncPolicy();
             debug.checked = debugSupported && result.debugLocalAccess === true;
         } catch (error) {
             if (disposed) return;
@@ -188,6 +236,7 @@ export function createOpenAiBridgeUi({ context, serverClient, localize, document
             if (disposed) return;
             if (!validateBridgeState(result)) throw new Error(localize('vertex_paygo.bridge.invalid_response'));
             state = result;
+            syncPolicy();
             debug.checked = debugSupported && result.debugLocalAccess === true;
         } catch (error) {
             if (disposed) return;
@@ -239,7 +288,10 @@ export function createOpenAiBridgeUi({ context, serverClient, localize, document
     listen(logsRefresh, 'click', () => void manageLogs());
     listen(logsClear, 'click', () => void manageLogs(true));
     const connectionPayload = connection => ({ enabled: true, connection,
+        ...(gatewaySupported && connection.source === 'vertexai' ? policyPayload() : {}),
         ...(debugSupported ? { debugLocalAccess: debug.checked === true } : {}) });
+    for (const control of [mode, tierSource, tier]) listen(control, 'change', () => { policyDirty = true; render(); });
+    listen(applyPolicy, 'click', () => { if (!applyPolicy.disabled) void change({ enabled: true, ...policyPayload() }); });
     listen(enable, 'click', () => { const selected = current(); if (selected.ok) void change(connectionPayload(selected.connection), { resolveSecret: true }); });
     listen(disable, 'click', () => void change({ enabled: false }));
     listen(update, 'click', () => { const selected = current(); if (selected.ok) void change(connectionPayload(selected.connection), { resolveSecret: true }); });

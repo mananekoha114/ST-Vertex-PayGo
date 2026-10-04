@@ -2,6 +2,8 @@
 
 ## 未发布 · Google OpenAI 兼容桥接
 
+- Vertex 可手动选择 Gemini 格式转换网关，调用方继续使用 OpenAI API；新增跟随主 API / 独立服务层级，明确提示原生 Vertex OpenAI 模式不支持 Flex。AI Studio 保持原行为。
+
 - 桥接日志读取加入 21 MiB 响应上限和 30 秒超时，修正响应体读取超时被误报为格式错误；界面销毁后不再继续发起状态请求。
 
 - 增加默认关闭的 localhost 浏览器 Debug 开关，保留桥接 key 鉴权；支持按用户关闭和状态同步。

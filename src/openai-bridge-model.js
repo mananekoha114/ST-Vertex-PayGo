@@ -55,6 +55,13 @@ export function validateBridgeState(data) {
     if (data?.ok !== true || typeof data.enabled !== 'boolean' || data.model !== 'st-current') return false;
     if (data.debugLocalAccess !== undefined && typeof data.debugLocalAccess !== 'boolean') return false;
     if (!data.enabled && data.debugLocalAccess === true) return false;
+    if (data.mode !== undefined && !['openai', 'gemini'].includes(data.mode)) return false;
+    if (data.tierSource !== undefined && !['independent', 'follow'].includes(data.tierSource)) return false;
+    if (data.tier !== undefined && !['standard', 'flex', 'priority'].includes(data.tier)) return false;
+    if (data.effectiveTier !== undefined && data.effectiveTier !== null
+        && !['standard', 'flex', 'priority'].includes(data.effectiveTier)) return false;
+    if (data.tierError !== undefined && data.tierError !== null
+        && typeof data.tierError !== 'string') return false;
     if (!data.enabled) return data.baseUrl === null && data.apiKey === null && data.connection === null;
     try {
         const url = new URL(data.baseUrl);

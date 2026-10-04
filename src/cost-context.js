@@ -4,6 +4,7 @@
 
 import { normalizePrice, priceKey } from './cost-model.js';
 import { getActivePricing } from './model-policy.js';
+import { normalizeMessageCostPlacement } from './message-cost-settings.js';
 
 const SETTINGS_KEY = 'vertex-paygo-costs';
 
@@ -44,6 +45,16 @@ export function createCostContext({ getContext, idFactory = createConversationId
         const context = getContext();
         const key = identity(context);
         return key ? settings(context).conversations[key] ?? null : null;
+    }
+
+    function getMessageCostPlacement() {
+        return normalizeMessageCostPlacement(settings().messageCostPlacement);
+    }
+
+    function setMessageCostPlacement(value) {
+        const context = getContext();
+        settings(context).messageCostPlacement = normalizeMessageCostPlacement(value);
+        context.saveSettingsDebounced();
     }
 
     function captureUsageContext() {
@@ -127,5 +138,6 @@ export function createCostContext({ getContext, idFactory = createConversationId
     if (context.eventTypes?.CHAT_RENAMED) context.eventSource?.on(context.eventTypes.CHAT_RENAMED, renamed);
 
     return { getChatId, captureUsageContext, getPrices, setPrices, setPrice, resetPrice, getPriceInfo, getUsagePrice,
+        getMessageCostPlacement, setMessageCostPlacement,
         destroy() { context.eventSource?.removeListener?.(context.eventTypes?.CHAT_RENAMED, renamed); } };
 }

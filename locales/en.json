@@ -229,5 +229,11 @@
   "vertex_paygo.bridge.policy.no_flex": "Native Vertex OpenAI mode does not support Flex. Select the Gemini gateway or another tier.",
   "vertex_paygo.bridge.policy.unsaved": "Changes are not applied. Apply protocol and tier to update the running bridge.",
   "vertex_paygo.bridge.policy.on_enable": "These settings will be applied when you enable the bridge.",
-  "vertex_paygo.bridge.policy.effective": "Last checked effective tier: {tier}"
+  "vertex_paygo.bridge.policy.effective": "Last checked effective tier: {tier}",
+  "vertex_paygo.message_cost.placement": "Message cost position",
+  "vertex_paygo.message_cost.placement.footer": "Message footer (default)",
+  "vertex_paygo.message_cost.placement.header": "Message header",
+  "vertex_paygo.message_cost.placement.avatar": "Below avatar",
+  "vertex_paygo.message_cost.placement.hidden": "Hidden",
+  "vertex_paygo.message_cost.placement.guidance": "Applies globally to all chats and API sources. Hiding costs does not stop usage and cost recording."
 }

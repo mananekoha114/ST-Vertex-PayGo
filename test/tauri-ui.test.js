@@ -70,3 +70,27 @@ test('selected Agent target is saved independently of foreground source', async 
     assert.deepEqual(context.chatCompletionSettings.additional_parameters_by_source, {});
     ui.destroy();
 });
+
+
+test('message cost placement is global, independent of target tiers, and disposed with the drawer', async () => {
+    const context = nativeContext(); const documentRef = nativeDocument();
+    let placement = 'header'; const calls = [];
+    context.chatCompletionSettings.chat_completion_source = 'custom';
+    const before = structuredClone(context.chatCompletionSettings);
+    const ui = createTauriUi({ getContext: () => context, documentRef, yaml,
+        connections: { list: () => [], read: () => null },
+        getMessageCostPlacement: () => placement,
+        setMessageCostPlacement: value => { placement = value; calls.push(value); } });
+    const select = documentRef.getElementById('vertex-paygo-message-cost-placement');
+    assert.equal(select.value, 'header');
+    assert.equal(documentRef.getElementById('vertex-paygo-tier').disabled, true);
+    assert.notEqual(select.disabled, true);
+    select.value = 'hidden'; await select.fire('change');
+    assert.deepEqual(calls, ['hidden']);
+    assert.deepEqual(context.chatCompletionSettings, before);
+    await context.eventSource.emit('settings');
+    assert.equal(select.value, 'hidden');
+    ui.destroy();
+    select.value = 'footer'; await select.fire('change');
+    assert.deepEqual(calls, ['hidden']);
+});

@@ -14,7 +14,7 @@ const catalogs = Object.fromEntries(await Promise.all(['en', 'zh-cn', 'zh-tw'].m
     JSON.parse(await readFile(new URL(`../locales/${language}.json`, import.meta.url), 'utf8'))])));
 const localize = createLocalizer((fallback, key) => catalogs['zh-cn'][key] ?? fallback);
 // Keep existing layout regressions in Chinese while testing host selection below.
-const createMessageCostUi = options => createUi({ localize, ...options });
+const createMessageCostUi = options => createUi({ localize, getPlacement: () => 'avatar', ...options });
 
 function fakeDom({ avatarVisible = true } = {}) {
     const listeners = new Map();
@@ -51,6 +51,7 @@ function fakeDom({ avatarVisible = true } = {}) {
     const document = {
         body: new Element('body'), defaultView: {
             innerWidth: 1_000, innerHeight: 700,
+            getComputedStyle: element => element.style,
             MutationObserver: class {
                 constructor(callback) { this.callback = callback; observers.push(this); }
                 observe(target, options) { this.target = target; this.options = options; }
@@ -68,9 +69,16 @@ function fakeDom({ avatarVisible = true } = {}) {
     const message = new Element('div'); message.className = 'mes'; message.setAttribute('mesid', '0');
     const avatar = new Element('div'); avatar.className = 'mesAvatarWrapper'; avatar.offsetParent = avatarVisible ? {} : null;
     const block = new Element('div'); block.className = 'mes_block';
-    const text = new Element('div'); text.className = 'mes_text'; block.append(text);
+    const header = new Element('div'); header.className = 'ch_name';
+    const metadata = new Element('div'); metadata.className = 'metadata';
+    const timestamp = new Element('small'); timestamp.className = 'timestamp'; metadata.append(timestamp); header.append(metadata);
+    const text = new Element('div'); text.className = 'mes_text';
+    const media = new Element('div'); media.className = 'mes_media_wrapper';
+    const file = new Element('div'); file.className = 'mes_file_wrapper';
+    block.append(header, text, media, file);
     message.append(avatar, block); document.body.append(message);
-    return { document, listeners, windowListeners, observers, message, avatar, block, walk: () => [document.body, ...walk(document.body)] };
+    return { document, listeners, windowListeners, observers, message, avatar, block, header, metadata, text, file,
+        walk: () => [document.body, ...walk(document.body)] };
 }
 
 function allText(elements) { return elements.map(element => element.textContent).filter(Boolean); }
@@ -102,7 +110,7 @@ test('message cards use the host locale, editable templates and English fallback
         const dom = fakeDom();
         const dictionary = { ...catalogs[language] };
         const context = { chat: [{}], translate: (fallback, key) => dictionary[key] ?? fallback };
-        const ui = createUi({ documentRef: dom.document, getContext: () => context, getMessageCost: () => snapshot });
+        const ui = createUi({ documentRef: dom.document, getContext: () => context, getMessageCost: () => snapshot, getPlacement: () => 'avatar' });
         ui.render();
         dom.avatar.children[0].onclick({ stopPropagation() {} });
         assert.ok(allText(dom.walk()).includes(dictionary['vertex_paygo.message_cost.title']));
@@ -247,7 +255,7 @@ test('moves an existing trigger as document mode changes and repositions on resi
     const button = dom.avatar.children[0];
     dom.avatar.offsetParent = null;
     ui.render();
-    assert.equal(dom.message.children[1], button);
+    assert.equal(dom.block.children.at(-1), button);
     dom.avatar.offsetParent = {};
     ui.render();
     assert.equal(dom.avatar.children[0], button);
@@ -271,9 +279,9 @@ test('uses the body fallback when the avatar rail is hidden and closes on outsid
         getMessageCost: () => snapshot,
     });
     ui.render(0);
-    const button = dom.message.children[1];
+    const button = dom.block.children.at(-1);
     assert.equal(button.tagName, 'BUTTON');
-    assert.equal(dom.message.children[2].className, 'mes_block');
+    assert.equal(dom.message.children[1].className, 'mes_block');
     button.onclick({ stopPropagation() {} });
     const card = dom.document.body.children.at(-1);
     dom.listeners.get('pointerdown')({ target: dom.message });
@@ -295,4 +303,74 @@ test('removes a stale trigger when a message snapshot disappears', () => {
     ui.render(0);
     assert.equal(dom.avatar.children.length, 0);
     ui.destroy();
+});
+
+test('defaults to a footer after attachments and survives replacement of message text', () => {
+    const dom = fakeDom();
+    const ui = createUi({ documentRef: dom.document, getContext: () => ({ chat: [{}] }), getMessageCost: () => snapshot });
+    ui.render();
+    const button = dom.block.children.at(-1);
+    assert.equal(button.dataset.placement, 'footer');
+    assert.equal(dom.block.children.at(-2), dom.file);
+    assert.equal(dom.avatar.children.length, 0);
+    dom.text.replaceChildren(dom.document.createElement('p'));
+    assert.equal(button.parentElement, dom.block);
+    ui.render();
+    assert.equal(dom.walk().filter(item => item.className === 'vertex-paygo-message-cost-trigger').length, 1);
+    ui.destroy();
+});
+
+test('switches all placements immediately, preserves open details, and hides without changing snapshots', () => {
+    const dom = fakeDom();
+    let placement = 'footer';
+    const data = structuredClone(snapshot);
+    const ui = createMessageCostUi({ documentRef: dom.document, getContext: () => ({ chat: [{}] }),
+        getMessageCost: () => data, getPlacement: () => placement });
+    ui.render();
+    const button = dom.block.children.at(-1);
+    button.onclick({ stopPropagation() {} });
+    const card = find(dom.walk(), 'vertex-paygo-message-cost-card');
+    for (const [value, parent] of [['header', dom.metadata], ['avatar', dom.avatar], ['footer', dom.block]]) {
+        placement = value;
+        ui.render();
+        assert.equal(button.parentElement, parent);
+        assert.equal(button.dataset.placement, value);
+        assert.equal(find(dom.walk(), 'vertex-paygo-message-cost-card'), card);
+        assert.equal(button.attributes['aria-expanded'], 'true');
+    }
+    placement = 'hidden';
+    ui.render();
+    assert.equal(button.parentElement, null);
+    assert.equal(card.parentElement, null);
+    assert.deepEqual(data, snapshot);
+    placement = 'invalid';
+    ui.render();
+    assert.equal(dom.block.children.at(-1).dataset.placement, 'footer');
+    ui.destroy();
+});
+
+test('hidden headers and avatars fall back inside the content block and recover on theme/resize changes', () => {
+    for (const placement of ['avatar', 'header']) {
+        const dom = fakeDom();
+        dom.document.head = dom.document.createElement('head');
+        const target = placement === 'avatar' ? dom.avatar : dom.header;
+        target.style.visibility = 'hidden';
+        const ui = createMessageCostUi({ documentRef: dom.document, getContext: () => ({ chat: [{}] }),
+            getMessageCost: () => snapshot, getPlacement: () => placement });
+        ui.render();
+        const button = dom.block.children.at(-1);
+        assert.equal(button.dataset.placement, 'footer');
+        assert.deepEqual(dom.message.children, [dom.avatar, dom.block]);
+        target.style.visibility = 'visible';
+        dom.observers.find(observer => observer.target === dom.document.head).callback([]);
+        assert.equal(button.dataset.placement, placement);
+        target.offsetParent = null;
+        dom.windowListeners.get('resize')();
+        assert.equal(button.parentElement, dom.block);
+        target.offsetParent = {};
+        dom.observers.find(observer => observer.options.attributeFilter?.includes('class')).callback([]);
+        assert.equal(button.dataset.placement, placement);
+        ui.destroy();
+        assert.ok(dom.observers.every(observer => observer.disconnected));
+    }
 });

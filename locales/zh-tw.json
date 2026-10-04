@@ -229,5 +229,11 @@
   "vertex_paygo.bridge.policy.no_flex": "Vertex 原生 OpenAI 模式不支援 Flex，請選擇 Gemini 閘道或其他層級。",
   "vertex_paygo.bridge.policy.unsaved": "修改尚未套用，請點擊「套用協定與層級」更新執行中的橋接。",
   "vertex_paygo.bridge.policy.on_enable": "啟用橋接時將套用這些設定。",
-  "vertex_paygo.bridge.policy.effective": "最近檢查的實際層級：{tier}"
+  "vertex_paygo.bridge.policy.effective": "最近檢查的實際層級：{tier}",
+  "vertex_paygo.message_cost.placement": "訊息費用位置",
+  "vertex_paygo.message_cost.placement.footer": "訊息底部（預設）",
+  "vertex_paygo.message_cost.placement.header": "訊息標頭",
+  "vertex_paygo.message_cost.placement.avatar": "頭像下方",
+  "vertex_paygo.message_cost.placement.hidden": "隱藏",
+  "vertex_paygo.message_cost.placement.guidance": "此設定全域套用於所有聊天和 API 來源。隱藏費用不會停止記錄用量和費用。"
 }

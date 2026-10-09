@@ -70,6 +70,76 @@ PowerShell 中用 `$env:变量名 = '值'` 设置，使用后可用 `Remove-Item
 
 维护者在发布前测试开发分支时，需要同时更改 raw URL 中的分支，并设置 `PAYGO_INSTALLER_REF` 为该分支；只更改 URL 仍会下载 `main` 的安装器。引导脚本下载失败会停止，不会接着用残留目录安装。首次下载引导脚本完全失败时，POSIX 管道的最终状态可能仅反映 `sh`；自动化环境应先把引导脚本下载为文件并检查 `curl` 退出码，再执行它。
 
+## 一条命令更新插件
+
+已经安装过 PayGo 前端和 Server 的用户，**先关闭酒馆**，在酒馆根目录打开终端，然后运行：
+
+Windows PowerShell（5.1 / 7）：
+
+```powershell
+irm https://raw.githubusercontent.com/mananekoha114/ST-Vertex-PayGo/main/update.ps1 | iex
+```
+
+Termux / Linux / macOS / WSL：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mananekoha114/ST-Vertex-PayGo/main/update.sh | sh
+```
+
+更新入口每次下载最新版更新器，仅更新已安装的 PayGo 前端和 Server。适用于此前安装器创建的全局安装，以及手动放在同一标准目录中的安装；用户级扩展、改名目录和链接目录仍需按冲突提示处理。任一组件缺失都会停止并提示先安装，不会默默补装到另一个位置。
+
+- **保留分支**：没有指定 `--branch` / `PAYGO_BRANCH` 时，分别沿用已安装前端和后端的 Git 分支。不会把开发版自动换回 `main`。显式指定分支会同时应用于两组件。
+- **保留配置**：更新不会启用被关闭的插件，也不改写 `config.yaml` 或聊天、账号、插件设置等宿主数据；必须能找到当前使用的配置文件。
+- **备份与回滚**：先下载并验证两组件，再备份和替换；捕获到的替换错误会回滚。更新时保留完整所选远端分支历史，用于检查本地提交是否会丢失。
+- **保护本地修改**：未提交修改、未推送提交、分叉或远端历史重写默认阻止更新。不会执行强制 reset。确实要覆盖时须显式指定 `--replace-modified` / `PAYGO_REPLACE_MODIFIED=1`，原目录仍完整保存在备份中。
+- **已是最新**：提交与目标分支均未变化且工作区无修改时，显示 `Already up to date`，不替换插件、不创建备份。下载检查本身仍需要网络和临时空间。
+
+更新结束后重新启动酒馆并刷新网页。需要自定义宿主路径时，使用与在线安装相同的 `PAYGO_HOST`，或 Shell 参数：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mananekoha114/ST-Vertex-PayGo/main/update.sh | sh -s -- --host "$HOME/My SillyTavern"
+```
+
+仅预览更新目标（不会查询远端是否有新提交）：
+
+```powershell
+$env:PAYGO_DRY_RUN = '1'
+irm https://raw.githubusercontent.com/mananekoha114/ST-Vertex-PayGo/main/update.ps1 | iex
+Remove-Item Env:PAYGO_DRY_RUN
+```
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mananekoha114/ST-Vertex-PayGo/main/update.sh | sh -s -- --dry-run
+```
+
+切换两组件到 `main`，或从固定标签 / detached HEAD 安装中明确选择更新目标：
+
+```powershell
+$env:PAYGO_BRANCH = 'main'
+irm https://raw.githubusercontent.com/mananekoha114/ST-Vertex-PayGo/main/update.ps1 | iex
+Remove-Item Env:PAYGO_BRANCH
+```
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mananekoha114/ST-Vertex-PayGo/main/update.sh | sh -s -- --branch main
+```
+
+标签、detached HEAD、ZIP 安装无法可靠推断更新分支，必须显式选择。ZIP / 本地文件安装还需要 `--replace-modified`；本地源码更新也须显式允许备份后替换。插件目录里的自定义文件随旧目录备份，不会自动合并进新版本。宿主数据目录中的设置不会迁移或清空。
+
+已下载完整安装器时，可直接使用现有本地入口，无需下载在线引导：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 --update --host "D:\SillyTavern"
+```
+
+```sh
+sh ./install.sh --update --host "$HOME/SillyTavern"
+```
+
+本地源码更新示例：`node ./scripts/install.mjs --update --host /path/to/SillyTavern --local-source /path/to/sources --replace-modified`。
+
+维护者修改 `bootstrap.sh` / `bootstrap.ps1` 后，运行 `node scripts/sync-update-launchers.mjs` 同步生成在线更新入口；CI 的 `--check` 会防止两套引导逻辑不同步。
+
 ## 下载文件后运行
 
 使用包含本文件的前端仓库副本或发布压缩包，保留下面的相对目录结构；不能只下载一个启动器：
@@ -164,7 +234,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 --host "D:\Sil
 
 默认前端为所有宿主用户安装到 `public/scripts/extensions/third-party/ST-Vertex-PayGo`，后端安装到 `plugins/ST-Vertex-PayGo-Server`。安装器将 `config.yaml` 的 `enableServerPlugins` 设为 `true`，保留其他配置语义、注释和原有 LF/CRLF 换行；YAML 的引号或缩进等排版可能被解析器规范化。配置文件不存在时从宿主 `default/config.yaml` 创建。不会开启 CORS 代理或桥接、修改凭据、改动其他插件及聊天数据。
 
-远端安装保留 Git 信息，可继续通过宿主更新功能更新。再次运行安装命令会备份并替换两组件；Git 工作区有修改或目标是 ZIP/本地复制安装时，默认拒绝覆盖。确认需要更新后加：
+远端安装保留 Git 信息，可继续通过宿主更新功能更新。日常更新推荐上方专用更新命令。再次运行**安装**命令会按所选分支（默认 `main`）备份并重新部署两组件；Git 工作区有修改或目标是 ZIP/本地复制安装时，默认拒绝覆盖。确认需要备份后重新安装时加：
 
 ```sh
 sh ./install.sh --host "$HOME/SillyTavern" --replace-modified
@@ -181,6 +251,7 @@ sh ./install.sh --host "$HOME/SillyTavern" --replace-modified
 | 参数 | 含义 |
 | --- | --- |
 | `--host PATH` | 宿主根目录；省略时优先当前目录及其最近宿主祖先，再寻找 HOME 的 SillyTavern/Luker 与安装器祖先中的唯一有效宿主 |
+| `--update` | 更新已安装两组件；默认分别保留已有分支，配置文件保持原文 |
 | `--config PATH` | 本次宿主启动使用的配置；相对路径按宿主根目录解析 |
 | `--data-root PATH` | 宿主启动参数覆盖后的数据目录，优先于配置中的 `dataRoot`，用于检查重复扩展 |
 | `--plugins-path PATH` | Luker 启动参数覆盖后的服务端插件目录 |
@@ -205,4 +276,4 @@ Luker 默认读取配置中的 `serverPluginsPath` 和 `globalExtensionsPath`；
 
 ## 验证
 
-开发测试运行 `node --test test/install.test.mjs`。覆盖离线 Git 下载、带空格/中文路径、首次安装、备份更新、失败回滚、重复扩展、YAML 配置、Luker 自定义目录，以及将在线引导正文真正通过 stdin / Invoke-Expression 执行、下载失败、安装失败、无交互终端、正文截断和临时文件清理。测试用本地 Git 仓库替代远端，避免真实网络影响结果。跨平台 CI 配置见 `.github/workflows/installer.yml`。Android/Termux 真机运行需要单独验证，桌面测试不能代替真机测试。
+开发测试运行 `node --test test/install.test.mjs`。覆盖离线 Git 下载、带空格/中文路径、首次安装、备份更新、失败回滚、重复扩展、YAML 配置、Luker 自定义目录，以及将在线安装/更新正文真正通过 stdin / Invoke-Expression 执行、下载失败、安装失败、无交互终端、正文截断和临时文件清理。更新用例还覆盖分支保留、本地提交保护、detached HEAD、原样保留关闭状态的配置、无新提交时跳过替换。测试用本地 Git 仓库替代远端，避免真实网络影响结果。跨平台 CI 配置见 `.github/workflows/installer.yml`。Android/Termux 真机运行需要单独验证，桌面测试不能代替真机测试。

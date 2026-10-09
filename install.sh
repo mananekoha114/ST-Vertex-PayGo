@@ -17,7 +17,7 @@ Usage: sh install.sh --host PATH [options]
 Requires an existing host environment and Node.js 20 or newer.
 Options: --host PATH, --branch NAME, --local-source PATH, --config PATH,
          --data-root PATH, --plugins-path PATH, --extensions-path PATH,
-         --replace-modified, --dry-run, --help
+         --update, --replace-modified, --dry-run, --help
 EOF
         exit 0
     fi

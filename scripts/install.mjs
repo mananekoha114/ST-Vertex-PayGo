@@ -11,7 +11,8 @@ export const HELP = `PayGo suite installer (Node.js >= 20)
 Usage: node scripts/install.mjs --host <SillyTavern-or-Luker-directory> [options]
 
   --host PATH             Existing, stopped SillyTavern >=1.16 / Luker >=2.7
-  --branch NAME           Frontend AND server branch/tag (default: main)
+  --update                Update an existing pair; preserve config and branches
+  --branch NAME           Both component refs (install: main; update: keep each)
   --local-source PATH     Offline source directory containing ST-Vertex-PayGo
                           and ST-Vertex-PayGo-Server (copies current files)
   --config PATH           Host config file (relative to host; default config.yaml)
@@ -36,9 +37,9 @@ const readJson = p => JSON.parse(fs.readFileSync(p, 'utf8').replace(/^\uFEFF/, '
 const fail = message => { throw new Error(message); };
 
 export function parseArgs(args) {
-    const result = { branch: 'main' };
+    const result = {};
     const values = new Set(['host', 'branch', 'local-source', 'config', 'data-root', 'plugins-path', 'extensions-path']);
-    const flags = new Set(['replace-modified', 'dry-run']);
+    const flags = new Set(['replace-modified', 'dry-run', 'update']);
     for (let i = 0; i < args.length; i++) {
         const key = args[i].replace(/^--/, '');
         if (args[i] === '--help' || args[i] === '-h') result.help = true;
@@ -48,8 +49,13 @@ export function parseArgs(args) {
         } else if (args[i].startsWith('--') && flags.has(key)) result[key] = true;
         else fail(`Unknown argument: ${args[i]} (use --help)`);
     }
-    if (!/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(result.branch) || result.branch.includes('..')) fail('Invalid branch/tag name.');
+    if (!result.branch && !result.update) result.branch = 'main';
+    if (result.branch !== undefined) validateRef(result.branch);
     return result;
+}
+
+function validateRef(ref) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(ref) || ref.includes('..')) fail('Invalid branch/tag name.');
 }
 
 function runGit(args, cwd) {
@@ -118,11 +124,12 @@ function findHost(options) {
     return valid[0];
 }
 
-export function editConfig(text, yaml) {
+export function editConfig(text, yaml, preserve = false) {
     const doc = yaml.parseDocument(text);
     if (doc.errors.length) fail(`Invalid YAML: ${doc.errors.map(e => e.message).join('; ')}`);
     if (!yaml.isMap(doc.contents)) fail('Host config must be a YAML mapping.');
     const config = doc.toJS();
+    if (preserve) return { config, next: text };
     if (config.extensions?.enabled === false) fail('extensions.enabled is false; enable frontend extensions in the host first.');
     doc.set('enableServerPlugins', true);
     const changed = config.enableServerPlugins !== true;
@@ -196,6 +203,25 @@ function checkExisting(component, allowModified) {
     if (runGit(['status', '--porcelain'], component.target)) fail(`Local changes in ${component.target}; use --replace-modified to back up and replace.`);
 }
 
+function prepareUpdate(component, options) {
+    if (!exists(component.target)) fail(`Cannot update: ${component.name} is not installed. Run the installation command first.`);
+    if (!manifestIdentity(component.target, component.name)) fail(`Destination belongs to another plugin: ${component.target}`);
+    if (exists(path.join(component.target, '.git'))) {
+        component.oldHead = runGit(['rev-parse', 'HEAD'], component.target);
+        component.modified = Boolean(runGit(['status', '--porcelain'], component.target));
+        try { component.oldBranch = runGit(['symbolic-ref', '--quiet', '--short', 'HEAD'], component.target); }
+        catch { component.oldBranch = null; }
+    }
+    if (options['local-source']) {
+        if (!options['replace-modified']) fail('Updating from local files requires --replace-modified; existing files and Git history will be backed up.');
+    } else if (!options.branch) {
+        if (!component.oldBranch) fail(`Cannot infer the update branch for ${component.name} (detached/tag/non-Git installation). Specify --branch NAME explicitly.`);
+        component.branch = component.oldBranch;
+    }
+    if (component.branch) validateRef(component.branch);
+    checkExisting(component, options['replace-modified']);
+}
+
 export function install(options, log = console.log) {
     if (Number(process.versions.node.split('.')[0]) < 20) fail('Node.js >= 20 is required.');
     const root = findHost(options);
@@ -204,15 +230,17 @@ export function install(options, log = console.log) {
     const pkg = hostInfo(root);
     const configPath = path.resolve(root, options.config || 'config.yaml');
     safePath(root, configPath);
+    if (options.update && !exists(configPath)) fail('Cannot update without the existing host config. Specify the active config with --config PATH.');
     const configSource = exists(configPath) ? configPath : path.join(root, 'default/config.yaml');
     if (!exists(configSource)) fail('No config.yaml or default/config.yaml found. Start the host once first.');
     let yaml;
     try { yaml = createRequire(path.join(root, 'package.json'))('yaml'); }
     catch (error) { fail(`Cannot load the host yaml dependency; ensure the host environment is complete. ${error.message}`); }
     const original = fs.readFileSync(configSource, 'utf8');
-    const { config, next } = editConfig(original, yaml);
+    const { config, next } = editConfig(original, yaml, options.update);
     if (config.dataRoot !== undefined && typeof config.dataRoot !== 'string') fail('dataRoot must be a string.');
     const dataRoot = path.resolve(root, options['data-root'] || config.dataRoot || './data');
+    const actualDataRoot = exists(dataRoot) ? fs.realpathSync(dataRoot) : dataRoot;
     for (const key of ['serverPluginsPath', 'globalExtensionsPath']) {
         if (config[key] !== undefined && typeof config[key] !== 'string') fail(`${key} must be a string.`);
     }
@@ -222,7 +250,7 @@ export function install(options, log = console.log) {
     const names = [FRONTEND, SERVER];
     const components = names.map(name => ({
         name, target: path.join(name === SERVER ? pluginsDir : globalDir, name),
-        branch: options.branch || 'main',
+        branch: options.branch || (options.update ? undefined : 'main'),
     }));
     const backupBase = path.join(root, '.paygo-install-backups');
     const lock = path.join(root, '.paygo-install.lock');
@@ -232,7 +260,9 @@ export function install(options, log = console.log) {
     for (const component of components) {
         safePath(root, component.target);
         if (inside(component.target, configPath) || inside(component.target, backupBase) || components.some(c => c !== component && inside(component.target, c.target))) fail('Config, backup and plugin paths must not overlap.');
-        checkExisting(component, options['replace-modified']);
+        if (inside(component.target, dataRoot) || inside(component.target, actualDataRoot)) fail('Host dataRoot must not be inside a plugin directory being replaced.');
+        if (options.update) prepareUpdate(component, options);
+        else checkExisting(component, options['replace-modified']);
         if (options['local-source']) {
             component.source = fs.realpathSync(path.resolve(options['local-source'], component.name));
             if (inside(component.source, root) || inside(root, component.source)) fail('Local source and host must be separate directories.');
@@ -243,7 +273,7 @@ export function install(options, log = console.log) {
     log(`Host: ${pkg.name} ${pkg.version} — ${root}${termux ? ' (Termux)' : ''}`);
     log(`Config: ${configPath}\nData: ${dataRoot}\nScope: all users (global extensions)`);
     for (const c of components) log(`${c.name}: ${c.source || `${remote(c.name)} @ ${c.branch}`} -> ${c.target}`);
-    log('enableServerPlugins: true');
+    log(options.update ? 'Update mode: existing config and host data will be preserved.' : 'enableServerPlugins: true');
     if (options['dry-run']) { log('Dry run complete. No files changed; remote branches were not downloaded/verified.'); return; }
     if (!options['local-source']) runGit(['--version']);
     let work, backup;
@@ -260,7 +290,7 @@ export function install(options, log = console.log) {
         for (const c of components) {
             c.staged = path.join(work, c.name);
             if (c.source) copySource(c.source, c.staged);
-            else runGit(['clone', '--depth', '1', '--single-branch', '--branch', c.branch, '--', remote(c.name), c.staged]);
+            else runGit(['clone', ...(options.update ? [] : ['--depth', '1']), '--single-branch', '--branch', c.branch, '--', remote(c.name), c.staged]);
             validatePayload(c.staged, c.name);
             // Also reject symlinks in downloaded Git trees before activation.
             const inspect = directory => {
@@ -271,6 +301,21 @@ export function install(options, log = console.log) {
                 }
             };
             inspect(c.staged);
+            if (options.update && !c.source) {
+                c.newHead = runGit(['rev-parse', 'HEAD'], c.staged);
+                if (!options['replace-modified'] && c.oldHead) {
+                    // The full selected remote history is staged independently.
+                    // Never fetch/reset the working installation just to inspect it.
+                    try { runGit(['merge-base', '--is-ancestor', c.oldHead, c.newHead], c.staged); }
+                    catch { fail(`${c.name} contains commits absent from the selected remote history (local commits, divergent branch or rewritten history). Use --replace-modified only to back up and replace them.`); }
+                }
+                c.unchanged = c.oldHead === c.newHead && c.oldBranch === c.branch && !c.modified;
+                log(`${c.name}: ${c.oldHead?.slice(0, 8) || 'non-Git'} -> ${c.newHead.slice(0, 8)} (${c.branch})`);
+            }
+        }
+        if (options.update && components.every(c => c.unchanged)) {
+            log('Already up to date. No plugins or config changed; no backup needed.');
+            return;
         }
         // All downloads and validation finish before touching installed plugins.
         fs.mkdirSync(backupBase, { recursive: true, mode: 0o700 });
@@ -295,7 +340,7 @@ export function install(options, log = console.log) {
             fs.renameSync(pendingConfig, configPath);
             configChanged = true;
         }
-        log(`Installed successfully. Backup: ${backup}\nRestart the host and refresh the browser. Configure Google credentials in the host UI.`);
+        log(`${options.update ? 'Updated' : 'Installed'} successfully. Backup: ${backup}\nRestart the host and refresh the browser.${options.update ? '' : ' Configure Google credentials in the host UI.'}`);
     } catch (error) {
         const recoveryErrors = [];
         if (configChanged) {

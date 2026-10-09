@@ -10,7 +10,7 @@ export function onlineOptions(args, env = process.env) {
     if (!options.host && env.PAYGO_HOST) options.host = env.PAYGO_HOST;
     if (!args.includes('--branch') && env.PAYGO_BRANCH) options.branch = env.PAYGO_BRANCH;
     // Reuse the CLI validator for environment-provided refs as well.
-    parseArgs(['--branch', options.branch]);
+    if (options.branch !== undefined) parseArgs(['--branch', options.branch]);
     for (const [variable, flag] of [['PAYGO_DRY_RUN', 'dry-run'], ['PAYGO_REPLACE_MODIFIED', 'replace-modified']]) {
         if (env[variable] && !['0', '1'].includes(env[variable])) throw new Error(`${variable} must be 0 or 1.`);
         if (env[variable] === '1') options[flag] = true;
@@ -37,7 +37,7 @@ export async function runOnline(args = process.argv.slice(2)) {
         console.log(`${HELP}\nOnline environment: PAYGO_HOST, PAYGO_BRANCH, PAYGO_DRY_RUN=1, PAYGO_REPLACE_MODIFIED=1`);
         return;
     }
-    console.log('PayGo online installer — only PayGo + Server; existing host environment required.');
+    console.log(`PayGo online ${options.update ? 'updater' : 'installer'} — only PayGo + Server; existing host environment required.`);
     console.log('请先关闭 SillyTavern / Luker。安装完成后再启动宿主。');
     if (!options.host) {
         const candidates = discoverHosts();

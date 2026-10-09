@@ -12,7 +12,7 @@ if ($nodeCommand) {
 }
 if (-not $nodeReady) {
     if ($helpRequested) {
-        Write-Output "Usage: .\install.ps1 --host PATH [options]`nRequires an existing host environment and Node.js 20 or newer.`nOptions: --host PATH, --branch NAME, --local-source PATH, --config PATH,`n         --data-root PATH, --plugins-path PATH, --extensions-path PATH,`n         --replace-modified, --dry-run, --help"
+        Write-Output "Usage: .\install.ps1 --host PATH [options]`nRequires an existing host environment and Node.js 20 or newer.`nOptions: --host PATH, --branch NAME, --local-source PATH, --config PATH,`n         --data-root PATH, --plugins-path PATH, --extensions-path PATH,`n         --update, --replace-modified, --dry-run, --help"
         exit 0
     }
     [Console]::Error.WriteLine('Node.js 20 or newer is required; use the existing host environment.')

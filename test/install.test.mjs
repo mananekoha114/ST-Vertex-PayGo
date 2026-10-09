@@ -50,6 +50,9 @@ test('CLI rejects removed components, missing values and invalid refs', () => {
 });
 
 test('online options preserve explicit choices and validate environment input', () => {
+    assert.deepEqual(parseArgs(['--update']), { update: true });
+    assert.equal(onlineOptions(['--update'], {}).branch, undefined);
+    assert.equal(onlineOptions(['--update'], { PAYGO_BRANCH: 'release' }).branch, 'release');
     assert.deepEqual(onlineOptions([], { PAYGO_HOST: '/my host', PAYGO_BRANCH: 'feat/bridge', PAYGO_DRY_RUN: '1' }), {
         host: '/my host', branch: 'feat/bridge', 'dry-run': true,
     });
@@ -249,8 +252,128 @@ function bootstrapFixture(t) {
     return { ...f, env };
 }
 
+function gitAt(cwd, args) {
+    const result = spawnSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', ...args], { cwd, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim();
+}
+
+function withGitMapping(env, action) {
+    const keys = Object.keys(env).filter(key => key.startsWith('GIT_CONFIG_'));
+    const previous = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+    for (const key of keys) process.env[key] = env[key];
+    try { action(); } finally {
+        for (const [key, value] of Object.entries(previous)) {
+            if (value === undefined) delete process.env[key]; else process.env[key] = value;
+        }
+    }
+}
+
+test('update requires an installed pair and preserves disabled config; failed replacement rolls back', t => {
+    const f = fixture(t);
+    assert.throws(() => install({ ...f.options, update: true }, quiet), /not installed/);
+    install(f.options, quiet);
+    const configPath = path.join(f.host, 'config.yaml');
+    const disabledConfig = '# preserve exactly\r\nenableServerPlugins: false\r\nextensions:\r\n  enabled: false\r\n';
+    put(configPath, disabledConfig);
+    put(path.join(f.host, 'data/default-user/settings.json'), '{"keep":"my settings"}');
+    const updateOptions = { ...f.options, update: true, 'replace-modified': true };
+    put(path.join(f.source, front, 'index.js'), '// updated frontend');
+    put(path.join(f.source, server, 'index.cjs'), '// updated server');
+    const rename = fs.renameSync;
+    fs.renameSync = (from, to) => {
+        if (from.includes('.paygo-install-stage-') && to === f.backend) throw new Error('simulated second activation failure');
+        return rename(from, to);
+    };
+    try { assert.throws(() => install(updateOptions, quiet), /simulated second activation failure/); }
+    finally { fs.renameSync = rename; }
+    assert.equal(fs.readFileSync(path.join(f.frontend, 'index.js'), 'utf8'), '// new frontend');
+    assert.equal(fs.readFileSync(path.join(f.backend, 'index.cjs'), 'utf8'), '// new server');
+    assert.equal(fs.readFileSync(configPath, 'utf8'), disabledConfig);
+    install(updateOptions, quiet);
+    assert.equal(fs.readFileSync(path.join(f.backend, 'index.cjs'), 'utf8'), '// updated server');
+    assert.equal(fs.readFileSync(configPath, 'utf8'), disabledConfig);
+    assert.equal(fs.readFileSync(path.join(f.host, 'data/default-user/settings.json'), 'utf8'), '{"keep":"my settings"}');
+    fs.rmSync(configPath);
+    assert.throws(() => install(updateOptions, quiet), /existing host config/);
+    assert.equal(fs.existsSync(configPath), false);
+});
+
+test('Git update keeps each branch, skips unchanged versions and honors explicit same-commit branch changes', t => {
+    const f = bootstrapFixture(t);
+    withGitMapping(f.env, () => {
+        install({ host: f.host }, quiet);
+        gitAt(f.frontend, ['checkout', '-b', 'frontend-release']);
+        gitAt(f.backend, ['checkout', '-b', 'server-release']);
+        for (const [name, branch, entry] of [[front, 'frontend-release', 'index.js'], [server, 'server-release', 'index.cjs']]) {
+            const repository = path.join(f.source, name);
+            gitAt(repository, ['checkout', '-b', branch]);
+            put(path.join(repository, entry), `// updated ${branch}`);
+            gitAt(repository, ['add', entry]);
+            gitAt(repository, ['commit', '-m', 'remote update']);
+        }
+        const configPath = path.join(f.host, 'config.yaml');
+        put(configPath, 'enableServerPlugins: false # keep disabled\r\n');
+        install({ host: f.host, update: true }, quiet);
+        assert.equal(gitAt(f.frontend, ['branch', '--show-current']), 'frontend-release');
+        assert.equal(gitAt(f.backend, ['branch', '--show-current']), 'server-release');
+        assert.equal(fs.readFileSync(path.join(f.frontend, 'index.js'), 'utf8'), '// updated frontend-release');
+        assert.equal(fs.readFileSync(configPath, 'utf8'), 'enableServerPlugins: false # keep disabled\r\n');
+        const backupRoot = path.join(f.host, '.paygo-install-backups');
+        const beforeBackups = fs.readdirSync(backupRoot);
+        const beforeStat = fs.statSync(path.join(f.frontend, 'index.js')).mtimeMs;
+        const messages = [];
+        install({ host: f.host, update: true }, message => messages.push(message));
+        assert.ok(messages.some(message => message.includes('Already up to date')));
+        assert.deepEqual(fs.readdirSync(backupRoot), beforeBackups);
+        assert.equal(fs.statSync(path.join(f.frontend, 'index.js')).mtimeMs, beforeStat);
+        for (const name of [front, server]) gitAt(path.join(f.source, name), ['branch', 'unified-release']);
+        install({ host: f.host, update: true, branch: 'unified-release' }, quiet);
+        assert.equal(gitAt(f.frontend, ['branch', '--show-current']), 'unified-release');
+        assert.equal(gitAt(f.backend, ['branch', '--show-current']), 'unified-release');
+    });
+});
+
+test('updates reject host data inside a replaced plugin, including linked data paths', t => {
+    const f = fixture(t);
+    install(f.options, quiet);
+    const dataPath = path.join(f.backend, 'state');
+    put(path.join(dataPath, 'default-user/settings.json'), 'preserve me');
+    const updateOptions = { ...f.options, update: true, 'replace-modified': true };
+    put(path.join(f.host, 'config.yaml'), 'dataRoot: ./plugins/ST-Vertex-PayGo-Server/state\nenableServerPlugins: true\n');
+    assert.throws(() => install(updateOptions, quiet), /dataRoot must not be inside/);
+    fs.symlinkSync(dataPath, path.join(f.host, 'linked-data'), process.platform === 'win32' ? 'junction' : 'dir');
+    put(path.join(f.host, 'config.yaml'), 'dataRoot: ./linked-data\nenableServerPlugins: true\n');
+    assert.throws(() => install(updateOptions, quiet), /dataRoot must not be inside/);
+    assert.equal(fs.readFileSync(path.join(dataPath, 'default-user/settings.json'), 'utf8'), 'preserve me');
+});
+
+test('Git update protects dirty files, committed local changes and detached installations', t => {
+    const f = bootstrapFixture(t);
+    withGitMapping(f.env, () => {
+        install({ host: f.host }, quiet);
+        const beforeHead = gitAt(f.frontend, ['rev-parse', 'HEAD']);
+        put(path.join(f.frontend, 'custom.txt'), 'my untracked customization');
+        assert.throws(() => install({ host: f.host, update: true }, quiet), /Local changes/);
+        gitAt(f.frontend, ['add', 'custom.txt']);
+        gitAt(f.frontend, ['commit', '-m', 'local customization']);
+        assert.throws(() => install({ host: f.host, update: true }, quiet), /commits absent/);
+        assert.equal(fs.readFileSync(path.join(f.frontend, 'custom.txt'), 'utf8'), 'my untracked customization');
+        install({ host: f.host, update: true, 'replace-modified': true }, quiet);
+        assert.equal(gitAt(f.frontend, ['rev-parse', 'HEAD']), beforeHead);
+        const backupRoot = path.join(f.host, '.paygo-install-backups');
+        assert.ok(fs.readdirSync(backupRoot).some(name => fs.existsSync(path.join(backupRoot, name, front, 'custom.txt'))));
+        gitAt(f.frontend, ['checkout', '--detach']);
+        assert.throws(() => install({ host: f.host, update: true }, quiet), /Cannot infer/);
+        install({ host: f.host, update: true, branch: 'main' }, quiet);
+        assert.equal(gitAt(f.frontend, ['branch', '--show-current']), 'main');
+        assert.throws(() => install({ host: f.host, update: true, branch: 'missing-branch' }, quiet), /git clone failed/);
+        assert.equal(gitAt(f.frontend, ['rev-parse', 'HEAD']), beforeHead);
+    });
+});
+
 for (const mode of ['shell', 'powershell']) {
-    test(`${mode} piped bootstrap installs offline, propagates failures and cleans temporary downloads`, t => {
+    test(`${mode} piped commands install and update offline, propagate failures and clean temporary downloads`, t => {
         if (mode === 'powershell' && process.platform !== 'win32') return t.skip('Windows PowerShell test');
         const shell = process.platform === 'win32' ? path.join(process.env.ProgramFiles || 'C:/Program Files', 'Git/bin/bash.exe') : 'sh';
         if (mode === 'shell' && process.platform === 'win32' && !fs.existsSync(shell)) return t.skip('Git Bash not available');
@@ -273,6 +396,19 @@ for (const mode of ['shell', 'powershell']) {
         assert.match(success.stdout, /Installed successfully/);
         assert.ok(fs.existsSync(path.join(f.backend, 'index.cjs')));
         if (mode === 'powershell') assert.match(success.stdout, /SESSION_ALIVE:Continue:77/);
+        checkCleanup();
+        const updateContent = fs.readFileSync(new URL(`../update.${mode === 'shell' ? 'sh' : 'ps1'}`, import.meta.url), 'utf8');
+        for (const [name, entry] of [[front, 'index.js'], [server, 'index.cjs']]) {
+            const repository = path.join(f.source, name);
+            put(path.join(repository, entry), '// latest version');
+            gitAt(repository, ['add', entry]);
+            gitAt(repository, ['commit', '-m', 'publish update']);
+        }
+        const updated = invoke(f.env, updateContent);
+        assert.equal(updated.status, 0, updated.stdout + updated.stderr);
+        assert.match(updated.stdout, /Updated successfully/);
+        assert.equal(fs.readFileSync(path.join(f.backend, 'index.cjs'), 'utf8'), '// latest version');
+        if (mode === 'powershell') assert.match(updated.stdout, /SESSION_ALIVE:Continue:77/);
         checkCleanup();
         const failedClone = invoke({ ...f.env, PAYGO_INSTALLER_REF: 'does-not-exist' });
         assert.notEqual(failedClone.status, 0);

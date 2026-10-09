@@ -23,6 +23,8 @@
 
 ## 📦 版本与安装要求
 
+**自动安装（SillyTavern / Luker，含 Termux）**：已配置好宿主环境的用户可使用 [一条命令在线安装或本地安装脚本](INSTALL.md)，支持 PowerShell `irm | iex` 和 Termux/Linux/macOS `curl | sh`，一次安装 PayGo 前端与 Server 后端，并备份、更新配置。脚本不适用于 TauriTavern。
+
 当前前端版本为 **v0.4.0**。不同客户端环境的安装需求如下：
 
 | 客户端程序 | 版本及运行环境 | 需要安装哪些组件？ | 底层请求通道 |

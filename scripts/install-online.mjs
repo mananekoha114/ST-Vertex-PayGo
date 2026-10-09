@@ -3,14 +3,16 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline/promises';
-import { HELP, discoverHosts, install, parseArgs } from './install.mjs';
+import { HELP, discoverHosts, install, parseArgs, validateOptions } from './install.mjs';
 
 export function onlineOptions(args, env = process.env) {
     const options = parseArgs(args);
     if (!options.host && env.PAYGO_HOST) options.host = env.PAYGO_HOST;
     if (!args.includes('--branch') && env.PAYGO_BRANCH) options.branch = env.PAYGO_BRANCH;
-    // Reuse the CLI validator for environment-provided refs as well.
-    if (options.branch !== undefined) parseArgs(['--branch', options.branch]);
+    for (const [flag, variable] of [['mode', 'PAYGO_MODE'], ['tag', 'PAYGO_TAG'], ['frontend-commit', 'PAYGO_FRONTEND_COMMIT'], ['server-commit', 'PAYGO_SERVER_COMMIT']]) {
+        if (!args.includes(`--${flag}`) && env[variable]) options[flag] = env[variable];
+    }
+    validateOptions(options);
     for (const [variable, flag] of [['PAYGO_DRY_RUN', 'dry-run'], ['PAYGO_REPLACE_MODIFIED', 'replace-modified']]) {
         if (env[variable] && !['0', '1'].includes(env[variable])) throw new Error(`${variable} must be 0 or 1.`);
         if (env[variable] === '1') options[flag] = true;
@@ -34,7 +36,7 @@ export function normalizeHostAnswer(answer, candidates = []) {
 export async function runOnline(args = process.argv.slice(2)) {
     const options = onlineOptions(args);
     if (options.help) {
-        console.log(`${HELP}\nOnline environment: PAYGO_HOST, PAYGO_BRANCH, PAYGO_DRY_RUN=1, PAYGO_REPLACE_MODIFIED=1`);
+        console.log(`${HELP}\nOnline environment: PAYGO_HOST, PAYGO_BRANCH, PAYGO_MODE, PAYGO_TAG, PAYGO_FRONTEND_COMMIT, PAYGO_SERVER_COMMIT, PAYGO_DRY_RUN=1, PAYGO_REPLACE_MODIFIED=1`);
         return;
     }
     console.log(`PayGo online ${options.update ? 'updater' : 'installer'} — only PayGo + Server; existing host environment required.`);

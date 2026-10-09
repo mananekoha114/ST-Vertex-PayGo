@@ -24,7 +24,9 @@ function copyTree(from, to) {
 }
 
 function fixture(t, name = 'sillytavern', tempRoot = os.tmpdir()) {
-    const base = fs.mkdtempSync(path.join(tempRoot, 'paygo installer 测试 '));
+    // macOS aliases /var to /private/var; fault injection must use the same
+    // canonical paths as the installer so rollback checks actually run.
+    const base = fs.realpathSync(fs.mkdtempSync(path.join(tempRoot, 'paygo installer 测试 ')));
     t.after(() => fs.rmSync(base, { recursive: true, force: true }));
     const host = path.join(base, 'host with spaces');
     const source = path.join(base, 'source');
@@ -53,6 +55,10 @@ test('online options preserve explicit choices and validate environment input', 
     assert.deepEqual(parseArgs(['--update']), { update: true });
     assert.equal(onlineOptions(['--update'], {}).branch, undefined);
     assert.equal(onlineOptions(['--update'], { PAYGO_BRANCH: 'release' }).branch, 'release');
+    assert.equal(onlineOptions(['--update'], { PAYGO_MODE: 'commit' }).mode, 'commit');
+    assert.equal(onlineOptions(['--update'], { PAYGO_TAG: 'v0.4.0' }).tag, 'v0.4.0');
+    assert.throws(() => onlineOptions(['--update'], { PAYGO_MODE: 'commit', PAYGO_TAG: 'v0.4.0' }), /cannot be combined/);
+    assert.throws(() => parseArgs(['--frontend-commit', 'abc1234']), /both/);
     assert.deepEqual(onlineOptions([], { PAYGO_HOST: '/my host', PAYGO_BRANCH: 'feat/bridge', PAYGO_DRY_RUN: '1' }), {
         host: '/my host', branch: 'feat/bridge', 'dry-run': true,
     });
@@ -215,10 +221,10 @@ test('Git download path works offline and download failure leaves installed file
         process.env[`GIT_CONFIG_VALUE_${i}`] = `https://github.com/mananekoha114/${name}.git`;
     }
     try {
-        const options = { host: f.host, branch: 'main' };
+        const options = { host: f.host, branch: 'main', mode: 'commit' };
         install(options, quiet);
         assert.ok(fs.existsSync(path.join(f.frontend, '.git')));
-        assert.throws(() => install({ ...options, branch: 'missing-branch' }, quiet), /git clone failed/);
+        assert.throws(() => install({ ...options, branch: 'missing-branch' }, quiet), /Unknown branch or tag/);
         assert.equal(fs.readFileSync(path.join(f.frontend, 'index.js'), 'utf8'), '// new frontend');
         assert.equal(fs.existsSync(path.join(f.host, '.paygo-install.lock')), false);
     } finally {
@@ -236,6 +242,7 @@ function bootstrapFixture(t) {
         put(path.join(f.source, front, 'scripts', script), fs.readFileSync(new URL(`../scripts/${script}`, import.meta.url), 'utf8'));
     }
     const env = { ...process.env, PAYGO_HOST: f.host, PAYGO_BRANCH: 'main', PAYGO_INSTALLER_REF: 'main',
+        PAYGO_MODE: '', PAYGO_TAG: '', PAYGO_FRONTEND_COMMIT: '', PAYGO_SERVER_COMMIT: '',
         PAYGO_DRY_RUN: '0', PAYGO_REPLACE_MODIFIED: '0',
         HOME: f.base.replaceAll('\\', '/'), PAYGO_TEST_HOME: f.base.replaceAll('\\', '/'), USERPROFILE: f.base, TMP: f.base, TEMP: f.base, GIT_CONFIG_COUNT: '2' };
     delete env.TERMUX_VERSION;
@@ -246,6 +253,7 @@ function bootstrapFixture(t) {
             const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
             assert.equal(result.status, 0, result.stderr);
         }
+        gitAt(cwd, ['tag', 'v0.4.0']);
         env[`GIT_CONFIG_KEY_${i}`] = `url.${cwd.replaceAll('\\', '/')}.insteadOf`;
         env[`GIT_CONFIG_VALUE_${i}`] = `https://github.com/mananekoha114/${name}.git`;
     }
@@ -331,6 +339,15 @@ test('Git update keeps each branch, skips unchanged versions and honors explicit
         install({ host: f.host, update: true, branch: 'unified-release' }, quiet);
         assert.equal(gitAt(f.frontend, ['branch', '--show-current']), 'unified-release');
         assert.equal(gitAt(f.backend, ['branch', '--show-current']), 'unified-release');
+        for (const name of [front, server]) {
+            gitAt(path.join(f.source, name), ['branch', '-f', 'main', 'HEAD']);
+            gitAt(path.join(f.source, name), ['tag', 'v0.4.1-test']);
+        }
+        install({ host: f.host, update: true, branch: 'v0.4.1-test' }, quiet);
+        assert.equal(gitAt(f.frontend, ['branch', '--show-current']), '');
+        const pinnedBackups = fs.readdirSync(backupRoot);
+        install({ host: f.host, update: true, branch: 'v0.4.1-test' }, quiet);
+        assert.deepEqual(fs.readdirSync(backupRoot), pinnedBackups);
     });
 });
 
@@ -364,11 +381,103 @@ test('Git update protects dirty files, committed local changes and detached inst
         const backupRoot = path.join(f.host, '.paygo-install-backups');
         assert.ok(fs.readdirSync(backupRoot).some(name => fs.existsSync(path.join(backupRoot, name, front, 'custom.txt'))));
         gitAt(f.frontend, ['checkout', '--detach']);
-        assert.throws(() => install({ host: f.host, update: true }, quiet), /Cannot infer/);
-        install({ host: f.host, update: true, branch: 'main' }, quiet);
+        fs.rmSync(path.join(f.frontend, '.git/paygo-updater.json'));
+        install({ host: f.host, update: true }, quiet); // Legacy tag checkout without metadata.
+        install({ host: f.host, update: true, branch: 'main', mode: 'commit' }, quiet);
         assert.equal(gitAt(f.frontend, ['branch', '--show-current']), 'main');
-        assert.throws(() => install({ host: f.host, update: true, branch: 'missing-branch' }, quiet), /git clone failed/);
+        assert.throws(() => install({ host: f.host, update: true, branch: 'missing-branch' }, quiet), /Unknown branch or tag/);
         assert.equal(gitAt(f.frontend, ['rev-parse', 'HEAD']), beforeHead);
+    });
+});
+
+test('main defaults to tag commits; advanced mode uses SHA and never silently downgrades', t => {
+    const f = bootstrapFixture(t);
+    withGitMapping(f.env, () => {
+        install({ host: f.host }, quiet);
+        const originalFront = gitAt(f.frontend, ['rev-parse', 'HEAD']);
+        const originalServer = gitAt(f.backend, ['rev-parse', 'HEAD']);
+        assert.equal(gitAt(f.frontend, ['branch', '--show-current']), '');
+        for (const [name, entry] of [[front, 'index.js'], [server, 'index.cjs']]) {
+            put(path.join(f.source, name, entry), '// untagged development');
+            gitAt(path.join(f.source, name), ['add', entry]);
+            gitAt(path.join(f.source, name), ['commit', '-m', 'unreleased changes']);
+        }
+        install({ host: f.host, update: true }, quiet);
+        assert.equal(gitAt(f.frontend, ['rev-parse', 'HEAD']), originalFront);
+        assert.equal(gitAt(f.backend, ['rev-parse', 'HEAD']), originalServer);
+        install({ host: f.host, update: true, mode: 'commit' }, quiet);
+        const advancedHead = gitAt(f.frontend, ['rev-parse', 'HEAD']);
+        assert.notEqual(advancedHead, originalFront);
+        const backupRoot = path.join(f.host, '.paygo-install-backups');
+        const backups = fs.readdirSync(backupRoot);
+        const messages = [];
+        install({ host: f.host, update: true }, message => messages.push(message));
+        assert.ok(messages.some(message => message.includes('ahead of tag')));
+        assert.equal(gitAt(f.frontend, ['rev-parse', 'HEAD']), advancedHead);
+        assert.deepEqual(fs.readdirSync(backupRoot), backups);
+        // Frontend has newer untagged official commits; only the server advances
+        // when the next matching release tags arrive.
+        gitAt(path.join(f.source, front), ['tag', 'v0.4.1', originalFront]);
+        gitAt(path.join(f.source, server), ['tag', 'v0.4.1']);
+        install({ host: f.host, update: true }, quiet);
+        assert.equal(gitAt(f.frontend, ['rev-parse', 'HEAD']), advancedHead);
+        assert.equal(gitAt(f.frontend, ['branch', '--show-current']), 'main');
+        assert.equal(gitAt(f.backend, ['branch', '--show-current']), '');
+    });
+});
+
+test('explicit commit pairs and same-SHA tracking changes are honored; conflicting tag modes fail', t => {
+    const f = bootstrapFixture(t);
+    withGitMapping(f.env, () => {
+        install({ host: f.host }, quiet);
+        const frontHead = gitAt(f.frontend, ['rev-parse', 'HEAD']);
+        const serverHead = gitAt(f.backend, ['rev-parse', 'HEAD']);
+        for (const name of [front, server]) gitAt(path.join(f.source, name), ['branch', 'development']);
+        const options = { host: f.host, update: true, branch: 'development', mode: 'commit', 'frontend-commit': frontHead, 'server-commit': serverHead };
+        install(options, quiet);
+        assert.equal(JSON.parse(fs.readFileSync(path.join(f.frontend, '.git/paygo-updater.json'), 'utf8')).branch, 'development');
+        assert.equal(gitAt(f.frontend, ['rev-parse', 'HEAD']), frontHead);
+        const backupRoot = path.join(f.host, '.paygo-install-backups');
+        const backups = fs.readdirSync(backupRoot);
+        install(options, quiet);
+        assert.deepEqual(fs.readdirSync(backupRoot), backups);
+        assert.throws(() => install({ host: f.host, update: true, branch: 'v0.4.0', mode: 'commit' }, quiet), /cannot be combined/);
+        assert.throws(() => install({ ...options, 'frontend-commit': '1234567' }, quiet), /not in/);
+    });
+});
+
+test('missing or mismatched tags never fall back to unreleased main', t => {
+    const f = bootstrapFixture(t);
+    withGitMapping(f.env, () => {
+        gitAt(path.join(f.source, front), ['tag', '-d', 'v0.4.0']);
+        assert.throws(() => install({ host: f.host }, quiet), /No reachable tag/);
+        assert.equal(fs.existsSync(f.frontend), false);
+        gitAt(path.join(f.source, front), ['tag', 'v0.5.0']);
+        assert.throws(() => install({ host: f.host }, quiet), /not aligned/);
+        assert.equal(fs.existsSync(f.frontend), false);
+        install({ host: f.host, mode: 'commit' }, quiet);
+        assert.equal(gitAt(f.frontend, ['branch', '--show-current']), 'main');
+    });
+});
+
+test('legacy ZIP user-scope and version-suffixed directories update in place after backup consent', t => {
+    const f = bootstrapFixture(t);
+    const oldFrontend = path.join(f.host, 'data/default-user/extensions/PayGo-v0.2.0');
+    const oldBackend = path.join(f.host, 'plugins/ST-Vertex-PayGo-Server-v0.2.0');
+    for (const [source, target] of [[path.join(f.source, front), oldFrontend], [path.join(f.source, server), oldBackend]]) {
+        copyTree(source, target);
+        fs.rmSync(path.join(target, '.git'), { recursive: true, force: true });
+    }
+    put(path.join(oldFrontend, 'index.js'), '// legacy customization to preserve in backup');
+    withGitMapping(f.env, () => {
+        assert.throws(() => install({ host: f.host, update: true }, quiet), /non-Git installation/);
+        install({ host: f.host, update: true, 'replace-modified': true }, quiet);
+        assert.ok(fs.existsSync(path.join(oldFrontend, '.git/paygo-updater.json')));
+        assert.ok(fs.existsSync(path.join(oldBackend, '.git/paygo-updater.json')));
+        assert.equal(fs.existsSync(f.frontend), false);
+        assert.equal(fs.existsSync(f.backend), false);
+        const backupRoot = path.join(f.host, '.paygo-install-backups');
+        assert.ok(fs.readdirSync(backupRoot).some(name => fs.readFileSync(path.join(backupRoot, name, front, 'index.js'), 'utf8').includes('legacy customization')));
     });
 });
 
@@ -403,6 +512,7 @@ for (const mode of ['shell', 'powershell']) {
             put(path.join(repository, entry), '// latest version');
             gitAt(repository, ['add', entry]);
             gitAt(repository, ['commit', '-m', 'publish update']);
+            gitAt(repository, ['tag', 'v0.4.1']);
         }
         const updated = invoke(f.env, updateContent);
         assert.equal(updated.status, 0, updated.stdout + updated.stderr);

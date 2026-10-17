@@ -1,9 +1,9 @@
 name: Installer compatibility
 on:
   push:
-    paths: ['scripts/install*.mjs', 'scripts/sync-update-launchers.mjs', 'install.sh', 'install.ps1', 'bootstrap.sh', 'bootstrap.ps1', 'update.sh', 'update.ps1', 'test/install.test.mjs', '.github/workflows/installer.yml']
+    paths: ['scripts/install*.mjs', 'scripts/update-channel.cjs', 'scripts/sync-update-launchers.mjs', 'install.sh', 'install.ps1', 'bootstrap.sh', 'bootstrap.ps1', 'update.sh', 'update.ps1', 'test/install.test.mjs', 'test/update-channel.test.cjs', '.github/workflows/installer.yml']
   pull_request:
-    paths: ['scripts/install*.mjs', 'scripts/sync-update-launchers.mjs', 'install.sh', 'install.ps1', 'bootstrap.sh', 'bootstrap.ps1', 'update.sh', 'update.ps1', 'test/install.test.mjs', '.github/workflows/installer.yml']
+    paths: ['scripts/install*.mjs', 'scripts/update-channel.cjs', 'scripts/sync-update-launchers.mjs', 'install.sh', 'install.ps1', 'bootstrap.sh', 'bootstrap.ps1', 'update.sh', 'update.ps1', 'test/install.test.mjs', 'test/update-channel.test.cjs', '.github/workflows/installer.yml']
   workflow_dispatch:
 jobs:
   installer:
@@ -21,7 +21,7 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: node scripts/sync-update-launchers.mjs --check
-      - run: node --test test/install.test.mjs
+      - run: node --test test/install.test.mjs test/update-channel.test.cjs
       - name: POSIX launcher
         shell: bash
         run: |

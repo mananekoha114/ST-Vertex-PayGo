@@ -6,6 +6,9 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import updateChannel from './update-channel.cjs';
+
+const { inferUpdateChannel, selectUpdateMode } = updateChannel;
 
 export const HELP = `PayGo suite installer (Node.js >= 20)
 Usage: node scripts/install.mjs --host <SillyTavern-or-Luker-directory> [options]
@@ -258,14 +261,19 @@ function prepareUpdate(component, options) {
     if (options['local-source']) {
         if (!options['replace-modified']) fail('Updating from local files requires --replace-modified; existing files and Git history will be backed up.');
     } else if (!options.branch && !options.tag) {
-        component.branch = component.oldBranch || component.trackingBranch;
-        if (!component.branch && component.oldHead) {
+        let headTag = null;
+        if (!component.oldBranch && !component.trackingBranch && component.oldHead) {
             // Old tag checkouts predate updater metadata. Resolve the tag using
             // Git, never package.json (v0.3.1 still declared version 0.3.0).
-            try { runGit(['describe', '--tags', '--exact-match', 'HEAD'], component.target); component.branch = 'main'; }
+            try { headTag = runGit(['describe', '--tags', '--exact-match', 'HEAD'], component.target); }
             catch { fail(`Cannot infer the update branch for ${component.name}. Specify --branch NAME explicitly.`); }
         }
-        if (!component.branch) component.branch = 'main'; // Legacy ZIP, after explicit replacement consent.
+        component.branch = inferUpdateChannel({
+            symbolicBranch: component.oldBranch,
+            recordedBranch: component.trackingBranch,
+            headTag,
+            allowUnmanaged: !component.oldHead, // Legacy ZIP, after explicit replacement consent.
+        }).branch;
     }
     if (component.branch) validateRef(component.branch);
     checkExisting(component, options['replace-modified']);
@@ -299,7 +307,7 @@ function prepareRemote(component, options, log) {
     if (!branchHead) fail(`Cannot find the tracking branch ${c.branch} in ${c.name}`);
     const explicitCommit = options[c.name === FRONTEND ? 'frontend-commit' : 'server-commit'];
     if (legacyTag && (options.mode === 'commit' || explicitCommit)) fail('A tag supplied through --branch cannot be combined with commit mode or commit IDs; use --tag for tags.');
-    c.mode = options.mode || (desiredTag ? 'tag' : explicitCommit ? 'commit' : c.branch === 'main' ? 'tag' : 'commit');
+    c.mode = selectUpdateMode({ branch: c.branch, mode: options.mode, tag: desiredTag, commit: explicitCommit });
     if (c.mode === 'tag' && c.branch !== 'main') fail('Tag mode is for main; use commit mode for development branches.');
     if (c.mode === 'tag') {
         if (!desiredTag) {
@@ -391,7 +399,7 @@ export function install(options, log = console.log) {
     log(`Host: ${pkg.name} ${pkg.version} — ${root}${termux ? ' (Termux)' : ''}`);
     log(`Config: ${configPath}\nData: ${dataRoot}\nScope: ${options.update ? 'keep existing installation locations' : 'all users (global extensions)'}`);
     for (const c of components) {
-        const mode = options.mode || (options.tag ? 'tag' : options['frontend-commit'] ? 'commit' : c.branch === 'main' ? 'tag' : 'commit');
+        const mode = selectUpdateMode({ branch: c.branch, mode: options.mode, tag: options.tag, commit: options['frontend-commit'] });
         log(`${c.name}: ${c.source || `${remote(c.name)} @ ${c.branch} (${mode}${options.tag ? `: ${options.tag}` : ''})`} -> ${c.target}`);
     }
     log(options.update ? 'Update mode: existing config and host data will be preserved.' : 'enableServerPlugins: true');

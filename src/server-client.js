@@ -16,6 +16,9 @@ import {
     BRIDGE_LOG_TIMEOUT_MS,
     PREPARE_TIMEOUT_MS,
     PROTOCOL_VERSION,
+    UPDATE_CHECK_TIMEOUT_MS,
+    UPDATE_START_TIMEOUT_MS,
+    UPDATE_STATUS_TIMEOUT_MS,
     REQUIRED_TRANSPORT,
     SERVER_ROUTES,
 } from './constants.js';
@@ -386,6 +389,76 @@ export function createServerClient({ fetchImpl = globalThis.fetch, getRequestHea
                 proxyUrl,
                 proxySecret: data.proxySecret,
             };
+        },
+
+        async checkUpdate() {
+            const data = await fetchJson(fetchImpl, SERVER_ROUTES.UPDATE, {
+                method: 'GET',
+                headers: { ...getRequestHeaders(), Accept: 'application/json' },
+                cache: 'no-store',
+            }, UPDATE_CHECK_TIMEOUT_MS);
+            if (data?.ok !== true || !['update-available', 'up-to-date', 'blocked'].includes(data.status) || !Array.isArray(data.components)) {
+                throw new ServerPluginError('Server Plugin returned an invalid update check.', { code: 'INVALID_UPDATE_RESPONSE' });
+            }
+            return data;
+        },
+
+        async listDataBackups(cursor = null) {
+            const url = SERVER_ROUTES.DATA_BACKUPS + (cursor ? `?cursor=${encodeURIComponent(cursor)}` : '');
+            const data = await fetchJson(fetchImpl, url, {
+                method: 'GET', headers: { ...getRequestHeaders(), Accept: 'application/json' }, cache: 'no-store',
+            }, UPDATE_START_TIMEOUT_MS);
+            if (data?.ok !== true || !Array.isArray(data.entries) || data.entries.some(entry => typeof entry.id !== 'string'
+                || typeof entry.restorable !== 'boolean' || entry.createdAt !== null && !Number.isFinite(Date.parse(entry.createdAt))
+                || !Array.isArray(entry.files) || entry.files.some(name => !['usage-ledger.jsonl', 'openai-bridge-state.json'].includes(name))
+                || entry.reason !== null && !['startup', 'update', 'before-restore'].includes(entry.reason))
+                || data.pending !== null && (!data.pending || !['queued', 'applying', 'restored', 'failed'].includes(data.pending.status))
+                || data.nextCursor !== null && typeof data.nextCursor !== 'string') {
+                throw new ServerPluginError('Server Plugin returned an invalid backup list.', { code: 'INVALID_BACKUP_RESPONSE' });
+            }
+            return data;
+        },
+
+        async scheduleDataRestore(backupId) {
+            const data = await fetchJson(fetchImpl, SERVER_ROUTES.DATA_RESTORE, {
+                method: 'POST', headers: { ...getRequestHeaders(), Accept: 'application/json', 'Content-Type': 'application/json' },
+                body: JSON.stringify({ backupId }), cache: 'no-store',
+            }, UPDATE_START_TIMEOUT_MS);
+            if (data?.ok !== true || data.restartRequired !== true) throw new ServerPluginError('Data restore was not scheduled.', { code: 'INVALID_BACKUP_RESPONSE' });
+            return data;
+        },
+
+        async cancelDataRestore() {
+            const data = await fetchJson(fetchImpl, SERVER_ROUTES.DATA_RESTORE_CANCEL, {
+                method: 'POST', headers: { ...getRequestHeaders(), Accept: 'application/json', 'Content-Type': 'application/json' }, body: '{}', cache: 'no-store',
+            }, UPDATE_START_TIMEOUT_MS);
+            if (data?.ok !== true) throw new ServerPluginError('Data restore was not cancelled.', { code: 'INVALID_BACKUP_RESPONSE' });
+            return data;
+        },
+
+        async startUpdate() {
+            const data = await fetchJson(fetchImpl, SERVER_ROUTES.UPDATE, {
+                method: 'POST',
+                headers: { ...getRequestHeaders(), Accept: 'application/json', 'Content-Type': 'application/json' },
+                body: '{}',
+                cache: 'no-store',
+            }, UPDATE_START_TIMEOUT_MS);
+            if (data?.ok !== true || data.started !== true) {
+                throw new ServerPluginError('Server Plugin did not start the update.', { code: 'INVALID_UPDATE_RESPONSE' });
+            }
+            return data;
+        },
+
+        async readUpdateStatus() {
+            const data = await fetchJson(fetchImpl, SERVER_ROUTES.UPDATE_STATUS, {
+                method: 'GET',
+                headers: { ...getRequestHeaders(), Accept: 'application/json' },
+                cache: 'no-store',
+            }, UPDATE_STATUS_TIMEOUT_MS);
+            if (data?.ok !== true || typeof data.running !== 'boolean') {
+                throw new ServerPluginError('Server Plugin returned an invalid update status.', { code: 'INVALID_UPDATE_RESPONSE' });
+            }
+            return data;
         },
 
         async readLogs() {

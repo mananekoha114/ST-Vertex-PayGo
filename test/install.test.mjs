@@ -238,7 +238,7 @@ function bootstrapFixture(t) {
     // Git Bash canonicalizes Windows short TEMP paths; keep these fixtures in
     // the workspace so subprocesses share the same permitted absolute root.
     const f = fixture(t, 'sillytavern', path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..'));
-    for (const script of ['install.mjs', 'install-online.mjs']) {
+    for (const script of ['install.mjs', 'install-online.mjs', 'update-channel.cjs']) {
         put(path.join(f.source, front, 'scripts', script), fs.readFileSync(new URL(`../scripts/${script}`, import.meta.url), 'utf8'));
     }
     const env = { ...process.env, PAYGO_HOST: f.host, PAYGO_BRANCH: 'main', PAYGO_INSTALLER_REF: 'main',

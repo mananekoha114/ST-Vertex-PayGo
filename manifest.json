@@ -4,6 +4,7 @@
   "requires": [],
   "optional": [],
   "js": "index.js",
+  "generate_interceptor": "vertexPayGoGemini4GenerateInterceptor",
   "css": "style.css",
   "author": "Mana Nekoha (@mananekoha114)",
   "version": "0.5.1",

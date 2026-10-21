@@ -23,6 +23,7 @@ import { createCostUi } from './src/cost-ui.js';
 import { createMessageCosts, getMessageCost } from './src/message-costs.js';
 import { createMessageCostUi } from './src/message-cost-ui.js';
 import { isTauriTavern, showTauriTavernNotice } from './src/tauritavern.js';
+import { installGemini4HostCompatibility } from './src/gemini4-host.js';
 
 let initialized = false;
 let controller = null;
@@ -33,6 +34,9 @@ let costContext = null;
 let messageCosts = null;
 let messageCostUi = null;
 let openAiBridgeUi = null;
+let gemini4Host = null;
+
+globalThis.vertexPayGoGemini4GenerateInterceptor = chat => gemini4Host?.captureMessages(chat);
 
 function notify(kind, message) {
     const toaster = globalThis.toastr?.[kind];
@@ -114,6 +118,7 @@ export async function init() {
             ...getSafeErrorContext(restoredPolicy.error),
         });
         await waitForVertexControls(10_000, localize);
+        gemini4Host = await installGemini4HostCompatibility({ context });
 
         costContext = createCostContext({ getContext: () => globalThis.SillyTavern.getContext() });
         controller = createPayGoUi({
@@ -217,6 +222,8 @@ export async function init() {
         modelPolicyRefreshTimer ??= setInterval(refreshModelPolicy, MODEL_POLICY_REFRESH_INTERVAL_MS);
         clientLogger.event('info', 'extension.init_ready', { phase: 'ready' });
     } catch (error) {
+        gemini4Host?.cleanup();
+        gemini4Host = null;
         messageCosts?.destroy();
         openAiBridgeUi?.destroy();
         openAiBridgeUi = null;

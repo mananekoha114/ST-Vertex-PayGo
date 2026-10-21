@@ -1,4 +1,5 @@
 {
+  "vertex_paygo.gemini4.server_upgrade": "Gemini 4 相容修復需要新版伺服器端外掛。請更新伺服器端外掛並重新啟動 SillyTavern。",
   "vertex_paygo.backup.open": "還原資料🐾",
   "vertex_paygo.backup.title": "還原 PayGo 資料",
   "vertex_paygo.backup.description": "啟動、更新和還原前會儲存有變化的資料，舊備份依酒館設定的保留份數輪替。這些是本機還原點喵；長時間不重新啟動或更新時不會持續備份，也無法防止裝置遺失。",

@@ -1,4 +1,5 @@
 {
+  "vertex_paygo.gemini4.server_upgrade": "Gemini 4 兼容修复需要新版服务端插件。请更新服务端插件并重启 SillyTavern。",
   "vertex_paygo.backup.open": "恢复数据🐾",
   "vertex_paygo.backup.title": "恢复 PayGo 数据",
   "vertex_paygo.backup.description": "启动、更新和恢复前会保存有变化的数据，旧备份按酒馆设置的保留份数轮换。这些是本机恢复点喵；长时间不重启或更新时不会持续备份，也不能防止设备丢失。",

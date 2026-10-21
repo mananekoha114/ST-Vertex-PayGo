@@ -5,6 +5,8 @@
 import { DEFAULT_STATE, EXTENSION_ID, isGoogleSource } from './constants.js';
 import { createRequestHook, installFailureSink } from './request-hook.js';
 import { normalizeState, requiresPlugin } from './state-machine.js';
+import { enrichGemini4ModelList, getGemini4RequestTarget, isNativeGemini4Request } from './gemini4-request.js';
+import { createGemini4SignatureTracker } from './gemini4-signatures.js';
 
 const REQUEST_STATE = '__vertexPayGoRequestState';
 const GENERATE_PATH = '/api/backends/chat-completions/generate';
@@ -36,6 +38,8 @@ export function installRequestTransport({ context, stateProvider, target = globa
     if (typeof originalFetch !== 'function') throw new TypeError('fetch is required.');
     const requestStates = new WeakMap();
     const requestUsage = new WeakMap();
+    const signatures = createGemini4SignatureTracker({ context,
+        getContext: () => target.SillyTavern?.getContext?.() ?? context });
     // Presentation/telemetry must never prevent a generation or change its route.
     const observe = (method, ...args) => {
         try { return messageCosts?.[method]?.(...args); }
@@ -59,6 +63,14 @@ export function installRequestTransport({ context, stateProvider, target = globa
     target.fetch = async function payGoFetch(input, init) {
         const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url, origin);
         const method = init?.method ?? input?.method ?? 'GET';
+        if (url.origin === origin && url.pathname === '/api/backends/chat-completions/status'
+            && method.toUpperCase() === 'POST') {
+            const body = init?.body ?? (typeof input?.clone === 'function' ? await input.clone().text() : undefined);
+            let google = false;
+            try { google = isGoogleSource(JSON.parse(body).chat_completion_source); } catch { /* Keep host validation. */ }
+            const response = await originalFetch.call(this, input, init);
+            return google ? enrichGemini4ModelList(response) : response;
+        }
         if (url.origin !== origin || url.pathname !== GENERATE_PATH || method.toUpperCase() !== 'POST') {
             return originalFetch.call(this, input, init);
         }
@@ -89,8 +101,19 @@ export function installRequestTransport({ context, stateProvider, target = globa
             usagePrice: getUsagePrice(data, state),
         });
         const costToken = metadata?.messageCostToken;
+        const signatureToken = isNativeGemini4Request(data) ? signatures.capture(data, metadata?.background) : null;
+        let requestTarget = input;
         try {
             const prepared = await prepareRequest(data);
+            if (isNativeGemini4Request(data)) {
+                if (prepared?.nativeGemini4 !== true) {
+                    const message = hookOptions.localize?.('vertex_paygo.gemini4.server_upgrade')
+                        ?? 'Gemini 4 compatibility requires the updated server plugin. Update the server plugin and restart SillyTavern.';
+                    throw Object.assign(new Error(message), { code: 'GEMINI4_SERVER_UPGRADE_REQUIRED' });
+                }
+                data.native_gemini_api_version = prepared.nativeGeminiApiVersion;
+                requestTarget = getGemini4RequestTarget(input, origin);
+            }
             if (costToken) observe('prepared', costToken, prepared?.usageId, {
                 chatId: usageChatId, model: data.model, source: data.chat_completion_source,
                 tier: state.tier, stream: Boolean(data.stream), price: requestUsage.get(data).usagePrice,
@@ -105,7 +128,11 @@ export function installRequestTransport({ context, stateProvider, target = globa
         try {
             signal?.throwIfAborted();
             if (costToken) observe('started', costToken);
-            const response = await originalFetch.call(this, input, { ...init, body: JSON.stringify(data) });
+            const response = await originalFetch.call(this, requestTarget, { ...init, body: JSON.stringify(data) });
+            if (signatureToken) {
+                try { await signatures.observe(signatureToken, response); }
+                catch (error) { console.warn('[Vertex PayGo] Could not preserve the native Gemini signature.', error); }
+            }
             return costToken ? observe('response', costToken, response, signal) ?? response : response;
         } catch (error) {
             if (costToken) observe('failed', costToken);

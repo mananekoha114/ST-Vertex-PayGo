@@ -10,6 +10,7 @@ import { PROTOCOL_VERSION, REQUIRED_TRANSPORT } from './constants.js';
 import { MODEL_POLICY_SNAPSHOT } from './model-policy.js';
 
 export const MESSAGES = Object.freeze({
+    'vertex_paygo.gemini4.server_upgrade': 'Gemini 4 compatibility requires the updated server plugin. Update the server plugin and restart SillyTavern.',
     'vertex_paygo.backup.open': 'Restore PayGo data',
     'vertex_paygo.backup.title': 'Restore PayGo data',
     'vertex_paygo.backup.description': 'PayGo saves changed data at startup and before updates or restoration. Older snapshots rotate using the host backup count. These are local recovery points, not continuous or off-device backups.',

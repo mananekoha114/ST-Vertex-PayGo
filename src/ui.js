@@ -6,7 +6,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-import { AI_STUDIO_SOURCE, DEFAULT_STATE, isGoogleSource, TIER, VERTEX_SOURCE } from './constants.js';
+import { AI_STUDIO_SOURCE, DEFAULT_STATE, isGoogleSource, TIER, UPDATE_POLL_INTERVAL_MS, VERTEX_SOURCE } from './constants.js';
 import { getSafeErrorContext } from './client-logger.js';
 import {
     createLocalizer,
@@ -17,6 +17,7 @@ import {
 } from './i18n.js';
 import { getModelPolicy, getTierSupport } from './model-policy.js';
 import { downloadLogText, showLogViewer } from './log-actions.js';
+import { createDataBackupControl } from './data-backup-ui.js';
 import {
     attachStateToProfile,
     getActiveProfile,
@@ -133,7 +134,26 @@ function buildControls(localize) {
     );
     logActions.append(viewLogsButton, saveLogsButton);
 
-    root.append(tierRow, paygoLabel, guidance, policyStatus, serverRow, logActions);
+    const updateRow = createElement('div', { id: 'vertex-paygo-update-row', class: 'vertex-paygo-update-row' });
+    const checkUpdateButton = createElement(
+        'button',
+        { id: 'vertex-paygo-update-check', type: 'button', class: 'menu_button vertex-paygo-update-check', 'data-i18n': 'vertex_paygo.update.check' },
+        localize('vertex_paygo.update.check'),
+    );
+    const applyUpdateButton = createElement(
+        'button',
+        { id: 'vertex-paygo-update-apply', type: 'button', class: 'menu_button vertex-paygo-update-apply', 'data-i18n': 'vertex_paygo.update.apply' },
+        localize('vertex_paygo.update.apply'),
+    );
+    const updateNotice = createElement(
+        'small',
+        { class: 'vertex-paygo-update-notice', 'data-i18n': 'vertex_paygo.update.notice' },
+        localize('vertex_paygo.update.notice'),
+    );
+    const updateStatus = createElement('small', { id: 'vertex-paygo-update-status', class: 'vertex-paygo-update-status', 'aria-live': 'polite' });
+    updateRow.append(checkUpdateButton, applyUpdateButton, updateNotice, updateStatus);
+
+    root.append(tierRow, paygoLabel, guidance, policyStatus, serverRow, logActions, updateRow);
     return {
         root,
         title,
@@ -147,6 +167,11 @@ function buildControls(localize) {
         logActions,
         viewLogsButton,
         saveLogsButton,
+        updateRow,
+        checkUpdateButton,
+        applyUpdateButton,
+        updateStatus,
+        updateNotice,
     };
 }
 
@@ -171,6 +196,8 @@ export function createPayGoUi({
     }
 
     const controls = buildControls(localize);
+    const dataBackupControl = createDataBackupControl({ context, serverClient, localize, notifyError });
+    controls.root.append(dataBackupControl.root);
     const placementControl = createMessageCostPlacementControl({ localize, getMessageCostPlacement, setMessageCostPlacement,
         getMessageCostRecentCount, setMessageCostRecentCount });
     controls.root.append(placementControl.root);
@@ -185,6 +212,7 @@ export function createPayGoUi({
         status: 'checking',
         message: localize('vertex_paygo.server.checking'),
         logsAvailable: false,
+        updaterAvailable: false,
     };
     let appReady = false;
     let reconcileQueued = false;
@@ -193,6 +221,12 @@ export function createPayGoUi({
     let profileTransitionTimer = null;
     let profileTransitionTargetId = null;
     let logActionPending = false;
+    // idle, checking, available, uptodate, blocked, running, done or failed.
+    let updateState = { status: 'idle' };
+    let updatePending = false;
+    let destroyed = false;
+    let updatePollTimer = null;
+    let finishUpdatePoll = null;
     const reconcileGuard = createReconcileGuard();
 
     const popup = context.Popup;
@@ -374,6 +408,7 @@ export function createPayGoUi({
     }
 
     function render() {
+        if (destroyed) return;
         placementControl.render();
         const aiStudio = getSource() === AI_STUDIO_SOURCE;
         // One panel, one controller, and one set of listeners serve both sources.
@@ -415,7 +450,140 @@ export function createPayGoUi({
         const logsDisabled = logActionPending || healthState.status !== 'ready' || !healthState.logsAvailable;
         controls.viewLogsButton.disabled = logsDisabled;
         controls.saveLogsButton.disabled = logsDisabled;
+
+        // The panel offers updates only where the backend supports them and the
+        // current session may use them; an older backend simply hides the row.
+        controls.updateRow.hidden = !healthState.updaterAvailable;
+        const updateBusy = updatePending || updateState.status === 'checking' || updateState.status === 'running';
+        controls.checkUpdateButton.disabled = updateBusy;
+        controls.applyUpdateButton.hidden = updateState.status !== 'available';
+        controls.applyUpdateButton.disabled = updateBusy;
+        controls.updateNotice.hidden = updateState.status !== 'idle';
+        controls.updateStatus.textContent = describeUpdateState();
         renderPolicyStatus(policy);
+    }
+
+    function describeUpdateState() {
+        const blockedComponent = updateState.components?.find(component => !['update', 'unchanged', 'keep-ahead'].includes(component.status));
+        const changing = updateState.components?.find(component => component.status === 'update');
+        const target = changing?.target?.tag ?? (changing?.target?.commit ?? '').slice(0, 7);
+        switch (updateState.status) {
+            case 'checking':
+                return localize('vertex_paygo.update.checking');
+            case 'available':
+                return changing?.target?.tag
+                    ? localize('vertex_paygo.update.available', { target })
+                    : localize('vertex_paygo.update.available_commit', { branch: changing?.channel?.branch ?? '', commit: target });
+            case 'uptodate':
+                return localize('vertex_paygo.update.uptodate');
+            case 'blocked':
+                return localize('vertex_paygo.update.blocked', { reason: blockedComponent?.reason ?? blockedComponent?.status ?? '' });
+            case 'running':
+                return localize('vertex_paygo.update.running', { phase: localize(`vertex_paygo.update.phase.${updateState.phase ?? 'checking'}`) });
+            case 'done':
+                return localize('vertex_paygo.update.done');
+            case 'failed':
+                return localize('vertex_paygo.update.failed', { message: updateState.message ?? '' });
+            default:
+                return '';
+        }
+    }
+
+    function setUpdaterState(next) {
+        updateState = next;
+        render();
+    }
+
+    async function checkForUpdates() {
+        if (destroyed || updatePending || updateState.status === 'running') return;
+        updatePending = true;
+        setUpdaterState({ status: 'checking' });
+        recordClientEvent('info', 'update.check_started', { phase: 'started' });
+        try {
+            const report = await serverClient.checkUpdate();
+            if (destroyed) return;
+            const status = report.status === 'update-available' ? 'available'
+                : report.status === 'blocked' ? 'blocked' : 'uptodate';
+            setUpdaterState({ status, components: report.components });
+            recordClientEvent('info', 'update.check_ready', { phase: 'ready' });
+        } catch (error) {
+            recordClientEvent('error', 'update.check_failed', { phase: 'failed', ...getSafeErrorContext(error) });
+            setUpdaterState({ status: 'failed', message: localizeError(localize, error) });
+        } finally {
+            updatePending = false;
+            render();
+        }
+    }
+
+    function waitForUpdatePoll() {
+        return new Promise(resolve => {
+            finishUpdatePoll = resolve;
+            updatePollTimer = setTimeout(() => {
+                updatePollTimer = null;
+                finishUpdatePoll = null;
+                resolve();
+            }, UPDATE_POLL_INTERVAL_MS);
+        });
+    }
+
+    async function pollUpdateUntilSettled() {
+        for (;;) {
+            await waitForUpdatePoll();
+            if (destroyed) return;
+            let status;
+            try {
+                status = await serverClient.readUpdateStatus();
+            } catch (error) {
+                setUpdaterState({ status: 'failed', message: localizeError(localize, error) });
+                return;
+            }
+            if (destroyed) return;
+            if (status.running) {
+                setUpdaterState({ status: 'running', phase: status.job?.phase ?? 'checking' });
+                continue;
+            }
+            const result = status.lastResult;
+            if (result?.status === 'updated') {
+                recordClientEvent('info', 'update.completed', { phase: 'ready' });
+                setUpdaterState({ status: 'done' });
+            } else if (result?.status === 'no-change') {
+                setUpdaterState({ status: 'uptodate' });
+            } else {
+                setUpdaterState({ status: 'failed', message: result?.message ?? String(result?.code ?? '') });
+            }
+            return;
+        }
+    }
+
+    async function applyUpdate() {
+        if (destroyed || updatePending || updateState.status !== 'available' || !healthState.updaterAvailable) return;
+        const changing = updateState.components?.find(component => component.status === 'update');
+        const target = changing?.target?.tag ?? (changing?.target?.commit ?? '').slice(0, 7);
+        updatePending = true;
+        render();
+        try {
+            const confirmed = await popup.show.confirm(
+                localize('vertex_paygo.update.popup.title'),
+                localize('vertex_paygo.update.popup.body', { target }),
+                {
+                    okButton: localize('vertex_paygo.update.popup.accept'),
+                    cancelButton: localize('vertex_paygo.update.popup.decline'),
+                    defaultResult: popupResult.NEGATIVE,
+                },
+            );
+            if (destroyed || confirmed !== popupResult.AFFIRMATIVE) return;
+            setUpdaterState({ status: 'running', phase: 'checking' });
+            recordClientEvent('info', 'update.start_requested', { phase: 'started' });
+            await serverClient.startUpdate();
+            if (destroyed) return;
+            await pollUpdateUntilSettled();
+        } catch (error) {
+            recordClientEvent('error', 'update.start_failed', { phase: 'failed', ...getSafeErrorContext(error) });
+            setUpdaterState({ status: 'failed', message: localizeError(localize, error) });
+        } finally {
+            updatePending = false;
+            render();
+        }
     }
 
     function recordClientEvent(level, event, context = {}) {
@@ -715,6 +883,7 @@ export function createPayGoUi({
             status: 'checking',
             message: localize('vertex_paygo.server.checking'),
             logsAvailable: false,
+            updaterAvailable: false,
         };
         render();
         try {
@@ -726,7 +895,9 @@ export function createPayGoUi({
                 message: localize('vertex_paygo.server.ready', { version }),
                 detail: localize('vertex_paygo.server.ready_detail'),
                 logsAvailable: health.capabilities?.logs === true,
+                updaterAvailable: health.capabilities?.updater === true,
             };
+            dataBackupControl.setAvailable(health.capabilities?.dataBackups === true);
             recordClientEvent('info', 'server.health_ready', {
                 phase: 'ready',
                 serverStatus: 'ready',
@@ -738,7 +909,9 @@ export function createPayGoUi({
                 message: localize('vertex_paygo.server.unavailable'),
                 detail: localizeError(localize, error),
                 logsAvailable: false,
+                updaterAvailable: false,
             };
+            dataBackupControl.setAvailable(false);
             recordClientEvent('warn', 'server.health_unavailable', {
                 phase: 'failed',
                 serverStatus: 'unavailable',
@@ -927,6 +1100,8 @@ export function createPayGoUi({
     controls.retryButton.addEventListener('click', refreshHealth);
     controls.viewLogsButton.addEventListener('click', () => void runLogAction('view'));
     controls.saveLogsButton.addEventListener('click', () => void runLogAction('save'));
+    controls.checkUpdateButton.addEventListener('click', () => void checkForUpdates());
+    controls.applyUpdateButton.addEventListener('click', () => void applyUpdate());
 
     const events = context.eventTypes;
     context.eventSource.on(events.CHATCOMPLETION_SOURCE_CHANGED, () => {
@@ -980,11 +1155,22 @@ export function createPayGoUi({
     void refreshHealth();
 
     return {
-        destroy() { placementControl.destroy(); controls.root.remove(); },
+        destroy() {
+            destroyed = true;
+            if (updatePollTimer !== null) clearTimeout(updatePollTimer);
+            updatePollTimer = null;
+            finishUpdatePoll?.();
+            finishUpdatePoll = null;
+            placementControl.destroy();
+            dataBackupControl.destroy();
+            controls.root.remove();
+        },
         getState: () => ({ ...state }),
         refreshHealth,
         viewLogs: () => runLogAction('view'),
         saveLogs: () => runLogAction('save'),
+        checkForUpdates,
+        applyUpdate,
         onModelPolicyChanged,
         render,
     };

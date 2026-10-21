@@ -185,7 +185,9 @@
 }
 
 #vertex-paygo-settings .vertex-paygo-retry,
-#vertex-paygo-settings .vertex-paygo-log-button {
+#vertex-paygo-settings .vertex-paygo-log-button,
+#vertex-paygo-settings .vertex-paygo-update-check,
+#vertex-paygo-settings .vertex-paygo-update-apply {
     /* Override SillyTavern's min-content width so CJK labels stay on one line. */
     width: max-content;
     flex-shrink: 0;
@@ -193,14 +195,28 @@
     padding: 0.25rem 0.6rem;
 }
 
-#vertex-paygo-settings .vertex-paygo-log-actions {
+#vertex-paygo-settings .vertex-paygo-log-actions,
+#vertex-paygo-settings .vertex-paygo-update-row {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     justify-content: flex-end;
     gap: 0.5rem;
 }
 
+#vertex-paygo-settings .vertex-paygo-update-notice,
+#vertex-paygo-settings .vertex-paygo-update-status {
+    flex-basis: 100%;
+    min-width: 0;
+    line-height: 1.35;
+    text-align: right;
+    overflow-wrap: anywhere;
+}
+
+#vertex-paygo-settings .vertex-paygo-update-status:empty,
 #vertex-paygo-settings .vertex-paygo-log-actions[hidden],
+#vertex-paygo-settings .vertex-paygo-update-row[hidden],
+#vertex-paygo-settings .vertex-paygo-update-row [hidden],
 #vertex-paygo-settings .vertex-paygo-only[hidden] {
     display: none;
 }
@@ -316,3 +332,7 @@
 
 .vertex-paygo-message-cost-setting { display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; margin-top: 0.75rem; }
 .vertex-paygo-message-cost-setting select { width: 100%; min-width: 0; }
+
+.vertex-paygo-data-recovery { min-width: 0; overflow-wrap: anywhere; }
+.vertex-paygo-data-recovery select { width: 100%; min-width: 0; max-width: 100%; }
+.vertex-paygo-data-recovery [hidden] { display: none; }

@@ -39,6 +39,11 @@ export const SERVER_ROUTES = Object.freeze({
     LOGS: '/api/plugins/vertex-paygo/logs',
     CLIENT_LOG: '/api/plugins/vertex-paygo/logs/client',
     USAGE: '/api/plugins/vertex-paygo/usage',
+    UPDATE: '/api/plugins/vertex-paygo/update',
+    UPDATE_STATUS: '/api/plugins/vertex-paygo/update/status',
+    DATA_BACKUPS: '/api/plugins/vertex-paygo/data-backups',
+    DATA_RESTORE: '/api/plugins/vertex-paygo/data-restore',
+    DATA_RESTORE_CANCEL: '/api/plugins/vertex-paygo/data-restore/cancel',
     OPENAI_BRIDGE: '/api/plugins/vertex-paygo/openai-bridge',
     OPENAI_BRIDGE_LOGS: '/api/plugins/vertex-paygo/openai-bridge/logs',
     OPENAI_BRIDGE_LOGS_CLEAR: '/api/plugins/vertex-paygo/openai-bridge/logs/clear',
@@ -53,3 +58,9 @@ export const BRIDGE_LOG_TIMEOUT_MS = 30_000;
 // Full service-account authentication may need an OAuth token exchange before
 // the ticket can be issued.
 export const PREPARE_TIMEOUT_MS = 30_000;
+// A check clones both repositories before it can decide anything, and starting
+// an update only acknowledges a job that keeps running in the background.
+export const UPDATE_CHECK_TIMEOUT_MS = 120_000;
+export const UPDATE_START_TIMEOUT_MS = 10_000;
+export const UPDATE_STATUS_TIMEOUT_MS = 10_000;
+export const UPDATE_POLL_INTERVAL_MS = 1_000;

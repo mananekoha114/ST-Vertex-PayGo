@@ -10,11 +10,32 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createServerClient, parseLoopbackProxyUrl, ServerPluginError } from '../src/server-client.js';
-import { MAX_LOG_RESPONSE_BYTES, MAX_BRIDGE_LOG_RESPONSE_BYTES, PREPARE_TIMEOUT_MS } from '../src/constants.js';
+import { MAX_LOG_RESPONSE_BYTES, MAX_BRIDGE_LOG_RESPONSE_BYTES, PREPARE_TIMEOUT_MS, SERVER_ROUTES } from '../src/constants.js';
 
 function jsonResponse(data, { ok = true, status = 200 } = {}) {
     return { ok, status, json: async () => data };
 }
+
+test('data backup operations use fresh authentication and validate the response contract', async () => {
+    const requests = [];
+    const report = { ok: true, entries: [{ id: 'snapshot', createdAt: '2026-10-17T00:00:00Z', restorable: true,
+        reason: 'startup', files: ['usage-ledger.jsonl'] }], pending: null, nextCursor: null };
+    const client = createServerClient({ getRequestHeaders: () => ({ 'X-CSRF-Token': 'fixture' }), fetchImpl: async (url, options) => {
+        requests.push({ url, options });
+        return jsonResponse(url.includes('data-backups') ? report : url.endsWith('/cancel') ? { ok: true } : { ok: true, restartRequired: true });
+    } });
+    assert.equal((await client.listDataBackups('previous+id')).entries.length, 1);
+    await client.scheduleDataRestore('snapshot'); await client.cancelDataRestore();
+    assert.match(requests[0].url, /cursor=previous%2Bid/u);
+    assert.deepEqual(JSON.parse(requests[1].options.body), { backupId: 'snapshot' });
+    for (const request of requests) {
+        assert.equal(request.options.headers['X-CSRF-Token'], 'fixture'); assert.equal(request.options.cache, 'no-store');
+    }
+    const invalid = createServerClient({ fetchImpl: async () => jsonResponse({ ok: true }) });
+    for (const action of [() => invalid.listDataBackups(), () => invalid.scheduleDataRestore('snapshot')]) {
+        await assert.rejects(action, { code: 'INVALID_BACKUP_RESPONSE' });
+    }
+});
 
 function textResponse(data, {
     ok = true,
@@ -260,6 +281,53 @@ test('an interrupted response body is reported as a timeout rather than invalid 
     }), { headers: { 'Content-Type': 'application/json' } }) });
     await assert.rejects(client.readOpenAiBridge(), error => error.code === 'TIMEOUT');
     await assert.rejects(client.readOpenAiBridgeLogs(), error => error.code === 'TIMEOUT');
+});
+
+test('update check, start, and status use authenticated no-store requests', async () => {
+    const requests = [];
+    const client = createServerClient({
+        getRequestHeaders: () => ({ 'X-CSRF-Token': 'fixture' }),
+        fetchImpl: async (url, options) => {
+            requests.push({ url, options });
+            if (options.method === 'POST') return jsonResponse({ ok: true, started: true }, { status: 202 });
+            if (url === SERVER_ROUTES.UPDATE_STATUS) {
+                return jsonResponse({ ok: true, running: false, lastResult: { status: 'updated', restartRequired: true } });
+            }
+            return jsonResponse({ ok: true, status: 'update-available', components: [{ name: 'frontend', status: 'update' }] });
+        },
+    });
+
+    const report = await client.checkUpdate();
+    assert.equal(report.status, 'update-available');
+    assert.equal(report.components.length, 1);
+    assert.equal(requests[0].url, SERVER_ROUTES.UPDATE);
+    assert.equal(requests[0].options.method, 'GET');
+    assert.equal(requests[0].options.cache, 'no-store');
+    assert.equal(requests[0].options.headers['X-CSRF-Token'], 'fixture');
+
+    await client.startUpdate();
+    assert.equal(requests[1].options.method, 'POST');
+    assert.equal(requests[1].options.headers['X-CSRF-Token'], 'fixture');
+
+    const status = await client.readUpdateStatus();
+    assert.equal(status.lastResult.status, 'updated');
+    assert.equal(requests[2].url, SERVER_ROUTES.UPDATE_STATUS);
+});
+
+test('update responses are validated before they are trusted', async () => {
+    const client = createServerClient({ fetchImpl: async () => jsonResponse({ ok: true }) });
+    await assert.rejects(client.checkUpdate(), error => error.code === 'INVALID_UPDATE_RESPONSE');
+    await assert.rejects(client.startUpdate(), error => error.code === 'INVALID_UPDATE_RESPONSE');
+    await assert.rejects(client.readUpdateStatus(), error => error.code === 'INVALID_UPDATE_RESPONSE');
+
+    const conflict = createServerClient({
+        fetchImpl: async () => jsonResponse({ error: true, code: 'UPDATER_IN_PROGRESS', message: 'An update is already running.' }, { ok: false, status: 409 }),
+    });
+    await assert.rejects(conflict.startUpdate(), error => error.code === 'HTTP_ERROR' && error.status === 409 && error.serverCode === 'UPDATER_IN_PROGRESS');
+    const unknown = createServerClient({
+        fetchImpl: async () => jsonResponse({ ok: true, status: 'unexpected-status', components: [] }),
+    });
+    await assert.rejects(unknown.checkUpdate(), error => error.code === 'INVALID_UPDATE_RESPONSE');
 });
 
 test('prepare preserves server error code and HTTP status', async () => {

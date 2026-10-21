@@ -195,7 +195,7 @@ test('pre-existing custom Vertex reverse proxy conflicts fail closed', async () 
     assert.equal(prepares, 0);
     assert.equal(data.reverse_proxy, 'vertex-paygo-blocked://request');
     assert.equal(data.proxy_password, 'blocked-conflict');
-    assert.match(errors[0], /custom Google reverse proxy/i);
+    assert.match(errors[0], /Vertex AI.*custom reverse proxy/i);
 });
 
 test('payload builder supplies safe defaults for optional Vertex fields', () => {

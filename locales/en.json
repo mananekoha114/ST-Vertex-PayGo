@@ -166,7 +166,7 @@
   "vertex_paygo.popup.saved.body": "{message} Switch this connection to Standard, or keep the saved setting blocked until you change the model.",
   "vertex_paygo.popup.saved.accept": "Use Standard",
   "vertex_paygo.popup.saved.decline": "Keep blocked setting",
-  "vertex_paygo.hook.proxy_conflict": "PayGo tiers are incompatible with a custom Google reverse proxy. Disable one of them before generating.",
+  "vertex_paygo.hook.proxy_conflict": "Vertex AI PayGo is incompatible with a custom reverse proxy. Disable the reverse proxy before generating.",
   "vertex_paygo.hook.request_blocked": "{message} The request was blocked and was not sent to Google.",
   "vertex_paygo.server_error.invalid_proxy_url": "Server Plugin returned an invalid proxy URL.",
   "vertex_paygo.server_error.unsafe_proxy_url": "Server Plugin proxy URL is not an authenticated loopback HTTP endpoint.",

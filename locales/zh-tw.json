@@ -166,7 +166,7 @@
   "vertex_paygo.popup.saved.body": "{message}要不要將此連線切換至 Standard 呢？或者先保留不可用的設定，等更換模型再用喵~",
   "vertex_paygo.popup.saved.accept": "切換至 Standard 喵",
   "vertex_paygo.popup.saved.decline": "先保留不可用的設定喵",
-  "vertex_paygo.hook.proxy_conflict": "PayGo 層級與自訂的 Google 反向代理衝突啦！生成前請先關閉其中一項喵。",
+  "vertex_paygo.hook.proxy_conflict": "Vertex AI PayGo 與自訂反向代理衝突啦！生成前請先關閉反向代理喵。",
   "vertex_paygo.hook.request_blocked": "{message}請求已經被攔下來啦，沒有傳送到 Google 喵！",
   "vertex_paygo.server_error.invalid_proxy_url": "伺服器端外掛傳回了無效的代理 URL 喵。",
   "vertex_paygo.server_error.unsafe_proxy_url": "伺服器端外掛的代理 URL 並非經過身分驗證的本機回送 HTTP 端點喵，不安全！",

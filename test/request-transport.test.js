@@ -100,7 +100,7 @@ test('preparation failure and proxy conflicts reject before any generation reque
     f.hook(payload);
     await assert.rejects(f.target.fetch(endpoint, { method: 'POST', body: JSON.stringify(payload) }), error => error === failure);
     assert.equal(f.sent.length, 0);
-    const conflict = { ...data(), reverse_proxy: 'https://custom.example' };
+    const conflict = { ...data(), chat_completion_source: 'vertexai', reverse_proxy: 'https://custom.example' };
     f.hook(conflict);
     await assert.rejects(f.target.fetch(endpoint, { method: 'POST', body: JSON.stringify(conflict) }), {
         code: 'CUSTOM_REVERSE_PROXY_CONFLICT',
@@ -137,17 +137,42 @@ test('unmarked chat paths also prepare; unrelated fetches remain untouched', asy
     assert.equal(f.prepared.length, 1);
 });
 
-test('preset-inherited custom proxies are rejected and non-Google preset fallbacks stay native', async () => {
+test('preset-inherited Studio proxies are prepared and non-Google preset fallbacks stay native', async () => {
     const f = setup({ presets: { proxy: { extensions: { 'vertex-paygo': flex },
         payload: { reverse_proxy: 'https://custom.example', proxy_password: 'custom' } } } });
-    await assert.rejects(f.context.ChatCompletionService.processRequest(data(), { presetName: 'proxy' }), {
-        code: 'CUSTOM_REVERSE_PROXY_CONFLICT',
-    });
-    assert.equal(f.prepared.length, 0);
-    assert.equal(f.sent.length, 0);
+    await f.context.ChatCompletionService.processRequest(data(), { presetName: 'proxy' });
+    assert.equal(f.prepared[0].reverse_proxy, 'https://custom.example');
+    assert.equal(f.prepared[0].proxy_password, 'custom');
+    assert.equal(f.sent[0].data.proxy_password, 'fake-token');
     await f.context.ChatCompletionService.processRequest({ chat_completion_source: 'custom' }, { presetName: 'missing' });
-    assert.equal(f.prepared.length, 0);
-    assert.equal(f.sent[0].data.reverse_proxy, undefined);
+    assert.equal(f.prepared.length, 1);
+    assert.equal(f.sent[1].data.reverse_proxy, undefined);
+});
+
+test('Studio proxy credentials survive the chat failure sink and remain isolated across background requests', async () => {
+    const f = setup({ presets: {
+        first: { payload: { reverse_proxy: 'http://localhost:9000/gateway', proxy_password: 'first-password' } },
+        second: { payload: { reverse_proxy: 'https://second.example', proxy_password: 'second-password' } },
+    } });
+    const request = { ...data(), reverse_proxy: 'https://chat.example/prefix/', proxy_password: 'chat-password' };
+    f.hook(request);
+    assert.notEqual(request.proxy_password, 'chat-password');
+    await Promise.all([
+        f.target.fetch(endpoint, { method: 'POST', body: JSON.stringify(request) }),
+        ...['first', 'second'].map(presetName => f.context.ChatCompletionService.processRequest(data(), { presetName })),
+        f.context.ChatCompletionService.sendRequest({ ...data(), reverse_proxy: 'https://direct.example' }),
+    ]);
+    assert.deepEqual(Object.fromEntries(f.prepared.map(p => [p.reverse_proxy, p.proxy_password])), {
+        'https://chat.example/prefix/': 'chat-password',
+        'http://localhost:9000/gateway': 'first-password',
+        'https://second.example': 'second-password',
+        'https://direct.example': '',
+    });
+    for (const sent of f.sent) {
+        assert.match(sent.data.reverse_proxy, /^http:\/\/127\.0\.0\.1:/u);
+        assert.equal(sent.data.proxy_password, 'fake-token');
+        assert.equal(Object.keys(sent.data).some(k => k.startsWith('__vertex')), false);
+    }
 });
 
 test('aborted requests never generate; Request objects preserve headers and abort signal', async () => {

@@ -17,6 +17,7 @@ function markRequest(data, state, origin, protect = true) {
     const marked = { ...data, [REQUEST_STATE]: { state: normalizeState(state) } };
     if (protect && isGoogleSource(data.chat_completion_source) && requiresPlugin(state, data.chat_completion_source, data.model)) {
         marked[REQUEST_STATE].originalReverseProxy = data.reverse_proxy;
+        marked[REQUEST_STATE].originalProxyPassword = data.proxy_password;
         installFailureSink(marked, origin);
         marked[REQUEST_STATE].sink = marked.reverse_proxy;
     }
@@ -92,6 +93,7 @@ export function installRequestTransport({ context, stateProvider, target = globa
         const state = metadata?.state ?? stateProvider();
         if (metadata?.sink && data.reverse_proxy === metadata.sink) {
             data.reverse_proxy = metadata.originalReverseProxy ?? '';
+            data.proxy_password = metadata.originalProxyPassword ?? '';
         }
         requestStates.set(data, state);
         const usageChatId = metadata && Object.hasOwn(metadata, 'usageChatId')

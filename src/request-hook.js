@@ -52,13 +52,17 @@ export function installFailureSink(generateData, _origin, secretFactory = create
     return generateData;
 }
 
-export function buildPreparePayload(generateData, state) {
+export function buildPreparePayload(generateData, state, upstreamProxy = generateData) {
     const source = generateData.chat_completion_source === AI_STUDIO_SOURCE ? AI_STUDIO_SOURCE : VERTEX_SOURCE;
     return {
         protocolVersion: PROTOCOL_VERSION,
         chat_completion_source: source,
         model: String(generateData.model ?? '').trim(),
         stream: Boolean(generateData.stream),
+        ...(source === AI_STUDIO_SOURCE && upstreamProxy.reverse_proxy ? {
+            reverse_proxy: String(upstreamProxy.reverse_proxy).trim(),
+            proxy_password: String(upstreamProxy.proxy_password ?? ''),
+        } : {}),
         ...(generateData.secret_id ? { secret_id: generateData.secret_id } : {}),
         ...(source === VERTEX_SOURCE ? {
             vertexai_auth_mode: String(generateData.vertexai_auth_mode || 'express').trim().toLowerCase(),
@@ -126,6 +130,7 @@ export function createRequestHook({
         }
 
         const existingReverseProxy = String(generateData.reverse_proxy ?? '').trim();
+        const upstreamProxy = { reverse_proxy: existingReverseProxy, proxy_password: generateData.proxy_password };
         const requestId = logger?.createRequestId?.();
         const startedAt = Date.now();
         const logContext = buildSafeRequestLogContext(generateData, state, requestId);
@@ -140,7 +145,7 @@ export function createRequestHook({
         });
 
         try {
-            if (existingReverseProxy) {
+            if (existingReverseProxy && source !== AI_STUDIO_SOURCE) {
                 throw new PayGoRequestError(localize('vertex_paygo.hook.proxy_conflict'), 'CUSTOM_REVERSE_PROXY_CONFLICT');
             }
 
@@ -168,7 +173,7 @@ export function createRequestHook({
 
             const usage = usageProvider(generateData, validation.state);
             const prepared = await serverClient.prepare({
-                ...buildPreparePayload(generateData, validation.state),
+                ...buildPreparePayload(generateData, validation.state, upstreamProxy),
                 ...usage,
             });
             applyPreparedProxy(generateData, prepared);

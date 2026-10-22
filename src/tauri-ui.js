@@ -8,6 +8,7 @@ import { validatePluginState } from './state-machine.js';
 import { applyTauriParameters, readTauriState } from './tauri-parameters.js';
 
 import { createMessageCostPlacementControl } from './message-cost-settings.js';
+import { mountExtensionSettings } from './extension-settings.js';
 
 const CURRENT = '__current__';
 
@@ -41,20 +42,15 @@ export function createTauriUi({ getContext, connections, yaml, documentRef = glo
         for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
         return node;
     }
-    // Reuse the host drawer markup, theme and delegated toggle handler.
-    const root = element('div', '', { id: 'vertex-paygo-settings', class: 'inline-drawer' });
-    const header = element('div', '', { class: 'inline-drawer-toggle inline-drawer-header',
-        role: 'button', tabindex: '0', 'aria-expanded': 'false', 'aria-controls': 'vertex-paygo-drawer-content' });
-    header.append(element('b', localize('vertex_paygo.tauri.title')),
-        element('div', '', { class: 'inline-drawer-icon fa-solid fa-circle-chevron-down down', 'aria-hidden': 'true' }));
-    const drawerContent = element('div', '', { id: 'vertex-paygo-drawer-content', class: 'inline-drawer-content' });
-    root.append(header, drawerContent);
-    const content = element('div', '', { class: 'vertex-paygo-settings-content' });
+    // The tier controls live in the general tab of the shared settings drawer.
+    const root = element('section', '', { id: 'vertex-paygo-settings', class: 'vertex-paygo-settings vertex-paygo-tauri-settings' });
+    const content = element('div', '', { class: 'vertex-paygo-group vertex-paygo-settings-content' });
+    content.append(element('h4', localize('vertex_paygo.tauri.title'), { class: 'vertex-paygo-group-title' }));
     content.append(element('small', localize('vertex_paygo.tauri.native'), { class: 'vertex-paygo-guidance' }));
     content.append(element('small', localize('vertex_paygo.bridge.tauri_unavailable'), { class: 'vertex-paygo-guidance' }));
     const scope = element('select', '', { id: 'vertex-paygo-scope', class: 'text_pole' });
     const scopeLabel = element('label', localize('vertex_paygo.tauri.scope'), { for: 'vertex-paygo-scope' });
-    const refresh = element('button', localize('vertex_paygo.tauri.refresh'), { type: 'button', class: 'menu_button' });
+    const refresh = element('button', localize('vertex_paygo.tauri.refresh'), { type: 'button', class: 'menu_button vertex-paygo-tauri-refresh' });
     const modelLabel = element('small', '', { class: 'vertex-paygo-guidance' });
     const tier = element('select', '', { id: 'vertex-paygo-tier', class: 'text_pole' });
     for (const value of Object.values(TIER)) tier.append(element('option', localize(`vertex_paygo.tier.${value}`), { value }));
@@ -63,14 +59,19 @@ export function createTauriUi({ getContext, connections, yaml, documentRef = glo
     const paygo = element('input', '', { type: 'checkbox', id: 'vertex-paygo-only' });
     paygoLabel.append(paygo, element('span', localize('vertex_paygo.paygo_only')));
     const status = element('small', '', { class: 'vertex-paygo-status', 'aria-live': 'polite' });
-    content.append(scopeLabel, scope, refresh, modelLabel, tierLabel, tier, paygoLabel, status,
+    const scopeRow = element('div', '', { class: 'vertex-paygo-tauri-scope' });
+    scopeRow.append(scope, refresh);
+    content.append(scopeLabel, scopeRow, modelLabel, tierLabel, tier, paygoLabel, status,
         element('small', localize('vertex_paygo.tauri.persistence'), { class: 'vertex-paygo-guidance' }),
         element('small', localize('vertex_paygo.tauri.cost_notice'), { class: 'vertex-paygo-guidance' }));
+    const displayGroup = element('div', '', { class: 'vertex-paygo-group' });
+    displayGroup.append(element('h4', localize('vertex_paygo.settings.group.display'), { class: 'vertex-paygo-group-title' }));
     const placementControl = createMessageCostPlacementControl({ documentRef, localize, getMessageCostPlacement, setMessageCostPlacement,
         getMessageCostRecentCount, setMessageCostRecentCount });
-    content.append(placementControl.root);
-    drawerContent.append(content);
-    container.append(root);
+    displayGroup.append(placementControl.root);
+    root.append(content, displayGroup);
+    const unmountSettings = mountExtensionSettings(root, { documentRef, tab: 'general',
+        label: localize('vertex_paygo.settings.tab.general') });
     let busy = false;
     let destroyed = false;
     const disposers = [];
@@ -78,17 +79,6 @@ export function createTauriUi({ getContext, connections, yaml, documentRef = glo
         node.addEventListener(event, handler);
         disposers.push(() => node.removeEventListener(event, handler));
     };
-    listen(header, 'keydown', event => {
-        if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            header.click();
-        }
-    });
-    listen(root, 'inline-drawer-toggle', event => {
-        if (event.target === root && typeof event.detail?.open === 'boolean') {
-            header.setAttribute('aria-expanded', String(event.detail.open));
-        }
-    });
     function selected() {
         if (scope.value && scope.value !== CURRENT) return connections.read(scope.value);
         const data = currentTauriRequest(getContext());
@@ -232,6 +222,6 @@ export function createTauriUi({ getContext, connections, yaml, documentRef = glo
             return { source: item?.source, model: item?.model, tier: item?.state?.tier ?? 'standard' };
         },
         onModelPolicyChanged: reload,
-        destroy() { destroyed = true; placementControl.destroy(); for (const dispose of disposers) dispose(); root.remove(); },
+        destroy() { destroyed = true; placementControl.destroy(); for (const dispose of disposers) dispose(); unmountSettings(); },
     };
 }

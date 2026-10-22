@@ -282,5 +282,10 @@
   "vertex_paygo.update.popup.accept": "现在更新喵",
   "vertex_paygo.update.popup.decline": "先等等",
   "vertex_paygo.server_error.csrf": "SillyTavern 拒绝了 CSRF 令牌（HTTP 403）。请刷新页面后重试。",
-  "vertex_paygo.server_error.http_non_json": "服务端插件请求失败（HTTP {status}）；服务器或反向代理未返回 JSON 错误详情。"
+  "vertex_paygo.server_error.http_non_json": "服务端插件请求失败（HTTP {status}）；服务器或反向代理未返回 JSON 错误详情。",
+  "vertex_paygo.settings.tab.general": "常规",
+  "vertex_paygo.settings.tab.bridge": "桥接",
+  "vertex_paygo.settings.tab.pricing": "价格",
+  "vertex_paygo.settings.group.display": "消息费用显示",
+  "vertex_paygo.settings.group.maintenance": "日志与维护"
 }

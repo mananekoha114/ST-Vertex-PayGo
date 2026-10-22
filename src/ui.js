@@ -155,11 +155,46 @@ function buildControls(localize) {
     updateRow.append(checkUpdateButton, applyUpdateButton, updateNotice, updateStatus);
 
     root.append(tierRow, paygoLabel, guidance, policyStatus, serverRow);
+
+    // The general tab groups display preferences apart from maintenance actions.
     const settingsRoot = createElement('section', { id: 'vertex-paygo-general-settings', class: 'vertex-paygo-settings' });
-    settingsRoot.append(logActions, updateRow);
+    const displayGroup = createElement('div', { class: 'vertex-paygo-group', id: 'vertex-paygo-display-group' });
+    displayGroup.append(createElement(
+        'h4',
+        { class: 'vertex-paygo-group-title', 'data-i18n': 'vertex_paygo.settings.group.display' },
+        localize('vertex_paygo.settings.group.display'),
+    ));
+    const maintenanceGroup = createElement('div', { class: 'vertex-paygo-group', id: 'vertex-paygo-maintenance-group' });
+    const generalServerRow = createElement('div', { class: 'vertex-paygo-general-server-row' });
+    const generalServerStatus = createElement(
+        'small',
+        { class: 'vertex-paygo-general-server-status', 'aria-live': 'polite' },
+        localize('vertex_paygo.server.checking'),
+    );
+    const generalRetryButton = createElement(
+        'button',
+        { type: 'button', class: 'menu_button vertex-paygo-general-retry', 'data-i18n': 'vertex_paygo.retry' },
+        localize('vertex_paygo.retry'),
+    );
+    generalServerRow.append(generalServerStatus, generalRetryButton);
+    maintenanceGroup.append(
+        createElement(
+            'h4',
+            { class: 'vertex-paygo-group-title', 'data-i18n': 'vertex_paygo.settings.group.maintenance' },
+            localize('vertex_paygo.settings.group.maintenance'),
+        ),
+        generalServerRow,
+        logActions,
+        updateRow,
+    );
+    settingsRoot.append(displayGroup, maintenanceGroup);
     return {
         root,
         settingsRoot,
+        displayGroup,
+        maintenanceGroup,
+        generalServerStatus,
+        generalRetryButton,
         title,
         guidance,
         paygoLabel,
@@ -201,11 +236,14 @@ export function createPayGoUi({
 
     const controls = buildControls(localize);
     const dataBackupControl = createDataBackupControl({ context, serverClient, localize, notifyError });
-    controls.settingsRoot.append(dataBackupControl.root);
+    controls.logActions.after(dataBackupControl.root);
     const placementControl = createMessageCostPlacementControl({ localize, getMessageCostPlacement, setMessageCostPlacement,
         getMessageCostRecentCount, setMessageCostRecentCount });
-    controls.settingsRoot.append(placementControl.root);
-    const unmountSettings = mountExtensionSettings(controls.settingsRoot);
+    controls.displayGroup.append(placementControl.root);
+    const unmountSettings = mountExtensionSettings(controls.settingsRoot, {
+        tab: 'general',
+        label: localize('vertex_paygo.settings.tab.general'),
+    });
     const regionContainer = regionInput.closest('.flex-container.flexFlowColumn') ?? regionInput.parentElement;
     regionContainer.after(controls.root);
 
@@ -452,6 +490,9 @@ export function createPayGoUi({
         controls.serverStatus.textContent = healthState.message;
         controls.serverStatus.title = healthState.detail || '';
         controls.retryButton.disabled = healthState.status === 'checking';
+        controls.generalServerStatus.textContent = healthState.message;
+        controls.generalServerStatus.title = healthState.detail || '';
+        controls.generalRetryButton.disabled = healthState.status === 'checking';
         controls.logActions.hidden = healthState.status === 'ready' && !healthState.logsAvailable;
         const logsDisabled = logActionPending || healthState.status !== 'ready' || !healthState.logsAvailable;
         controls.viewLogsButton.disabled = logsDisabled;
@@ -1104,6 +1145,7 @@ export function createPayGoUi({
         }
     }, true);
     controls.retryButton.addEventListener('click', refreshHealth);
+    controls.generalRetryButton.addEventListener('click', refreshHealth);
     controls.viewLogsButton.addEventListener('click', () => void runLogAction('view'));
     controls.saveLogsButton.addEventListener('click', () => void runLogAction('save'));
     controls.checkUpdateButton.addEventListener('click', () => void checkForUpdates());

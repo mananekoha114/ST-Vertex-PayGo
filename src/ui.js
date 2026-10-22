@@ -154,9 +154,9 @@ function buildControls(localize) {
     const updateStatus = createElement('small', { id: 'vertex-paygo-update-status', class: 'vertex-paygo-update-status', 'aria-live': 'polite' });
     updateRow.append(checkUpdateButton, applyUpdateButton, updateNotice, updateStatus);
 
-    root.append(tierRow, guidance, policyStatus);
+    root.append(tierRow, paygoLabel, guidance, policyStatus, serverRow);
     const settingsRoot = createElement('section', { id: 'vertex-paygo-general-settings', class: 'vertex-paygo-settings' });
-    settingsRoot.append(paygoLabel, serverRow, logActions, updateRow);
+    settingsRoot.append(logActions, updateRow);
     return {
         root,
         settingsRoot,

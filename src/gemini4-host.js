@@ -113,45 +113,23 @@ export async function installGemini4HostCompatibility({
     };
     if (typeof originalCreate === 'function') host.Message.createAsync = createWrapper;
     host.Message.fromPromptAsync = wrapper;
-    const insertedOptions = new Set();
-    const insertedRecords = new Set();
     const filledMetadata = new Map();
     const changedLimits = new Map();
     const refresh = () => {
         if (!isEnabled()) return;
-        if (!['makersuite', 'vertexai'].includes(settings().chat_completion_source) && Array.isArray(host.model_list)) {
-            for (let i = host.model_list.length - 1; i >= 0; i--) {
-                if (insertedRecords.has(host.model_list[i])) host.model_list.splice(i, 1);
-            }
-        }
+        // Enrich only models supplied by the host or another extension. Creating
+        // records or options here would compete with their model-list ownership.
         if (['makersuite', 'vertexai'].includes(settings().chat_completion_source) && Array.isArray(host.model_list)) {
-            for (const model of models) {
-                const existing = host.model_list.find(record => record.id === model.id);
-                if (!existing) {
-                    const record = { ...model };
-                    host.model_list.push(record);
-                    insertedRecords.add(record);
-                } else {
-                    for (const key of ['inputTokenLimit', 'outputTokenLimit']) {
-                        if (existing[key] == null && Number.isFinite(model[key])) {
-                            if (!filledMetadata.has(existing)) filledMetadata.set(existing, new Map());
-                            filledMetadata.get(existing).set(key, { had: Object.hasOwn(existing, key), old: existing[key], applied: model[key] });
-                            existing[key] = model[key];
-                        }
+            for (const existing of host.model_list) {
+                const model = models.find(model => model.id === existing.id);
+                if (!model) continue;
+                for (const key of ['inputTokenLimit', 'outputTokenLimit']) {
+                    if (existing[key] == null && Number.isFinite(model[key])) {
+                        if (!filledMetadata.has(existing)) filledMetadata.set(existing, new Map());
+                        filledMetadata.get(existing).set(key, { had: Object.hasOwn(existing, key), old: existing[key], applied: model[key] });
+                        existing[key] = model[key];
                     }
                 }
-            }
-        }
-        for (const id of ['model_google_select', 'model_vertexai_select']) {
-            const select = doc?.getElementById(id);
-            if (!select) continue;
-            for (const model of models) {
-                if (Array.from(select.options).some(option => option.value === model.id)) continue;
-                const option = doc.createElement('option');
-                option.value = model.id;
-                option.textContent = model.id;
-                select.append(option);
-                insertedOptions.add(option);
             }
         }
         if (!active()) {
@@ -198,17 +176,11 @@ export async function installGemini4HostCompatibility({
             if (element.max === applied) element.max = old;
         }
         for (const [event, handler] of listeners) source.removeListener?.(event, handler);
-        for (const option of insertedOptions) option.remove();
         for (const [record, fields] of filledMetadata) {
             for (const [key, { had, old, applied }] of fields) {
                 if (record[key] !== applied) continue;
                 if (had) record[key] = old;
                 else delete record[key];
-            }
-        }
-        if (Array.isArray(host.model_list)) {
-            for (let i = host.model_list.length - 1; i >= 0; i--) {
-                if (insertedRecords.has(host.model_list[i])) host.model_list.splice(i, 1);
             }
         }
     } };

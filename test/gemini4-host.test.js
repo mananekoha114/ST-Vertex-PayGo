@@ -73,6 +73,8 @@ test('generation start clears prior capture and media setting is respected', asy
 
 test('model metadata and UI limits permit the window without altering user preferences', async () => {
     const { host, context } = fixture();
+    const record = { id: 'gemini-4-argon' };
+    host.model_list.push(record);
     host.oai_settings.openai_max_context = 900000;
     host.oai_settings.openai_max_tokens = 1000;
     const elements = Object.fromEntries(['openai_max_context', 'openai_max_context_counter', 'openai_max_tokens'].map(id => [id, { max: '128000' }]));
@@ -86,7 +88,58 @@ test('model metadata and UI limits permit the window without altering user prefe
     compat.refresh();
     assert.equal(elements.openai_max_tokens.max, '128000');
     compat.cleanup();
-    assert.deepEqual(host.model_list, []);
+    assert.deepEqual(host.model_list, [{ id: 'gemini-4-argon' }]);
+});
+
+test('installation and host refresh events never create Argon options or model records', async () => {
+    const { host, context, listeners } = fixture();
+    Object.assign(context.eventTypes, { CHATCOMPLETION_MODEL_CHANGED: 'model', CHATCOMPLETION_SOURCE_CHANGED: 'source', OAI_PRESET_CHANGED_AFTER: 'preset' });
+    const selects = Object.fromEntries(['model_google_select', 'model_vertexai_select'].map(id => [id, { options: [], append() { assert.fail('must not append model options'); } }]));
+    let beforeChange;
+    const doc = { getElementById: id => selects[id], createElement() { assert.fail('must not create model options'); },
+        addEventListener: (event, handler) => { beforeChange = handler; }, removeEventListener() {} };
+    const compat = await installGemini4HostCompatibility({ host, context, document: doc });
+    assert.deepEqual(host.model_list, [], 'installation does not seed the model list');
+    for (const select of Object.values(selects)) assert.deepEqual(select.options, []);
+    for (const source of ['openai', 'vertexai', 'makersuite']) {
+        host.oai_settings.chat_completion_source = source;
+        host.model_list = [{ id: 'unrelated-host-model' }];
+        compat.refresh();
+        for (const event of ['model', 'source', 'preset']) listeners.get(event)();
+        for (const id of [...Object.keys(selects), 'chat_completion_source']) beforeChange({ target: { id } });
+        assert.deepEqual(host.model_list, [{ id: 'unrelated-host-model' }]);
+        for (const select of Object.values(selects)) assert.deepEqual(select.options, []);
+    }
+    compat.cleanup();
+    assert.equal(listeners.size, 0);
+});
+
+test('existing Argon options and records remain owned by the host with reversible metadata enrichment', async () => {
+    const { host, context } = fixture();
+    const argon = { id: 'gemini-4-argon', inputTokenLimit: 500000 };
+    const cyber = { id: 'gemini-4-argon-cyber-permissive', inputTokenLimit: null, outputTokenLimit: 100000 };
+    host.model_list = [argon, cyber];
+    const options = [argon, cyber].map(record => ({ value: record.id, remove() { assert.fail('must not remove existing options'); } }));
+    const select = { options, append() { assert.fail('must not duplicate existing options'); } };
+    const compat = await installGemini4HostCompatibility({ host, context, document: { getElementById: () => select } });
+    assert.equal(argon.inputTokenLimit, 500000);
+    assert.equal(argon.outputTokenLimit, 1048576);
+    assert.equal(cyber.inputTokenLimit, 1048576);
+    assert.equal(cyber.outputTokenLimit, 100000);
+    host.oai_settings.chat_completion_source = 'openai';
+    compat.refresh();
+    assert.deepEqual(host.model_list, [argon, cyber]);
+    host.oai_settings.chat_completion_source = 'vertexai';
+    compat.refresh();
+    // A later host update must survive cleanup of our missing-field defaults.
+    argon.outputTokenLimit = 200000;
+    compat.cleanup();
+    assert.deepEqual(host.model_list, [
+        { id: 'gemini-4-argon', inputTokenLimit: 500000, outputTokenLimit: 200000 },
+        { id: 'gemini-4-argon-cyber-permissive', inputTokenLimit: null, outputTokenLimit: 100000 },
+    ]);
+    assert.equal(select.options, options);
+    assert.equal(select.options.length, 2);
 });
 
 // Execute the checked-out host's functions rather than a hand-written copy of

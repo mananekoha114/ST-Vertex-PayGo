@@ -138,7 +138,12 @@ test('one settings controller moves between sources, preserves profiles, and app
     const select = dom.document.getElementById('vertex-paygo-tier');
     const paygo = dom.document.getElementById('vertex-paygo-only');
     assert.equal(root.parentElement, dom.studio);
-    assert.equal(paygo.parentElement.parentElement, general);
+    const serverRow = dom.elements.find(element => element.className === 'vertex-paygo-server-row');
+    const retry = dom.elements.find(element => element.className === 'menu_button vertex-paygo-retry');
+    assert.equal(paygo.parentElement.parentElement, root);
+    assert.equal(serverRow.parentElement, root);
+    assert.equal(retry.parentElement, serverRow);
+    assert.equal(dom.document.getElementById('vertex-paygo-update-row').parentElement, general);
     assert.equal(paygo.parentElement.hidden, true);
     assert.equal(select.querySelector('option[value="priority"]').hidden, true);
     assert.equal(select.querySelector('option[value="flex"]').disabled, false);
@@ -153,6 +158,8 @@ test('one settings controller moves between sources, preserves profiles, and app
     context.extensionSettings.connectionManager.selectedProfile = 'vertex';
     handlers.get('CHATCOMPLETION_SOURCE_CHANGED')();
     assert.equal(root.parentElement, dom.vertex);
+    assert.equal(paygo.parentElement.parentElement, root);
+    assert.equal(serverRow.parentElement, root);
     assert.equal(general.parentElement, settingsContent);
     assert.equal(ui.getState().tier, 'standard');
     assert.equal(paygo.parentElement.hidden, false);
@@ -162,6 +169,7 @@ test('one settings controller moves between sources, preserves profiles, and app
     context.extensionSettings.connectionManager.selectedProfile = 'studio';
     handlers.get('CHATCOMPLETION_SOURCE_CHANGED')();
     assert.equal(root.parentElement, dom.studio);
+    assert.equal(serverRow.parentElement, root);
     assert.equal(ui.getState().tier, 'flex');
     assert.equal(dom.elements.filter(element => element.id === root.id).length, 1);
     assert.equal(select.listeners.get('change').length, 1);

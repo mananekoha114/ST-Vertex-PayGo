@@ -151,7 +151,7 @@ Debug 只开放桥接数据接口的本机跨域访问，不开放 ST 管理接�
 
 **AI Studio 反向代理（SillyTavern / Luker）**：直接使用宿主 API 设置中的“反向代理”地址与代理密码，无需在扩展中重复填写。支持 HTTP / HTTPS 和带路径前缀的基址（如 `https://proxy.example/gemini`）；宿主会追加 `/v1beta/models/...` 等原生 Gemini 路径，不要额外填写该后缀。代理密码用于上游认证，代理启用时不读取 Google 官方密钥。Standard / Flex、流式与非流式均经过插件的用量采集；Flex 要求上游支持 `service_tier: "flex"`。需前后端一起更新至 **0.6.0**，重启宿主并刷新页面。此项用于主聊天及后台原生 Gemini 请求；独立的 OpenAI 兼容桥接仍使用官方端点，Vertex 自定义反代仍不支持。
 
-- **SillyTavern / Luker 用户**：服务层级切换仍在当前 API 连接设置的 **“Vertex AI PayGo”** 或 **“Google AI Studio Flex”** 卡片中。其余设置统一收在 **扩展程序 → ST-Vertex-PayGo** 折叠菜单内，包括 PayGo-only、服务端状态与日志、更新管理、数据恢复、消息费用显示和价格设置；切换 API 来源后仍可访问该菜单。
+- **SillyTavern / Luker 用户**：服务层级切换、PayGo-only、服务端状态和重试按钮位于当前 API 连接设置的 **“Vertex AI PayGo”** 或 **“Google AI Studio Flex”** 卡片中。日志、更新管理、数据恢复、OpenAI 兼容桥接、消息费用显示和价格设置统一收在 **扩展程序 → ST-Vertex-PayGo** 折叠菜单内；切换 API 来源后仍可访问该菜单。
 - **TauriTavern 用户**：点击顶部导航栏进入 **扩展设置 → Vertex AI PayGo · TauriTavern**，点击标题即可展开配置面板。
   *(注：TauriTavern 支持分别为“当前连接”或具体的“Agent 模型目标 (Model Target)”指定不同的层级)*。
 
@@ -166,11 +166,11 @@ Debug 只开放桥接数据接口的本机跨域访问，不开放 ST 管理接�
 | **AI Studio** | **Standard** | 官方默认的标准层级。 |
 | **AI Studio** | **Flex** | 弹性推理层级。**仅限付费账号及特定支持的模型**（无需配置区域）。 |
 
-> 📌 **检查状态**：SillyTavern / Luker 用户请确认扩展设置中的“服务端插件状态”显示为 **就绪（Ready）**；TauriTavern 用户走系统原生接口，无需此状态。
+> 📌 **检查状态**：SillyTavern / Luker 用户请确认 API 面板中的“服务端插件状态”显示为 **就绪（Ready）**；TauriTavern 用户走系统原生接口，无需此状态。
 
 ### 3. 如何彻底切回默认 / 卸载扩展？
 
-- 如果想恢复原本模式，请在 API 面板中选择 **Standard**，并在 **扩展程序 → ST-Vertex-PayGo** 中**关闭 PayGo-only**。TauriTavern 在原有扩展面板中操作。
+- 如果想恢复原本模式，请在 API 面板中选择 **Standard** 并**关闭 PayGo-only**。TauriTavern 在原有扩展面板中操作。
 - **特别注意（TauriTavern）**：由于 TauriTavern 会把参数写入软件原生的附加参数中，因此在卸载或禁用扩展前，**请务必手动先改回 Standard**，否则旧的层级参数仍会保留在应用配置里。
 
 ---

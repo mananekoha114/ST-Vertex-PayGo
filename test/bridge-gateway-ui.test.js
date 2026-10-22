@@ -2,6 +2,7 @@
  * This Source Code Form is subject to the Mozilla Public License, v. 2.0. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mountExtensionSettings } from '../src/extension-settings.js';
 import { createOpenAiBridgeUi } from '../src/openai-bridge-ui.js';
 import { validateBridgeState } from '../src/openai-bridge-model.js';
 import { createLocalizer } from '../src/i18n.js';
@@ -119,4 +120,32 @@ test('state validates policy types and exposes follow errors as plain text', asy
     assert.equal(f.get('policy-status').children.length, 0);
     assert.equal(f.get('tier').disabled, true);
     f.ui.destroy();
+});
+
+test('bridge shares the extension settings drawer and stays mounted across API changes', async () => {
+    const f = fixture({ state: active });
+    await tick();
+    const drawer = f.documentRef.getElementById('vertex-paygo-extension-settings');
+    const content = f.documentRef.getElementById('vertex-paygo-extension-settings-content');
+    const bridge = f.documentRef.getElementById('vertex-paygo-openai-bridge');
+    assert.equal(drawer.tagName, 'DETAILS');
+    assert.equal(drawer.children[0].textContent, 'ST-Vertex-PayGo');
+    assert.equal(drawer.parentElement.id, 'extensions_settings2');
+    assert.equal(bridge.parentElement, content);
+    const general = f.documentRef.createElement('section');
+    general.id = 'vertex-paygo-general-settings';
+    const unmountGeneral = mountExtensionSettings(general, { documentRef: f.documentRef });
+    assert.equal(general.parentElement, content);
+    assert.equal(f.documentRef.getElementById('extensions_settings2').children.length, 1);
+    for (const source of ['makersuite', 'openai', 'vertexai']) {
+        f.context.chatCompletionSettings.chat_completion_source = source;
+        f.ui.render();
+        assert.equal(bridge.parentElement, content);
+        assert.equal(general.parentElement, content);
+    }
+    f.ui.destroy();
+    assert.equal(f.documentRef.getElementById('vertex-paygo-openai-bridge'), null);
+    assert.equal(f.documentRef.getElementById('vertex-paygo-extension-settings'), drawer);
+    unmountGeneral();
+    assert.equal(f.documentRef.getElementById('vertex-paygo-extension-settings'), null);
 });

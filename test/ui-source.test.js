@@ -76,6 +76,7 @@ function createHostDom() {
         parent?.append(element);
         return element;
     }
+    const extensions = add('div', 'extensions_settings2');
     const vertex = add('form', 'vertexai_form');
     const regionContainer = add('div', 'region_container', vertex);
     const region = add('input', 'vertexai_region', regionContainer);
@@ -83,7 +84,7 @@ function createHostDom() {
     add('select', 'model_vertexai_select', vertex).value = 'gemini-3.8-flash';
     const studio = add('form', 'makersuite_form');
     add('select', 'model_google_select', studio).value = 'gemini-2.5-pro';
-    return { document, Element, Input, Select, elements, vertex, studio, region };
+    return { document, Element, Input, Select, elements, vertex, studio, region, extensions };
 }
 
 test('one settings controller moves between sources, preserves profiles, and applies AI Studio Flex without a region dialog', async t => {
@@ -125,9 +126,19 @@ test('one settings controller moves between sources, preserves profiles, and app
     assert.deepEqual(placementCalls, ['hidden']);
     assert.equal(ui.getState().tier, 'standard');
     const root = dom.document.getElementById('vertex-paygo-settings');
+    const general = dom.document.getElementById('vertex-paygo-general-settings');
+    const drawer = dom.document.getElementById('vertex-paygo-extension-settings');
+    const settingsContent = dom.document.getElementById('vertex-paygo-extension-settings-content');
+    assert.equal(drawer.tag, 'details');
+    assert.equal(drawer.children[0].textContent, 'ST-Vertex-PayGo');
+    assert.equal(drawer.parentElement, dom.extensions);
+    assert.equal(general.parentElement, settingsContent);
+    assert.equal(settingsContent.children.includes(root), false);
+    assert.equal(placementSelect.parentElement.parentElement, general);
     const select = dom.document.getElementById('vertex-paygo-tier');
     const paygo = dom.document.getElementById('vertex-paygo-only');
     assert.equal(root.parentElement, dom.studio);
+    assert.equal(paygo.parentElement.parentElement, general);
     assert.equal(paygo.parentElement.hidden, true);
     assert.equal(select.querySelector('option[value="priority"]').hidden, true);
     assert.equal(select.querySelector('option[value="flex"]').disabled, false);
@@ -142,6 +153,7 @@ test('one settings controller moves between sources, preserves profiles, and app
     context.extensionSettings.connectionManager.selectedProfile = 'vertex';
     handlers.get('CHATCOMPLETION_SOURCE_CHANGED')();
     assert.equal(root.parentElement, dom.vertex);
+    assert.equal(general.parentElement, settingsContent);
     assert.equal(ui.getState().tier, 'standard');
     assert.equal(paygo.parentElement.hidden, false);
     assert.equal(select.querySelector('option[value="priority"]').hidden, false);
@@ -155,7 +167,14 @@ test('one settings controller moves between sources, preserves profiles, and app
     assert.equal(select.listeners.get('change').length, 1);
     assert.equal(vertex[EXTENSION_ID].tier, 'standard');
     assert.equal(placementSelect.value, 'hidden');
+    assert.equal(general.parentElement, settingsContent);
+    context.chatCompletionSettings.chat_completion_source = 'openai';
+    handlers.get('CHATCOMPLETION_SOURCE_CHANGED')();
+    assert.equal(general.parentElement, settingsContent, 'global settings remain available for other sources');
+    assert.equal(dom.elements.filter(element => element.id === drawer.id).length, 1);
     ui.destroy();
+    assert.equal(general.parentElement, null);
+    assert.equal(drawer.parentElement, null);
     placementSelect.value = 'footer';
     await placementSelect.fire('change');
     assert.deepEqual(placementCalls, ['hidden']);

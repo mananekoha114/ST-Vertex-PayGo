@@ -4,8 +4,10 @@
  * License, v. 2.0.
  */
 
-import { calculateCacheHitRate, normalizePrice, priceKey, summarizeUsage } from './cost-model.js';
+import { calculateCacheHitRate, summarizeUsage } from './cost-model.js';
 import { createLocalizer } from './i18n.js';
+import { createPriceSettingsUi } from './price-settings-ui.js';
+import { mountExtensionSettings } from './extension-settings.js';
 
 const POLL_MS = 5_000;
 
@@ -71,10 +73,6 @@ function choiceLabel(name, value) {
     return value;
 }
 
-function parsePriceForm(inputs) {
-    const raw = Object.fromEntries(Object.entries(inputs).map(([name, input]) => [name, input.value]));
-    return normalizePrice(raw);
-}
 
 export function createCostUi({
     context,
@@ -87,6 +85,7 @@ export function createCostUi({
     resetPrice,
     refreshCatalog,
     coverageNotice = '',
+    settingsHost,
     documentRef = globalThis.document,
     localize = createLocalizer((fallback, key) => context?.translate?.(fallback, key)),
 }) {
@@ -107,6 +106,18 @@ export function createCostUi({
     let activeChatId = null;
     let popup = null;
     let renderToken = 0;
+    let activeView = null;
+    const priceSettings = createPriceSettingsUi({ documentRef, getCurrentPricingKey, getPrices, getPriceInfo,
+        setPrice, resetPrice, refreshCatalog, onChange: async () => {
+            if (!destroyed && activeView) await activeView.load();
+        } });
+    let unmountSettings;
+    if (settingsHost) {
+        settingsHost.append(priceSettings.root);
+        unmountSettings = () => {};
+    } else {
+        unmountSettings = mountExtensionSettings(priceSettings.root, { documentRef });
+    }
 
     function stopPolling() {
         if (pollTimer !== null) clearTimeout(pollTimer);
@@ -116,8 +127,6 @@ export function createCostUi({
     function buildContent(chatId) {
         const root = element(documentRef, 'section', 'vertex-paygo-cost');
         root.append(element(documentRef, 'h3', '', '当前对话费用估算'));
-        const feedback = element(documentRef, 'p', 'vertex-paygo-cost-feedback');
-        feedback.setAttribute('aria-live', 'polite');
         const summary = element(documentRef, 'div', 'vertex-paygo-cost-summary', '正在读取用量…');
         const refresh = element(documentRef, 'button', 'menu_button vertex-paygo-cost-refresh', '刷新');
         refresh.setAttribute('type', 'button');
@@ -125,200 +134,13 @@ export function createCostUi({
         root.append(summary, refresh, tableWrap);
         if (coverageNotice) root.append(element(documentRef, 'p', 'vertex-paygo-cost-coverage-notice', coverageNotice));
 
-        const pricing = element(documentRef, 'details', 'vertex-paygo-cost-pricing');
-        pricing.append(element(documentRef, 'summary', '', '价格设置（美元 / 百万 token）'));
-        pricing.append(element(documentRef, 'p', 'vertex-paygo-cost-pricing-note',
-            '自动价格为公开付费文本单价；Vertex 按 Global 基础价。地区差价、免费额度和账户折扣请手动调整。'));
-        const form = element(documentRef, 'form', 'vertex-paygo-cost-price-form');
-        const priceMeta = element(documentRef, 'p', 'vertex-paygo-cost-price-meta');
-        const keyFields = { source: '来源', model: '模型', tier: '服务层级' };
-        const priceFields = {
-            input: '输入', cachedInput: '缓存输入', output: '输出',
-            longContextThreshold: '长上下文阈值（token）', longInput: '长上下文输入',
-            longCachedInput: '长上下文缓存输入', longOutput: '长上下文输出',
-        };
-        const inputs = {};
-        const keyLists = {};
-        const currentKey = getCurrentPricingKey?.() ?? {};
-        for (const [name, caption] of Object.entries(keyFields)) {
-            const field = element(documentRef, 'label', 'vertex-paygo-cost-field');
-            field.append(element(documentRef, 'span', '', caption));
-            const input = element(documentRef, name === 'model' ? 'input' : 'select', 'text_pole');
-            input.setAttribute('name', name);
-            let list = input;
-            if (name === 'model') {
-                input.setAttribute('type', 'text');
-                list = element(documentRef, 'datalist');
-                list.id = 'vertex-paygo-cost-model-list';
-                input.setAttribute('list', list.id);
-                root.append(list);
-            } else {
-                const defaults = name === 'source' ? ['vertexai', 'makersuite'] : ['standard', 'flex', 'priority'];
-                if (currentKey[name] && !defaults.includes(currentKey[name])) defaults.push(currentKey[name]);
-                for (const value of defaults) {
-                    const option = element(documentRef, 'option', '', choiceLabel(name, value));
-                    option.value = value;
-                    input.append(option);
-                }
-            }
-            input.value = String(currentKey[name] ?? '');
-            field.append(input);
-            form.append(field);
-            inputs[name] = input;
-            keyLists[name] = list;
-        }
-        const initialPrices = getPrices?.() ?? {};
-        const initial = normalizePrice(initialPrices[priceKey(currentKey)]) ?? {};
-        const priceInputs = {};
-        for (const [name, caption] of Object.entries(priceFields)) {
-            const field = element(documentRef, 'label', 'vertex-paygo-cost-field');
-            field.append(element(documentRef, 'span', '', caption));
-            const input = element(documentRef, 'input', 'text_pole');
-            input.setAttribute('name', name);
-            input.setAttribute('type', 'number');
-            input.setAttribute('min', '0');
-            input.setAttribute('step', 'any');
-            input.value = initial[name] ?? '';
-            field.append(input);
-            form.append(field);
-            priceInputs[name] = input;
-        }
-        function selectedKeyObject() {
-            return {
-                source: inputs.source.value.trim(), model: inputs.model.value.trim(), tier: inputs.tier.value.trim(),
-            };
-        }
-        function updateKeyLists(records = []) {
-            const priceKeys = Object.keys(getPrices?.() ?? {}).flatMap(key => {
-                try {
-                    const parsed = JSON.parse(key);
-                    return Array.isArray(parsed) && parsed.length === 3
-                        ? [{ source: parsed[0], model: parsed[1], tier: parsed[2] }]
-                        : [];
-                } catch { return []; }
-            });
-            for (const name of Object.keys(keyLists)) {
-                const values = new Set([
-                    currentKey[name],
-                    ...priceKeys.map(key => key[name]),
-                    ...records.map(record => record?.[name]),
-                ].filter(Boolean));
-                if (name !== 'model') {
-                    for (const value of values) {
-                        if ([...keyLists[name].children].some(option => option.value === value)) continue;
-                        const option = element(documentRef, 'option', '', choiceLabel(name, value));
-                        option.value = String(value);
-                        keyLists[name].append(option);
-                    }
-                    continue;
-                }
-                keyLists[name].replaceChildren(...[...values].map(value => {
-                    const option = element(documentRef, 'option');
-                    option.value = String(value);
-                    return option;
-                }));
-            }
-        }
-        function renderPriceMeta() {
-            const info = getPriceInfo?.(selectedKeyObject()) ?? { source: 'missing' };
-            const labels = { manual: '手动价格', catalog: '自动价格', missing: '暂无价格' };
-            const parts = [labels[info.source] ?? '暂无价格'];
-            if (info.updatedAt) parts.push(`核验 ${info.updatedAt}`);
-            if (info.validUntil) parts.push(`有效至 ${info.validUntil}`);
-            priceMeta.replaceChildren(element(documentRef, 'span', '', parts.join(' · ')));
-            if (typeof info.sourceUrl === 'string' && info.sourceUrl.startsWith('https://')) {
-                const link = element(documentRef, 'a', '', '官方来源');
-                link.href = info.sourceUrl;
-                link.target = '_blank';
-                link.rel = 'noopener noreferrer';
-                priceMeta.append(element(documentRef, 'span', '', ' · '), link);
-            }
-        }
-        function loadSelectedPrice() {
-            const selected = normalizePrice((getPrices?.() ?? {})[priceKey(selectedKeyObject())]) ?? {};
-            for (const [name, input] of Object.entries(priceInputs)) input.value = selected[name] ?? '';
-            renderPriceMeta();
-        }
-        for (const input of Object.values(inputs)) input.addEventListener('change', loadSelectedPrice);
-        updateKeyLists();
-        const actions = element(documentRef, 'div', 'vertex-paygo-cost-price-actions');
-        const save = element(documentRef, 'button', 'menu_button', '保存手动价格');
-        save.setAttribute('type', 'submit');
-        const reset = element(documentRef, 'button', 'menu_button', '恢复自动价格');
-        reset.setAttribute('type', 'button');
-        reset.disabled = typeof resetPrice !== 'function';
-        const catalogRefresh = element(documentRef, 'button', 'menu_button', '更新支持列表和价格');
-        catalogRefresh.setAttribute('type', 'button');
-        catalogRefresh.disabled = typeof refreshCatalog !== 'function';
-        actions.append(save, reset, catalogRefresh);
-        form.append(actions);
-        pricing.append(form, priceMeta, feedback);
-        root.append(pricing);
-        renderPriceMeta();
-
-        form.addEventListener('submit', async event => {
-            event.preventDefault?.();
-            const key = selectedKeyObject();
-            const price = parsePriceForm(priceInputs);
-            if (!key.source || !key.model || !key.tier || !price) {
-                feedback.textContent = '请填写来源、模型、层级及非负的输入/缓存/输出价格；长上下文价格须成组填写。';
-                feedback.dataset.state = 'error';
-                return;
-            }
-            try {
-                if (typeof setPrice !== 'function') throw new Error('价格保存接口不可用');
-                await setPrice(key, price);
-                feedback.textContent = '价格已保存。';
-                feedback.dataset.state = 'success';
-                loadSelectedPrice();
-                await load();
-            } catch (error) {
-                feedback.textContent = `保存失败：${error instanceof Error ? error.message : String(error)}`;
-                feedback.dataset.state = 'error';
-            }
-        });
-
-        reset.addEventListener('click', async () => {
-            reset.disabled = true;
-            try {
-                await resetPrice(selectedKeyObject());
-                loadSelectedPrice();
-                feedback.textContent = '已恢复自动价格。';
-                feedback.dataset.state = 'success';
-                await load();
-            } catch (error) {
-                feedback.textContent = `恢复失败：${error instanceof Error ? error.message : String(error)}`;
-                feedback.dataset.state = 'error';
-            } finally { reset.disabled = false; }
-        });
-
-        catalogRefresh.addEventListener('click', async () => {
-            catalogRefresh.disabled = true;
-            try {
-                const result = await refreshCatalog();
-                if (!result?.applied) {
-                    feedback.textContent = `更新失败，已保留现有价格${result?.error ? `：${result.error}` : '。'}`;
-                    feedback.dataset.state = 'error';
-                    return;
-                }
-                updateKeyLists();
-                loadSelectedPrice();
-                feedback.textContent = result.changed ? '支持列表和价格已更新。' : '支持列表和价格已是最新。';
-                feedback.dataset.state = 'success';
-                await load();
-            } catch (error) {
-                feedback.textContent = `更新失败，已保留现有价格：${error instanceof Error ? error.message : String(error)}`;
-                feedback.dataset.state = 'error';
-            } finally { catalogRefresh.disabled = false; }
-        });
-
         async function load() {
             const token = ++renderToken;
             stopPolling();
             refresh.disabled = true;
             try {
                 if (!chatId) {
-                    summary.textContent = '尚无已采集请求；可先为当前模型配置价格。';
+                    summary.textContent = '尚无已采集请求；价格可在扩展设置的 ST-Vertex-PayGo 中配置。';
                     tableWrap.replaceChildren();
                     return;
                 }
@@ -337,7 +159,7 @@ export function createCostUi({
                 if (!response?.ok) throw new Error(response?.error || '读取失败');
                 const records = (Array.isArray(response.records) ? response.records : [])
                     .filter(record => record?.chatId === chatId);
-                updateKeyLists(records);
+                priceSettings.updateKeyLists(records);
                 const result = summarizeUsage(records, getPrices?.() ?? {});
                 const latest = result.details.at(-1)?.estimate;
                 const subtotal = result.estimatedCount ? money(result.amount) : '—';
@@ -392,8 +214,8 @@ export function createCostUi({
             }
         }
         refresh.addEventListener('click', () => {
-            updateKeyLists();
-            renderPriceMeta();
+            priceSettings.updateKeyLists();
+            priceSettings.renderPriceMeta();
             void load();
         });
         return { root, load };
@@ -405,12 +227,13 @@ export function createCostUi({
         const chatId = getChatId?.();
         activeChatId = typeof chatId === 'string' && chatId ? chatId : null;
         const view = buildContent(activeChatId);
+        activeView = view;
         popup = new context.Popup(view.root, context.POPUP_TYPE.TEXT, '', {
             okButton: '关闭', wide: true, large: true, leftAlign: true,
             allowHorizontalScrolling: true, allowVerticalScrolling: true,
         });
         void view.load();
-        try { return await popup.show(); } finally { stopPolling(); activeChatId = null; popup = null; ++renderToken; }
+        try { return await popup.show(); } finally { stopPolling(); activeChatId = null; popup = null; activeView = null; ++renderToken; }
     }
 
     function onActivate(event) {
@@ -430,10 +253,14 @@ export function createCostUi({
     return {
         open,
         destroy() {
+            if (destroyed) return;
             destroyed = true;
             stopPolling();
             ++renderToken;
             menuItem.remove();
+            activeView = null;
+            priceSettings.destroy();
+            unmountSettings();
             context.eventSource?.removeListener?.(context.eventTypes?.CHAT_CHANGED, onChatChanged);
             popup?.complete?.(context.POPUP_RESULT?.CANCELLED);
         },

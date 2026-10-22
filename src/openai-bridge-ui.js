@@ -2,6 +2,7 @@
  * This Source Code Form is subject to the Mozilla Public License, v. 2.0. */
 
 import { currentBridgeConnection, validateBridgeState } from './openai-bridge-model.js';
+import { mountExtensionSettings } from './extension-settings.js';
 
 export function createOpenAiBridgeUi({ context, serverClient, localize, documentRef = globalThis.document,
     clipboard = globalThis.navigator?.clipboard } = {}) {
@@ -105,7 +106,7 @@ export function createOpenAiBridgeUi({ context, serverClient, localize, document
     logs.body.append(make('small', 'vertex_paygo.bridge.logs.guidance', { class: 'vertex-paygo-guidance' }), logsActions, logsStatus, logsEntries);
     content.append(logs.details, help.details);
     root.append(header, drawerContent);
-    host.append(root);
+    const unmountSettings = mountExtensionSettings(root, { documentRef });
     let state = null;
     let healthy = false;
     let debugSupported = false;
@@ -332,5 +333,5 @@ export function createOpenAiBridgeUi({ context, serverClient, localize, document
     render();
     void read();
     return { refresh: read, render, destroy() { disposed = true; for (const dispose of disposers) dispose();
-        apiKey.value = ''; state = null; entries = []; logsEntries.replaceChildren(); root.remove(); } };
+        apiKey.value = ''; state = null; entries = []; logsEntries.replaceChildren(); unmountSettings(); } };
 }

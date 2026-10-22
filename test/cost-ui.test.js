@@ -16,12 +16,14 @@ function fakeDocument() {
         append(...children) { this.children.push(...children); for (const child of children) child.parentElement = this; }
         replaceChildren(...children) { this.children = []; this.append(...children); }
         addEventListener(name, handler) { this.listeners.set(name, handler); }
+        removeEventListener(name, handler) { if (this.listeners.get(name) === handler) this.listeners.delete(name); }
         remove() { this.parentElement?.children.splice(this.parentElement.children.indexOf(this), 1); }
         async fire(name, extra = {}) { return await this.listeners.get(name)?.({ type: name, preventDefault() {}, ...extra }); }
     }
-    const document = { createElement: tag => new Node(tag), getElementById: id => ids.get(id) ?? null };
-    const menu = new Node('div'); ids.set('extensionsMenu', menu);
-    return { document, menu };
+    const document = { createElement: tag => new Node(tag), getElementById: id => [...ids.values()].map(root => find(root, node => node.id === id)).find(Boolean) ?? null };
+    const menu = new Node('div'); menu.id = 'extensionsMenu'; ids.set(menu.id, menu);
+    const extensions = new Node('div'); extensions.id = 'extensions_settings2'; ids.set(extensions.id, extensions);
+    return { document, menu, extensions };
 }
 
 function text(node) {
@@ -78,9 +80,10 @@ test('attaches a menu entry and a new chat can edit prices without reading usage
     assert.ok(text(menu).includes('对话费用估算'));
     await ui.open();
     assert.equal(reads, 0);
-    assert.ok(text(shown).includes('价格设置（美元 / 百万 token）'));
-    assert.ok(text(shown).some(value => value.includes('Vertex 按 Global 基础价')));
-    assert.ok(text(shown).includes('尚无已采集请求；可先为当前模型配置价格。'));
+    assert.ok(text(document.getElementById('vertex-paygo-extension-settings-content')).includes('价格设置（美元 / 百万 token）'));
+    assert.ok(text(document.getElementById('vertex-paygo-extension-settings-content')).some(value => value.includes('Vertex 按 Global 基础价')));
+    assert.ok(text(shown).includes('尚无已采集请求；价格可在扩展设置的 ST-Vertex-PayGo 中配置。'));
+    assert.equal(find(shown, node => node.tag === 'form'), null);
     ui.destroy();
     assert.equal(menu.children.length, 0);
 });
@@ -220,7 +223,7 @@ test('pending requests poll serially every five seconds until completion', async
     ui.destroy();
 });
 
-test('saving and resetting affect only the selected key and update its source label', async () => {
+test('extension settings save and reset only the selected price without opening usage', async () => {
     const { document } = fakeDocument();
     let shown;
     let closePopup;
@@ -252,26 +255,26 @@ test('saving and resetting affect only the selected key and update its source la
         },
         serverClient: { readUsage: async () => ({ ok: true, records: [] }) },
     });
-    const opened = ui.open();
-    await new Promise(setImmediate);
-    assert.ok(text(shown).some(value => value.includes('自动价格 · 核验 2026-09-20')));
-    const input = find(shown, node => node.name === 'input');
+    const settings = document.getElementById('vertex-paygo-extension-settings-content');
+    assert.equal(shown, undefined);
+    assert.ok(text(settings).some(value => value.includes('自动价格 · 核验 2026-09-20')));
+    const input = find(settings, node => node.name === 'input');
     input.value = '3';
-    const form = find(shown, node => node.tag === 'form');
+    const form = find(settings, node => node.tag === 'form');
     await form.fire('submit');
     assert.equal(setCalls.length, 1);
     assert.equal(setCalls[0].price.input, 3);
     assert.deepEqual(prices[otherKey], { input: 9, cachedInput: 9, output: 9 });
-    assert.ok(text(shown).includes('手动价格 · 核验 2026-09-20'));
+    assert.ok(text(settings).includes('手动价格 · 核验 2026-09-20'));
 
-    const reset = find(shown, node => node.textContent === '恢复自动价格');
+    const reset = find(settings, node => node.textContent === '恢复自动价格');
     await reset.fire('click');
     assert.equal(prices[selectedKey].input, 1);
     assert.equal(input.value, 1);
-    assert.ok(text(shown).includes('自动价格 · 核验 2026-09-20'));
-    closePopup(0);
-    await opened;
+    assert.ok(text(settings).includes('自动价格 · 核验 2026-09-20'));
+    assert.equal(shown, undefined);
     ui.destroy();
+    assert.equal(document.getElementById('vertex-paygo-extension-settings'), null);
 });
 
 test('catalog refresh preserves an edited field on failure and reloads prices and totals on success', async () => {
@@ -303,8 +306,9 @@ test('catalog refresh preserves an edited field on failure and reloads prices an
     });
     const opened = ui.open();
     await new Promise(setImmediate);
-    const input = find(shown, node => node.name === 'input');
-    const refresh = find(shown, node => node.textContent === '更新支持列表和价格');
+    const settings = document.getElementById('vertex-paygo-extension-settings-content');
+    const input = find(settings, node => node.name === 'input');
+    const refresh = find(settings, node => node.textContent === '更新支持列表和价格');
     input.value = '77';
     prices = { ...prices, [JSON.stringify(['vertexai', 'new-model', 'standard'])]: { input: 2, cachedInput: 0, output: 2 } };
     updatedAt = '2026-09-22';
@@ -312,12 +316,12 @@ test('catalog refresh preserves an edited field on failure and reloads prices an
     await ledgerRefresh.fire('click');
     await new Promise(setImmediate);
     assert.equal(input.value, '77');
-    assert.ok(text(shown).includes('自动价格 · 核验 2026-09-22'));
-    const modelList = find(shown, node => node.tag === 'datalist');
+    assert.ok(text(settings).includes('自动价格 · 核验 2026-09-22'));
+    const modelList = find(settings, node => node.tag === 'datalist');
     assert.ok(modelList.children.some(option => option.value === 'new-model'));
     await refresh.fire('click');
     assert.equal(input.value, '77');
-    assert.ok(text(shown).some(value => value.includes('更新失败，已保留现有价格：网络不可用')));
+    assert.ok(text(settings).some(value => value.includes('更新失败，已保留现有价格：网络不可用')));
     assert.equal(reads, 2);
 
     prices = { [key]: { input: 4, cachedInput: 0, output: 1 } };
@@ -329,4 +333,29 @@ test('catalog refresh preserves an edited field on failure and reloads prices an
     closePopup(0);
     await opened;
     ui.destroy();
+});
+
+test('opening pricing follows the current connection and removes its settings on destroy', async () => {
+    const { document, extensions } = fakeDocument();
+    let current = { source: 'vertexai', model: 'first', tier: 'standard' };
+    let reads = 0;
+    const ui = createCostUi({ context: {}, documentRef: document, getChatId: () => null,
+        getCurrentPricingKey: () => current,
+        serverClient: { readUsage: async () => { reads++; return { records: [] }; } } });
+    const drawer = document.getElementById('vertex-paygo-extension-settings');
+    const content = document.getElementById('vertex-paygo-extension-settings-content');
+    const pricing = find(content, node => node.tag === 'details');
+    assert.equal(drawer.parentElement, extensions);
+    assert.equal(drawer.children[0].textContent, 'ST-Vertex-PayGo');
+    current = { source: 'makersuite', model: 'new-model', tier: 'flex' };
+    pricing.open = true;
+    await pricing.fire('toggle');
+    for (const [name, value] of Object.entries(current)) {
+        assert.equal(find(pricing, node => node.name === name).value, value);
+    }
+    assert.equal(reads, 0);
+    ui.destroy();
+    assert.equal(document.getElementById('vertex-paygo-extension-settings'), null);
+    assert.equal(pricing.listeners.has('toggle'), false);
+    assert.doesNotThrow(() => ui.destroy());
 });

@@ -18,6 +18,7 @@ import {
 import { getModelPolicy, getTierSupport } from './model-policy.js';
 import { downloadLogText, showLogViewer } from './log-actions.js';
 import { createDataBackupControl } from './data-backup-ui.js';
+import { mountExtensionSettings } from './extension-settings.js';
 import {
     attachStateToProfile,
     getActiveProfile,
@@ -153,9 +154,12 @@ function buildControls(localize) {
     const updateStatus = createElement('small', { id: 'vertex-paygo-update-status', class: 'vertex-paygo-update-status', 'aria-live': 'polite' });
     updateRow.append(checkUpdateButton, applyUpdateButton, updateNotice, updateStatus);
 
-    root.append(tierRow, paygoLabel, guidance, policyStatus, serverRow, logActions, updateRow);
+    root.append(tierRow, guidance, policyStatus);
+    const settingsRoot = createElement('section', { id: 'vertex-paygo-general-settings', class: 'vertex-paygo-settings' });
+    settingsRoot.append(paygoLabel, serverRow, logActions, updateRow);
     return {
         root,
+        settingsRoot,
         title,
         guidance,
         paygoLabel,
@@ -197,10 +201,11 @@ export function createPayGoUi({
 
     const controls = buildControls(localize);
     const dataBackupControl = createDataBackupControl({ context, serverClient, localize, notifyError });
-    controls.root.append(dataBackupControl.root);
+    controls.settingsRoot.append(dataBackupControl.root);
     const placementControl = createMessageCostPlacementControl({ localize, getMessageCostPlacement, setMessageCostPlacement,
         getMessageCostRecentCount, setMessageCostRecentCount });
-    controls.root.append(placementControl.root);
+    controls.settingsRoot.append(placementControl.root);
+    const unmountSettings = mountExtensionSettings(controls.settingsRoot);
     const regionContainer = regionInput.closest('.flex-container.flexFlowColumn') ?? regionInput.parentElement;
     regionContainer.after(controls.root);
 
@@ -443,6 +448,7 @@ export function createPayGoUi({
 
         controls.root.dataset.active = String(isGoogleSource(getSource()));
         controls.root.dataset.serverStatus = healthState.status;
+        controls.settingsRoot.dataset.serverStatus = healthState.status;
         controls.serverStatus.textContent = healthState.message;
         controls.serverStatus.title = healthState.detail || '';
         controls.retryButton.disabled = healthState.status === 'checking';
@@ -1163,6 +1169,7 @@ export function createPayGoUi({
             finishUpdatePoll = null;
             placementControl.destroy();
             dataBackupControl.destroy();
+            unmountSettings();
             controls.root.remove();
         },
         getState: () => ({ ...state }),

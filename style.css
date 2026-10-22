@@ -106,7 +106,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-#vertex-paygo-settings.vertex-paygo-settings {
+:is(#vertex-paygo-settings, #vertex-paygo-general-settings).vertex-paygo-settings {
     display: flex;
     flex-direction: column;
     gap: 0.45rem;
@@ -117,77 +117,77 @@
     background: color-mix(in srgb, var(--SmartThemeBlurTintColor) 75%, transparent);
 }
 
-#vertex-paygo-settings .vertex-paygo-row {
+:is(#vertex-paygo-settings, #vertex-paygo-general-settings) .vertex-paygo-row {
     align-items: center;
     justify-content: space-between;
     gap: 0.75rem;
 }
 
-#vertex-paygo-settings .vertex-paygo-row select {
+:is(#vertex-paygo-settings, #vertex-paygo-general-settings) .vertex-paygo-row select {
     min-width: 9rem;
 }
 
-#vertex-paygo-settings .vertex-paygo-settings-content {
+:is(#vertex-paygo-settings, #vertex-paygo-general-settings) .vertex-paygo-settings-content {
     display: flex;
     flex-direction: column;
     gap: 0.45rem;
     margin-top: 0.75rem;
 }
 
-#vertex-paygo-settings > select,
-#vertex-paygo-settings .vertex-paygo-settings-content > select {
+:is(#vertex-paygo-settings, #vertex-paygo-general-settings) > select,
+:is(#vertex-paygo-settings, #vertex-paygo-general-settings) .vertex-paygo-settings-content > select {
     width: 100%;
     min-width: 0;
     max-width: 100%;
 }
 
-#vertex-paygo-settings > small,
-#vertex-paygo-settings .vertex-paygo-settings-content > small {
+:is(#vertex-paygo-settings, #vertex-paygo-general-settings) > small,
+:is(#vertex-paygo-settings, #vertex-paygo-general-settings) .vertex-paygo-settings-content > small {
     overflow-wrap: anywhere;
 }
 
-#vertex-paygo-settings .vertex-paygo-only {
+:is(#vertex-paygo-settings, #vertex-paygo-general-settings) .vertex-paygo-only {
     justify-content: flex-start;
     gap: 0.35rem;
     margin: 0;
 }
 
-#vertex-paygo-settings .vertex-paygo-guidance,
-#vertex-paygo-settings .vertex-paygo-status,
-#vertex-paygo-settings .vertex-paygo-server-status {
+:is(#vertex-paygo-settings, #vertex-paygo-general-settings) .vertex-paygo-guidance,
+:is(#vertex-paygo-settings, #vertex-paygo-general-settings) .vertex-paygo-status,
+:is(#vertex-paygo-settings, #vertex-paygo-general-settings) .vertex-paygo-server-status {
     display: block;
     line-height: 1.35;
 }
 
-#vertex-paygo-settings .vertex-paygo-status--warning {
+:is(#vertex-paygo-settings, #vertex-paygo-general-settings) .vertex-paygo-status--warning {
     color: var(--warning-color, #e7b55e);
 }
 
-#vertex-paygo-settings .vertex-paygo-status--error,
-#vertex-paygo-settings[data-server-status="unavailable"] .vertex-paygo-server-status {
+:is(#vertex-paygo-settings, #vertex-paygo-general-settings) .vertex-paygo-status--error,
+:is(#vertex-paygo-settings, #vertex-paygo-general-settings)[data-server-status="unavailable"] .vertex-paygo-server-status {
     color: var(--error-color, #ef7777);
 }
 
-#vertex-paygo-settings[data-server-status="ready"] .vertex-paygo-server-status {
+:is(#vertex-paygo-settings, #vertex-paygo-general-settings)[data-server-status="ready"] .vertex-paygo-server-status {
     color: var(--success-color, #72d49b);
 }
 
-#vertex-paygo-settings .vertex-paygo-server-row {
+:is(#vertex-paygo-settings, #vertex-paygo-general-settings) .vertex-paygo-server-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 0.5rem;
 }
 
-#vertex-paygo-settings .vertex-paygo-server-status {
+:is(#vertex-paygo-settings, #vertex-paygo-general-settings) .vertex-paygo-server-status {
     min-width: 0;
     overflow-wrap: anywhere;
 }
 
-#vertex-paygo-settings .vertex-paygo-retry,
-#vertex-paygo-settings .vertex-paygo-log-button,
-#vertex-paygo-settings .vertex-paygo-update-check,
-#vertex-paygo-settings .vertex-paygo-update-apply {
+:is(#vertex-paygo-settings, #vertex-paygo-general-settings) .vertex-paygo-retry,
+:is(#vertex-paygo-settings, #vertex-paygo-general-settings) .vertex-paygo-log-button,
+:is(#vertex-paygo-settings, #vertex-paygo-general-settings) .vertex-paygo-update-check,
+:is(#vertex-paygo-settings, #vertex-paygo-general-settings) .vertex-paygo-update-apply {
     /* Override SillyTavern's min-content width so CJK labels stay on one line. */
     width: max-content;
     flex-shrink: 0;
@@ -195,8 +195,8 @@
     padding: 0.25rem 0.6rem;
 }
 
-#vertex-paygo-settings .vertex-paygo-log-actions,
-#vertex-paygo-settings .vertex-paygo-update-row {
+:is(#vertex-paygo-settings, #vertex-paygo-general-settings) .vertex-paygo-log-actions,
+:is(#vertex-paygo-settings, #vertex-paygo-general-settings) .vertex-paygo-update-row {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -204,8 +204,8 @@
     gap: 0.5rem;
 }
 
-#vertex-paygo-settings .vertex-paygo-update-notice,
-#vertex-paygo-settings .vertex-paygo-update-status {
+:is(#vertex-paygo-settings, #vertex-paygo-general-settings) .vertex-paygo-update-notice,
+:is(#vertex-paygo-settings, #vertex-paygo-general-settings) .vertex-paygo-update-status {
     flex-basis: 100%;
     min-width: 0;
     line-height: 1.35;
@@ -213,11 +213,11 @@
     overflow-wrap: anywhere;
 }
 
-#vertex-paygo-settings .vertex-paygo-update-status:empty,
-#vertex-paygo-settings .vertex-paygo-log-actions[hidden],
-#vertex-paygo-settings .vertex-paygo-update-row[hidden],
-#vertex-paygo-settings .vertex-paygo-update-row [hidden],
-#vertex-paygo-settings .vertex-paygo-only[hidden] {
+:is(#vertex-paygo-settings, #vertex-paygo-general-settings) .vertex-paygo-update-status:empty,
+:is(#vertex-paygo-settings, #vertex-paygo-general-settings) .vertex-paygo-log-actions[hidden],
+:is(#vertex-paygo-settings, #vertex-paygo-general-settings) .vertex-paygo-update-row[hidden],
+:is(#vertex-paygo-settings, #vertex-paygo-general-settings) .vertex-paygo-update-row [hidden],
+:is(#vertex-paygo-settings, #vertex-paygo-general-settings) .vertex-paygo-only[hidden] {
     display: none;
 }
 
@@ -336,3 +336,56 @@
 .vertex-paygo-data-recovery { min-width: 0; overflow-wrap: anywhere; }
 .vertex-paygo-data-recovery select { width: 100%; min-width: 0; max-width: 100%; }
 .vertex-paygo-data-recovery [hidden] { display: none; }
+
+/* One extension-page entry for all PayGo settings. */
+#vertex-paygo-extension-settings {
+    min-width: 0;
+    margin: 0.5rem 0;
+    border: 1px solid var(--SmartThemeBorderColor, #888);
+    border-radius: 8px;
+    color: var(--SmartThemeBodyColor, #eee);
+    background: var(--SmartThemeBlurTintColor, #222);
+}
+#vertex-paygo-extension-settings > summary {
+    display: list-item;
+    padding: 0.65rem;
+    cursor: pointer;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+#vertex-paygo-extension-settings > summary:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: -2px;
+    border-radius: 8px;
+}
+#vertex-paygo-extension-settings-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+    padding: 0 0.65rem 0.65rem;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    text-shadow: none;
+}
+#vertex-paygo-general-settings.vertex-paygo-settings {
+    border: 0;
+    padding: 0;
+    margin: 0;
+    background: transparent;
+}
+#vertex-paygo-extension-settings-content .menu_button,
+.vertex-paygo-cost-price-actions .menu_button {
+    width: max-content;
+    max-width: 100%;
+    min-width: 0;
+    margin: 0;
+    padding: 0.4rem 0.6rem;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+#vertex-paygo-extension-settings-content .vertex-paygo-cost-pricing > summary {
+    display: list-item;
+    cursor: pointer;
+    font-weight: 600;
+    padding: 0.5rem 0;
+}

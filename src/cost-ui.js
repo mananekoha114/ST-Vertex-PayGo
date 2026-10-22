@@ -85,7 +85,6 @@ export function createCostUi({
     resetPrice,
     refreshCatalog,
     coverageNotice = '',
-    settingsHost,
     documentRef = globalThis.document,
     localize = createLocalizer((fallback, key) => context?.translate?.(fallback, key)),
 }) {
@@ -111,13 +110,8 @@ export function createCostUi({
         setPrice, resetPrice, refreshCatalog, onChange: async () => {
             if (!destroyed && activeView) await activeView.load();
         } });
-    let unmountSettings;
-    if (settingsHost) {
-        settingsHost.append(priceSettings.root);
-        unmountSettings = () => {};
-    } else {
-        unmountSettings = mountExtensionSettings(priceSettings.root, { documentRef });
-    }
+    const unmountSettings = mountExtensionSettings(priceSettings.root, { documentRef, tab: 'pricing',
+        label: localize('vertex_paygo.settings.tab.pricing'), onShow: priceSettings.syncCurrentKey });
 
     function stopPolling() {
         if (pollTimer !== null) clearTimeout(pollTimer);
@@ -140,7 +134,7 @@ export function createCostUi({
             refresh.disabled = true;
             try {
                 if (!chatId) {
-                    summary.textContent = '尚无已采集请求；价格可在扩展设置的 ST-Vertex-PayGo 中配置。';
+                    summary.textContent = '尚无已采集请求；价格可在扩展设置的 ST-Vertex-PayGo「价格」页配置。';
                     tableWrap.replaceChildren();
                     return;
                 }

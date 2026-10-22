@@ -128,24 +128,30 @@ test('bridge shares the extension settings drawer and stays mounted across API c
     const drawer = f.documentRef.getElementById('vertex-paygo-extension-settings');
     const content = f.documentRef.getElementById('vertex-paygo-extension-settings-content');
     const bridge = f.documentRef.getElementById('vertex-paygo-openai-bridge');
-    assert.equal(drawer.tagName, 'DETAILS');
-    assert.equal(drawer.children[0].textContent, 'ST-Vertex-PayGo');
+    const bridgePanel = f.documentRef.getElementById('vertex-paygo-settings-panel-bridge');
+    assert.equal(drawer.tagName, 'DIV');
+    assert.equal(drawer.children[0].children[0].textContent, 'ST-Vertex-PayGo');
     assert.equal(drawer.parentElement.id, 'extensions_settings2');
-    assert.equal(bridge.parentElement, content);
+    assert.equal(bridgePanel.parentElement, content);
+    assert.equal(bridge.parentElement, bridgePanel);
+    assert.equal(bridgePanel.hidden, false);
     const general = f.documentRef.createElement('section');
     general.id = 'vertex-paygo-general-settings';
     const unmountGeneral = mountExtensionSettings(general, { documentRef: f.documentRef });
-    assert.equal(general.parentElement, content);
+    const generalPanel = f.documentRef.getElementById('vertex-paygo-settings-panel-general');
+    assert.equal(general.parentElement, generalPanel);
     assert.equal(f.documentRef.getElementById('extensions_settings2').children.length, 1);
     for (const source of ['makersuite', 'openai', 'vertexai']) {
         f.context.chatCompletionSettings.chat_completion_source = source;
         f.ui.render();
-        assert.equal(bridge.parentElement, content);
-        assert.equal(general.parentElement, content);
+        assert.equal(bridge.parentElement, bridgePanel);
+        assert.equal(general.parentElement, generalPanel);
     }
     f.ui.destroy();
     assert.equal(f.documentRef.getElementById('vertex-paygo-openai-bridge'), null);
+    assert.equal(f.documentRef.getElementById('vertex-paygo-settings-panel-bridge'), null);
     assert.equal(f.documentRef.getElementById('vertex-paygo-extension-settings'), drawer);
+    assert.equal(generalPanel.hidden, false);
     unmountGeneral();
     assert.equal(f.documentRef.getElementById('vertex-paygo-extension-settings'), null);
 });

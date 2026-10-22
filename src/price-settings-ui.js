@@ -25,10 +25,11 @@ function parsePriceForm(inputs) {
 export function createPriceSettingsUi({ documentRef = globalThis.document,
     getCurrentPricingKey, getPrices = () => ({}), getPriceInfo = () => ({ source: 'missing' }),
     setPrice, resetPrice, refreshCatalog, onChange } = {}) {
-    const pricing = element(documentRef, 'details', 'vertex-paygo-cost-pricing');
+    const pricing = element(documentRef, 'section', 'vertex-paygo-cost-pricing');
+    pricing.id = 'vertex-paygo-pricing-settings';
     const feedback = element(documentRef, 'p', 'vertex-paygo-cost-feedback');
     feedback.setAttribute('aria-live', 'polite');
-    pricing.append(element(documentRef, 'summary', '', '价格设置（美元 / 百万 token）'));
+    pricing.append(element(documentRef, 'h4', 'vertex-paygo-group-title', '价格设置（美元 / 百万 token）'));
     pricing.append(element(documentRef, 'p', 'vertex-paygo-cost-pricing-note',
         '自动价格为公开付费文本单价；Vertex 按 Global 基础价。地区差价、免费额度和账户折扣请手动调整。'));
     const form = element(documentRef, 'form', 'vertex-paygo-cost-price-form');
@@ -213,9 +214,9 @@ export function createPriceSettingsUi({ documentRef = globalThis.document,
         } finally { catalogRefresh.disabled = false; }
     });
 
-    // Reopen with the current connection, even after switching sources or models.
+    // Showing the pricing tab follows the current connection, even after
+    // switching sources or models.
     const syncCurrentKey = () => {
-        if (!pricing.open) return;
         const key = getCurrentPricingKey?.() ?? {};
         for (const name of Object.keys(inputs)) {
             currentKey[name] = key[name];
@@ -224,9 +225,7 @@ export function createPriceSettingsUi({ documentRef = globalThis.document,
         for (const [name, input] of Object.entries(inputs)) input.value = String(key[name] ?? '');
         loadSelectedPrice();
     };
-    pricing.addEventListener('toggle', syncCurrentKey);
-    return { root: pricing, updateKeyLists, renderPriceMeta, destroy() {
-        pricing.removeEventListener('toggle', syncCurrentKey);
+    return { root: pricing, updateKeyLists, renderPriceMeta, syncCurrentKey, destroy() {
         pricing.remove();
     } };
 }

@@ -282,5 +282,10 @@
   "vertex_paygo.update.popup.accept": "Update now",
   "vertex_paygo.update.popup.decline": "Cancel",
   "vertex_paygo.server_error.csrf": "SillyTavern rejected the CSRF token (HTTP 403). Refresh the page and try again.",
-  "vertex_paygo.server_error.http_non_json": "Server Plugin request failed (HTTP {status}); the server or reverse proxy returned no JSON error details."
+  "vertex_paygo.server_error.http_non_json": "Server Plugin request failed (HTTP {status}); the server or reverse proxy returned no JSON error details.",
+  "vertex_paygo.settings.tab.general": "General",
+  "vertex_paygo.settings.tab.bridge": "Bridge",
+  "vertex_paygo.settings.tab.pricing": "Pricing",
+  "vertex_paygo.settings.group.display": "Message cost display",
+  "vertex_paygo.settings.group.maintenance": "Logs & maintenance"
 }

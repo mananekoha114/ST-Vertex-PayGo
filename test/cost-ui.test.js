@@ -82,7 +82,7 @@ test('attaches a menu entry and a new chat can edit prices without reading usage
     assert.equal(reads, 0);
     assert.ok(text(document.getElementById('vertex-paygo-extension-settings-content')).includes('价格设置（美元 / 百万 token）'));
     assert.ok(text(document.getElementById('vertex-paygo-extension-settings-content')).some(value => value.includes('Vertex 按 Global 基础价')));
-    assert.ok(text(shown).includes('尚无已采集请求；价格可在扩展设置的 ST-Vertex-PayGo 中配置。'));
+    assert.ok(text(shown).includes('尚无已采集请求；价格可在扩展设置的 ST-Vertex-PayGo「价格」页配置。'));
     assert.equal(find(shown, node => node.tag === 'form'), null);
     ui.destroy();
     assert.equal(menu.children.length, 0);
@@ -343,19 +343,20 @@ test('opening pricing follows the current connection and removes its settings on
         getCurrentPricingKey: () => current,
         serverClient: { readUsage: async () => { reads++; return { records: [] }; } } });
     const drawer = document.getElementById('vertex-paygo-extension-settings');
-    const content = document.getElementById('vertex-paygo-extension-settings-content');
-    const pricing = find(content, node => node.tag === 'details');
+    const header = document.getElementById('vertex-paygo-extension-settings-header');
+    const pricing = document.getElementById('vertex-paygo-pricing-settings');
     assert.equal(drawer.parentElement, extensions);
-    assert.equal(drawer.children[0].textContent, 'ST-Vertex-PayGo');
+    assert.equal(header.children[0].textContent, 'ST-Vertex-PayGo');
+    assert.equal(pricing.parentElement.id, 'vertex-paygo-settings-panel-pricing');
     current = { source: 'makersuite', model: 'new-model', tier: 'flex' };
-    pricing.open = true;
-    await pricing.fire('toggle');
+    await header.fire('click');
+    assert.equal(header['aria-expanded'], 'true');
     for (const [name, value] of Object.entries(current)) {
         assert.equal(find(pricing, node => node.name === name).value, value);
     }
     assert.equal(reads, 0);
     ui.destroy();
     assert.equal(document.getElementById('vertex-paygo-extension-settings'), null);
-    assert.equal(pricing.listeners.has('toggle'), false);
+    assert.equal(header.listeners.has('click'), false);
     assert.doesNotThrow(() => ui.destroy());
 });

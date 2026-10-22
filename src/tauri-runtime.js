@@ -117,7 +117,6 @@ export async function initTauriTavern({ target = globalThis, documentRef = targe
         });
         messageCostUi.render();
         costUi = (factories.costUi ?? createCostUi)({ context, serverClient: usage, documentRef,
-            settingsHost: documentRef.getElementById('vertex-paygo-drawer-content'),
             getChatId: costs.getChatId, getPrices: costs.getPrices, getPriceInfo: costs.getPriceInfo,
             setPrice: costs.setPrice, resetPrice: costs.resetPrice, refreshCatalog,
             getCurrentPricingKey: controller.getPricingKey,

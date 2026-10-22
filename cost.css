@@ -1,18 +1,26 @@
 .vertex-paygo-cost { display: grid; gap: .8rem; min-width: min(52rem, 90vw); }
-.vertex-paygo-cost-summary { padding: .7rem; border: 1px solid var(--SmartThemeBorderColor); border-radius: 6px; }
-.vertex-paygo-cost-table-wrap { overflow: auto; max-height: 45vh; }
+.vertex-paygo-cost-summary { padding: .7rem; border: 1px solid var(--SmartThemeBorderColor); border-radius: 6px; overflow-wrap: anywhere; }
+.vertex-paygo-cost-refresh { width: max-content; justify-self: start; }
+.vertex-paygo-cost-table-wrap { overflow: auto; max-height: 45vh; -webkit-overflow-scrolling: touch; }
 .vertex-paygo-cost-table { width: 100%; border-collapse: collapse; font-size: .92em; }
 .vertex-paygo-cost-table th, .vertex-paygo-cost-table td { padding: .45rem; border-bottom: 1px solid var(--SmartThemeBorderColor); text-align: left; white-space: nowrap; }
-.vertex-paygo-cost-price-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: .6rem; margin-top: .7rem; }
+.vertex-paygo-cost-table th { position: sticky; top: 0; background: var(--SmartThemeBlurTintColor, #222); }
+.vertex-paygo-cost-price-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr)); gap: .6rem; }
 .vertex-paygo-cost-field { display: grid; gap: .25rem; min-width: 0; }
-.vertex-paygo-cost-field .text_pole { width: 100%; min-width: 0; box-sizing: border-box; }
+.vertex-paygo-cost-field > span { font-size: .9em; opacity: .85; }
+.vertex-paygo-cost-field .text_pole { width: 100%; min-width: 0; box-sizing: border-box; margin: 0; }
 .vertex-paygo-cost-price-actions { display: flex; flex-wrap: wrap; gap: .5rem; grid-column: 1 / -1; }
-.vertex-paygo-cost-price-meta { margin: .2rem 0 0; opacity: .85; }
-.vertex-paygo-cost-pricing-note { margin: .7rem 0 0; opacity: .85; }
+.vertex-paygo-cost-price-meta,
+.vertex-paygo-cost-pricing-note { margin: 0; font-size: .9em; opacity: .85; }
+.vertex-paygo-cost-feedback { margin: 0; }
+.vertex-paygo-cost-feedback:empty { display: none; }
 .vertex-paygo-cost-feedback[data-state="error"] { color: var(--fullred); }
 .vertex-paygo-cost-feedback[data-state="success"] { color: var(--green); }
 .vertex-paygo-cost-menu { cursor: pointer; }
 @media (max-width: 700px) {
     .vertex-paygo-cost { min-width: 0; }
+    .vertex-paygo-cost-price-form { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 380px) {
     .vertex-paygo-cost-price-form { grid-template-columns: 1fr; }
 }

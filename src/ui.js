@@ -510,25 +510,48 @@ export function createPayGoUi({
         renderPolicyStatus(policy);
     }
 
+    // Components update independently, so each one is described on its own.
+    function componentLabel(component) {
+        return ['frontend', 'server'].includes(component?.name)
+            ? localize(`vertex_paygo.update.component.${component.name}`)
+            : String(component?.label ?? component?.name ?? '');
+    }
+
+    function describeTargets(components = []) {
+        return components.filter(component => component.status === 'update').map(component => (component.target?.tag
+            ? localize('vertex_paygo.update.target_tag', { component: componentLabel(component), tag: component.target.tag })
+            : localize('vertex_paygo.update.target_commit', {
+                component: componentLabel(component),
+                branch: component.channel?.branch ?? '',
+                commit: (component.target?.commit ?? '').slice(0, 7),
+            }))).join(localize('vertex_paygo.update.separator'));
+    }
+
+    function describeHeld(components = []) {
+        return components
+            .filter(component => !['update', 'updated', 'unchanged', 'keep-ahead'].includes(component.status))
+            .map(component => localize('vertex_paygo.update.held', {
+                component: componentLabel(component),
+                reason: component.reason ?? component.status ?? '',
+            }));
+    }
+
     function describeUpdateState() {
-        const blockedComponent = updateState.components?.find(component => !['update', 'unchanged', 'keep-ahead'].includes(component.status));
-        const changing = updateState.components?.find(component => component.status === 'update');
-        const target = changing?.target?.tag ?? (changing?.target?.commit ?? '').slice(0, 7);
+        const held = describeHeld(updateState.components);
+        const withHeld = text => [text, ...held].join('\n');
         switch (updateState.status) {
             case 'checking':
                 return localize('vertex_paygo.update.checking');
             case 'available':
-                return changing?.target?.tag
-                    ? localize('vertex_paygo.update.available', { target })
-                    : localize('vertex_paygo.update.available_commit', { branch: changing?.channel?.branch ?? '', commit: target });
+                return withHeld(localize('vertex_paygo.update.available', { components: describeTargets(updateState.components) }));
             case 'uptodate':
                 return localize('vertex_paygo.update.uptodate');
             case 'blocked':
-                return localize('vertex_paygo.update.blocked', { reason: blockedComponent?.reason ?? blockedComponent?.status ?? '' });
+                return localize('vertex_paygo.update.blocked', { reason: held.join(' ') });
             case 'running':
                 return localize('vertex_paygo.update.running', { phase: localize(`vertex_paygo.update.phase.${updateState.phase ?? 'checking'}`) });
             case 'done':
-                return localize('vertex_paygo.update.done');
+                return withHeld(localize('vertex_paygo.update.done'));
             case 'failed':
                 return localize('vertex_paygo.update.failed', { message: updateState.message ?? '' });
             default:
@@ -592,7 +615,7 @@ export function createPayGoUi({
             const result = status.lastResult;
             if (result?.status === 'updated') {
                 recordClientEvent('info', 'update.completed', { phase: 'ready' });
-                setUpdaterState({ status: 'done' });
+                setUpdaterState({ status: 'done', components: result.components });
             } else if (result?.status === 'no-change') {
                 setUpdaterState({ status: 'uptodate' });
             } else {
@@ -604,14 +627,13 @@ export function createPayGoUi({
 
     async function applyUpdate() {
         if (destroyed || updatePending || updateState.status !== 'available' || !healthState.updaterAvailable) return;
-        const changing = updateState.components?.find(component => component.status === 'update');
-        const target = changing?.target?.tag ?? (changing?.target?.commit ?? '').slice(0, 7);
+        const components = describeTargets(updateState.components);
         updatePending = true;
         render();
         try {
             const confirmed = await popup.show.confirm(
                 localize('vertex_paygo.update.popup.title'),
-                localize('vertex_paygo.update.popup.body', { target }),
+                localize('vertex_paygo.update.popup.body', { components }),
                 {
                     okButton: localize('vertex_paygo.update.popup.accept'),
                     cancelButton: localize('vertex_paygo.update.popup.decline'),

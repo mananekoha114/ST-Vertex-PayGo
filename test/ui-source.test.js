@@ -294,9 +294,11 @@ test('an available update is confirmed before anything is replaced', async t => 
             checkUpdate: async () => ({
                 ok: true,
                 status: 'update-available',
+                partial: true,
                 components: [
-                    { name: 'frontend', status: 'update', target: { tag: 'v0.5.1', commit: 'a'.repeat(40) }, channel: { branch: 'main', mode: 'tag' } },
-                    { name: 'server', status: 'update', target: { tag: 'v0.5.1', commit: 'b'.repeat(40) }, channel: { branch: 'main', mode: 'tag' } },
+                    { name: 'frontend', status: 'update', target: { tag: 'v0.5.2', commit: 'a'.repeat(40) }, channel: { branch: 'main', mode: 'tag' } },
+                    { name: 'server', status: 'blocked', code: 'UPDATER_PROTOCOL_MISMATCH', reason: 'fixture protocol reason',
+                        target: { tag: 'v0.6.0', commit: 'b'.repeat(40) }, channel: { branch: 'main', mode: 'tag' } },
                 ],
             }),
             startUpdate: async () => { starts += 1; return { ok: true, started: true }; },
@@ -316,14 +318,15 @@ test('an available update is confirmed before anything is replaced', async t => 
     await check.fire('click');
     await settle();
     await settle();
-    assert.equal(apply.hidden, false, 'a paired update becomes actionable');
-    assert.match(status.textContent, /v0\.5\.1/u);
+    assert.equal(apply.hidden, false, 'an update of one component is actionable on its own');
+    assert.equal(status.textContent, 'Update available: frontend extension → v0.5.2\nserver plugin is not updated: fixture protocol reason');
 
     await apply.fire('click');
     await settle();
     await settle();
-    assert.equal(confirmations.length, 1, 'replacing both components is confirmed first');
-    assert.match(confirmations[0].body, /v0\.5\.1/u);
+    assert.equal(confirmations.length, 1, 'replacing a component is confirmed first');
+    assert.match(confirmations[0].body, /frontend extension → v0\.5\.2/u);
+    assert.doesNotMatch(confirmations[0].body, /server plugin/u);
     assert.equal(confirmations[0].options.defaultResult, context.POPUP_RESULT.NEGATIVE);
     assert.equal(starts, 0, 'declining the confirmation starts nothing');
     assert.equal(apply.hidden, false, 'the offer survives a declined confirmation');

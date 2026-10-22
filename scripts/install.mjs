@@ -14,12 +14,13 @@ export const HELP = `PayGo suite installer (Node.js >= 20)
 Usage: node scripts/install.mjs --host <SillyTavern-or-Luker-directory> [options]
 
   --host PATH             Existing, stopped SillyTavern >=1.16 / Luker >=2.7
-  --update                Update an existing pair; preserve config and branches
-  --branch NAME           Both component refs (install: main; update: keep each)
+  --update                Update installed components; preserve config and branches
+  --component NAME        frontend, server or all (default: all)
+  --branch NAME           Component refs (install: main; update: keep each)
   --mode tag|commit       main defaults to tag; other branches default to commit
-  --tag NAME              Select a specific tag in both repos (default: latest)
-  --frontend-commit SHA   Exact frontend commit (requires --server-commit)
-  --server-commit SHA     Exact server commit (requires --frontend-commit)
+  --tag NAME              Select a specific tag (default: each repo's latest)
+  --frontend-commit SHA   Exact frontend commit
+  --server-commit SHA     Exact server commit
   --local-source PATH     Offline source directory containing ST-Vertex-PayGo
                           and ST-Vertex-PayGo-Server (copies current files)
   --config PATH           Host config file (relative to host; default config.yaml)
@@ -30,6 +31,8 @@ Usage: node scripts/install.mjs --host <SillyTavern-or-Luker-directory> [options
   --dry-run              Validate paths/config and show plan without writes/network
   --help, -h             Show help
 
+Each component follows its own release tags and updates independently; an
+update that would leave them on different protocol versions is held back.
 Installs frontend globally for all host users. Close the host before running.
 Existing plugins and config are backed up under <host>/.paygo-install-backups/.
 No Google credentials, host source, or other plugins are configured.
@@ -38,6 +41,9 @@ Only existing SillyTavern and Luker hosts are supported.
 
 const FRONTEND = 'ST-Vertex-PayGo';
 const SERVER = 'ST-Vertex-PayGo-Server';
+const COMPONENT_NAMES = Object.freeze({ frontend: FRONTEND, server: SERVER });
+// Kept in step with the server plugin's src/updater/compatibility.cjs.
+const PROTOCOL_FILES = Object.freeze({ [FRONTEND]: 'src/constants.js', [SERVER]: 'src/protocol.cjs' });
 const remote = name => `https://github.com/mananekoha114/${name}.git`;
 const exists = p => fs.existsSync(p);
 const readJson = p => JSON.parse(fs.readFileSync(p, 'utf8').replace(/^\uFEFF/, ''));
@@ -45,7 +51,7 @@ const fail = message => { throw new Error(message); };
 
 export function parseArgs(args) {
     const result = {};
-    const values = new Set(['host', 'branch', 'mode', 'tag', 'frontend-commit', 'server-commit', 'local-source', 'config', 'data-root', 'plugins-path', 'extensions-path']);
+    const values = new Set(['host', 'component', 'branch', 'mode', 'tag', 'frontend-commit', 'server-commit', 'local-source', 'config', 'data-root', 'plugins-path', 'extensions-path']);
     const flags = new Set(['replace-modified', 'dry-run', 'update']);
     for (let i = 0; i < args.length; i++) {
         const key = args[i].replace(/^--/, '');
@@ -68,8 +74,11 @@ function validateRef(ref) {
 export function validateOptions(options) {
     for (const ref of [options.branch, options.tag]) if (ref !== undefined) validateRef(ref);
     if (options.mode && !['tag', 'commit'].includes(options.mode)) fail('--mode must be tag or commit.');
+    if (options.component !== undefined && !['frontend', 'server', 'all'].includes(options.component)) fail('--component must be frontend, server or all.');
     const commits = [options['frontend-commit'], options['server-commit']];
-    if (commits.some(Boolean) && (!commits.every(Boolean) || commits.some(id => !/^[0-9a-f]{7,40}$/i.test(id)))) fail('Provide both --frontend-commit and --server-commit as 7-40 hexadecimal commit IDs.');
+    if (commits.some(id => id !== undefined && !/^[0-9a-f]{7,40}$/i.test(id))) fail('Commit IDs must be 7-40 hexadecimal characters.');
+    if (options['frontend-commit'] && options.component === 'server') fail('--frontend-commit cannot be used with --component server.');
+    if (options['server-commit'] && options.component === 'frontend') fail('--server-commit cannot be used with --component frontend.');
     if (options.tag && (options.mode === 'commit' || commits.some(Boolean))) fail('--tag cannot be combined with commit mode or commit IDs.');
     if (commits.some(Boolean) && options.mode === 'tag') fail('Commit IDs require commit mode.');
     if (options['local-source'] && (options.mode || options.tag || commits.some(Boolean))) fail('Version selection flags cannot be used with --local-source.');
@@ -279,6 +288,33 @@ function prepareUpdate(component, options) {
     checkExisting(component, options['replace-modified']);
 }
 
+function readProtocol(directory, name) {
+    try {
+        const match = /\bPROTOCOL_VERSION\s*=\s*(\d+)\s*;/.exec(fs.readFileSync(path.join(directory, PROTOCOL_FILES[name]), 'utf8'));
+        return match ? Number(match[1]) : null;
+    } catch { return null; }
+}
+
+// Components update independently, but the extension refuses a server with
+// another protocol version. Apply the largest set of changes that keeps one
+// protocol; an unknown version never constrains, and an already mismatched
+// installation may still update because that is the only way out of it.
+export function holdBackIncompatible(entries) {
+    const changing = entries.filter(entry => entry.changing).map(entry => entry.name);
+    const resulting = applied => entries.map(entry => (applied.has(entry.name) ? entry.target : entry.installed));
+    const consistent = protocols => protocols.filter(p => p !== null).every((p, _, known) => p === known[0]);
+    const candidates = [new Set(changing), ...changing.map(name => new Set([name])), new Set()];
+    const applied = candidates.find(candidate => consistent(resulting(candidate))) ?? new Set(changing);
+    const final = new Map(entries.map((entry, index) => [entry.name, resulting(applied)[index]]));
+    const held = new Map();
+    for (const name of changing.filter(candidate => !applied.has(candidate))) {
+        const entry = entries.find(item => item.name === name);
+        const other = entries.find(item => item.name !== name && final.get(item.name) !== null);
+        if (other) held.set(name, `requires protocol v${entry.target}, but ${other.name} stays on v${final.get(other.name)}. Update ${other.name} as well, or wait for a compatible release.`);
+    }
+    return held;
+}
+
 function gitCommit(directory, ref) {
     try { return runGit(['rev-parse', '--verify', `${ref}^{commit}`], directory); }
     catch { return null; }
@@ -372,12 +408,32 @@ export function install(options, log = console.log) {
     if (pkg.name !== 'luker' && (options['plugins-path'] || options['extensions-path'])) fail('Custom plugin paths are supported only for Luker.');
     const pluginsDir = path.resolve(root, options['plugins-path'] || (pkg.name === 'luker' && config.serverPluginsPath) || 'plugins');
     const globalDir = path.resolve(root, options['extensions-path'] || (pkg.name === 'luker' && config.globalExtensionsPath) || 'public/scripts/extensions/third-party');
-    const names = [FRONTEND, SERVER];
-    const components = names.map(name => ({
+    const all = [FRONTEND, SERVER].map(name => ({
         name, target: path.join(name === SERVER ? pluginsDir : globalDir, name),
         branch: options.branch || (options.tag || !options.update ? 'main' : undefined),
     }));
-    if (options.update) locateExisting(globalDir, pluginsDir, dataRoot, components);
+    if (options.update) locateExisting(globalDir, pluginsDir, dataRoot, all);
+    const chosen = COMPONENT_NAMES[options.component];
+    let components = all.filter(c => !chosen || c.name === chosen);
+    // A default update covers whatever is installed; naming a component
+    // requires it to be installed.
+    if (options.update && !chosen) {
+        for (const c of components.filter(item => !exists(item.target))) log(`${c.name}: not installed; skipped.`);
+        if (components.every(c => !exists(c.target))) fail('Cannot update: PayGo is not installed. Run the installation command first.');
+        components = components.filter(c => exists(c.target));
+    }
+    // In update mode one component's problem is reported without stopping the
+    // other. A fresh installation stays all-or-nothing.
+    const attempt = (c, action) => {
+        if (!options.update) return action();
+        try { return action(); }
+        catch (error) {
+            c.blocked = error.message;
+            log(`${c.name}: not updated — ${error.message}`);
+            return undefined;
+        }
+    };
+    const active = () => components.filter(c => !c.blocked);
     const backupBase = path.join(root, '.paygo-install-backups');
     const lock = path.join(root, '.paygo-install.lock');
     safePath(root, backupBase);
@@ -387,19 +443,22 @@ export function install(options, log = console.log) {
         safePath(root, component.target);
         if (inside(component.target, configPath) || inside(component.target, backupBase) || components.some(c => c !== component && inside(component.target, c.target))) fail('Config, backup and plugin paths must not overlap.');
         if (inside(component.target, dataRoot) || inside(component.target, actualDataRoot)) fail('Host dataRoot must not be inside a plugin directory being replaced.');
-        if (options.update) prepareUpdate(component, options);
-        else checkExisting(component, options['replace-modified']);
-        if (options['local-source']) {
-            component.source = fs.realpathSync(path.resolve(options['local-source'], component.name));
-            if (inside(component.source, root) || inside(root, component.source)) fail('Local source and host must be separate directories.');
-            validatePayload(component.source, component.name);
-        }
+        attempt(component, () => {
+            if (options.update) prepareUpdate(component, options);
+            else checkExisting(component, options['replace-modified']);
+            if (options['local-source']) {
+                component.source = fs.realpathSync(path.resolve(options['local-source'], component.name));
+                if (inside(component.source, root) || inside(root, component.source)) fail('Local source and host must be separate directories.');
+                validatePayload(component.source, component.name);
+            }
+        });
     }
-    rejectDuplicates(globalDir, pluginsDir, dataRoot, components);
+    if (!active().length) fail(`Nothing was updated: ${components.map(c => `${c.name}: ${c.blocked}`).join(' ')}`);
+    rejectDuplicates(globalDir, pluginsDir, dataRoot, active());
     log(`Host: ${pkg.name} ${pkg.version} — ${root}${termux ? ' (Termux)' : ''}`);
     log(`Config: ${configPath}\nData: ${dataRoot}\nScope: ${options.update ? 'keep existing installation locations' : 'all users (global extensions)'}`);
-    for (const c of components) {
-        const mode = selectUpdateMode({ branch: c.branch, mode: options.mode, tag: options.tag, commit: options['frontend-commit'] });
+    for (const c of active()) {
+        const mode = selectUpdateMode({ branch: c.branch, mode: options.mode, tag: options.tag, commit: options[c.name === FRONTEND ? 'frontend-commit' : 'server-commit'] });
         log(`${c.name}: ${c.source || `${remote(c.name)} @ ${c.branch} (${mode}${options.tag ? `: ${options.tag}` : ''})`} -> ${c.target}`);
     }
     log(options.update ? 'Update mode: existing config and host data will be preserved.' : 'enableServerPlugins: true');
@@ -416,26 +475,43 @@ export function install(options, log = console.log) {
         work = fs.mkdtempSync(path.join(root, '.paygo-install-stage-'));
         fs.chmodSync(work, 0o700);
         pendingConfig = path.join(work, 'config.yaml.tmp');
-        for (const c of components) {
+        for (const c of active()) {
             c.staged = path.join(work, c.name);
-            if (c.source) copySource(c.source, c.staged);
-            else prepareRemote(c, options, log);
-            validatePayload(c.staged, c.name);
-            // Also reject symlinks in downloaded Git trees before activation.
-            const inspect = directory => {
-                for (const item of fs.readdirSync(directory, { withFileTypes: true })) {
-                    if (item.name === '.git') continue;
-                    if (item.isSymbolicLink()) fail(`Plugin contains symlink: ${path.join(directory, item.name)}`);
-                    if (item.isDirectory()) inspect(path.join(directory, item.name));
-                }
-            };
-            inspect(c.staged);
+            attempt(c, () => {
+                if (c.source) copySource(c.source, c.staged);
+                else prepareRemote(c, options, log);
+                validatePayload(c.staged, c.name);
+                // Also reject symlinks in downloaded Git trees before activation.
+                const inspect = directory => {
+                    for (const item of fs.readdirSync(directory, { withFileTypes: true })) {
+                        if (item.name === '.git') continue;
+                        if (item.isSymbolicLink()) fail(`Plugin contains symlink: ${path.join(directory, item.name)}`);
+                        if (item.isDirectory()) inspect(path.join(directory, item.name));
+                    }
+                };
+                inspect(c.staged);
+            });
         }
-        const tagged = components.filter(c => c.mode === 'tag');
-        if (tagged.length === 2 && tagged[0].tag !== tagged[1].tag) fail(`Frontend/server tags are not aligned (${tagged[0].tag} / ${tagged[1].tag}). Wait for matching tags or specify --tag NAME.`);
-        if (options.update && components.every(c => c.unchanged)) {
+        // Compare the protocol each component would end up with, including a
+        // component outside this run that stays as installed.
+        const replacing = c => components.includes(c) && !c.blocked && !c.unchanged;
+        const held = holdBackIncompatible(all.map(c => ({
+            name: c.name,
+            changing: replacing(c),
+            installed: exists(c.target) ? readProtocol(c.target, c.name) : null,
+            target: replacing(c) ? readProtocol(c.staged, c.name) : null,
+        })));
+        for (const [name, reason] of held) {
+            if (!options.update) fail(`${name} ${reason}`);
+            const c = components.find(item => item.name === name);
+            c.blocked = reason;
+            log(`${c.name}: not updated — ${reason}`);
+        }
+        const blocked = components.filter(c => c.blocked);
+        if (options.update && components.every(c => c.unchanged || c.blocked)) {
+            if (blocked.length) fail(`Nothing was updated: ${blocked.map(c => `${c.name}: ${c.blocked}`).join(' ')}`);
             log('Already up to date. No plugins or config changed; no backup needed.');
-            return;
+            return { blocked: [] };
         }
         // All downloads and validation finish before touching installed plugins.
         fs.mkdirSync(backupBase, { recursive: true, mode: 0o700 });
@@ -444,10 +520,10 @@ export function install(options, log = console.log) {
         if (hadConfig) fs.copyFileSync(configPath, path.join(backup, 'config.yaml'));
         fs.writeFileSync(path.join(backup, 'restore.json'), JSON.stringify({
             host: root, configPath, hadConfig,
-            components: components.map(c => ({ name: c.name, target: c.target, existed: exists(c.target), changed: !c.unchanged })),
+            components: components.map(c => ({ name: c.name, target: c.target, existed: exists(c.target), changed: replacing(c) })),
         }, null, 2), { mode: 0o600 });
         for (const c of components) {
-            if (c.unchanged) continue;
+            if (!replacing(c)) continue;
             fs.mkdirSync(path.dirname(c.target), { recursive: true });
             c.saved = path.join(backup, c.name);
             const state = { ...c, moved: false, activated: false };
@@ -461,7 +537,9 @@ export function install(options, log = console.log) {
             fs.renameSync(pendingConfig, configPath);
             configChanged = true;
         }
-        log(`${options.update ? 'Updated' : 'Installed'} successfully. Backup: ${backup}\nRestart the host and refresh the browser.${options.update ? '' : ' Configure Google credentials in the host UI.'}`);
+        log(`${options.update ? 'Updated' : 'Installed'} successfully: ${components.filter(replacing).map(c => c.name).join(', ')}. Backup: ${backup}\nRestart the host and refresh the browser.${options.update ? '' : ' Configure Google credentials in the host UI.'}`);
+        if (blocked.length) log(`WARNING: ${blocked.map(c => `${c.name} was not updated: ${c.blocked}`).join('\n')}`);
+        return { blocked: blocked.map(c => c.name) };
     } catch (error) {
         const recoveryErrors = [];
         if (configChanged) {
@@ -495,6 +573,6 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     try {
         const options = parseArgs(process.argv.slice(2));
         if (options.help) console.log(HELP);
-        else install(options);
+        else if (install(options)?.blocked?.length) process.exitCode = 1;
     } catch (error) { console.error(`ERROR: ${error.message}`); process.exitCode = 1; }
 }

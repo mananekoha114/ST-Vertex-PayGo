@@ -9,7 +9,7 @@ export function onlineOptions(args, env = process.env) {
     const options = parseArgs(args);
     if (!options.host && env.PAYGO_HOST) options.host = env.PAYGO_HOST;
     if (!args.includes('--branch') && env.PAYGO_BRANCH) options.branch = env.PAYGO_BRANCH;
-    for (const [flag, variable] of [['mode', 'PAYGO_MODE'], ['tag', 'PAYGO_TAG'], ['frontend-commit', 'PAYGO_FRONTEND_COMMIT'], ['server-commit', 'PAYGO_SERVER_COMMIT']]) {
+    for (const [flag, variable] of [['component', 'PAYGO_COMPONENT'], ['mode', 'PAYGO_MODE'], ['tag', 'PAYGO_TAG'], ['frontend-commit', 'PAYGO_FRONTEND_COMMIT'], ['server-commit', 'PAYGO_SERVER_COMMIT']]) {
         if (!args.includes(`--${flag}`) && env[variable]) options[flag] = env[variable];
     }
     validateOptions(options);
@@ -36,7 +36,7 @@ export function normalizeHostAnswer(answer, candidates = []) {
 export async function runOnline(args = process.argv.slice(2)) {
     const options = onlineOptions(args);
     if (options.help) {
-        console.log(`${HELP}\nOnline environment: PAYGO_HOST, PAYGO_BRANCH, PAYGO_MODE, PAYGO_TAG, PAYGO_FRONTEND_COMMIT, PAYGO_SERVER_COMMIT, PAYGO_DRY_RUN=1, PAYGO_REPLACE_MODIFIED=1`);
+        console.log(`${HELP}\nOnline environment: PAYGO_HOST, PAYGO_COMPONENT, PAYGO_BRANCH, PAYGO_MODE, PAYGO_TAG, PAYGO_FRONTEND_COMMIT, PAYGO_SERVER_COMMIT, PAYGO_DRY_RUN=1, PAYGO_REPLACE_MODIFIED=1`);
         return;
     }
     console.log(`PayGo online ${options.update ? 'updater' : 'installer'} — only PayGo + Server; existing host environment required.`);
@@ -58,7 +58,7 @@ export async function runOnline(args = process.argv.slice(2)) {
             } finally { prompt.close(); }
         }
     }
-    install(options);
+    if (install(options)?.blocked?.length) process.exitCode = 1;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

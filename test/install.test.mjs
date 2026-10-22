@@ -58,7 +58,12 @@ test('online options preserve explicit choices and validate environment input', 
     assert.equal(onlineOptions(['--update'], { PAYGO_MODE: 'commit' }).mode, 'commit');
     assert.equal(onlineOptions(['--update'], { PAYGO_TAG: 'v0.4.0' }).tag, 'v0.4.0');
     assert.throws(() => onlineOptions(['--update'], { PAYGO_MODE: 'commit', PAYGO_TAG: 'v0.4.0' }), /cannot be combined/);
-    assert.throws(() => parseArgs(['--frontend-commit', 'abc1234']), /both/);
+    assert.equal(parseArgs(['--frontend-commit', 'abc1234'])['frontend-commit'], 'abc1234');
+    assert.throws(() => parseArgs(['--frontend-commit', 'not-a-sha']), /hexadecimal/);
+    assert.throws(() => parseArgs(['--component', 'server', '--frontend-commit', 'abc1234']), /cannot be used/);
+    assert.throws(() => parseArgs(['--component', 'everything']), /frontend, server or all/);
+    assert.equal(onlineOptions(['--update'], { PAYGO_COMPONENT: 'server' }).component, 'server');
+    assert.throws(() => onlineOptions(['--update'], { PAYGO_COMPONENT: 'both' }), /frontend, server or all/);
     assert.deepEqual(onlineOptions([], { PAYGO_HOST: '/my host', PAYGO_BRANCH: 'feat/bridge', PAYGO_DRY_RUN: '1' }), {
         host: '/my host', branch: 'feat/bridge', 'dry-run': true,
     });
@@ -446,18 +451,90 @@ test('explicit commit pairs and same-SHA tracking changes are honored; conflicti
     });
 });
 
-test('missing or mismatched tags never fall back to unreleased main', t => {
+test('missing tags never fall back to unreleased main; different tag names install independently', t => {
     const f = bootstrapFixture(t);
     withGitMapping(f.env, () => {
         gitAt(path.join(f.source, front), ['tag', '-d', 'v0.4.0']);
         assert.throws(() => install({ host: f.host }, quiet), /No reachable tag/);
         assert.equal(fs.existsSync(f.frontend), false);
+        // Each component follows its own release tags; names need not match.
         gitAt(path.join(f.source, front), ['tag', 'v0.5.0']);
-        assert.throws(() => install({ host: f.host }, quiet), /not aligned/);
-        assert.equal(fs.existsSync(f.frontend), false);
-        install({ host: f.host, mode: 'commit' }, quiet);
-        assert.equal(gitAt(f.frontend, ['branch', '--show-current']), 'main');
+        install({ host: f.host }, quiet);
+        assert.equal(gitAt(f.frontend, ['describe', '--tags', '--exact-match', 'HEAD']), 'v0.5.0');
+        assert.equal(gitAt(f.backend, ['describe', '--tags', '--exact-match', 'HEAD']), 'v0.4.0');
     });
+});
+
+const protocolFile = { [front]: 'src/constants.js', [server]: 'src/protocol.cjs' };
+const setProtocol = (root, name, version) => put(path.join(root, name, protocolFile[name]),
+    name === front ? `export const PROTOCOL_VERSION = ${version};\n` : `const PROTOCOL_VERSION = ${version};\n`);
+
+test('a component can be installed and updated on its own', t => {
+    const f = fixture(t);
+    install({ ...f.options, component: 'server' }, quiet);
+    assert.equal(fs.existsSync(f.backend), true);
+    assert.equal(fs.existsSync(f.frontend), false);
+    // A default update covers what is installed and skips the rest.
+    put(path.join(f.source, server, 'index.cjs'), '// updated server');
+    const messages = [];
+    const result = install({ ...f.options, update: true, 'replace-modified': true }, message => messages.push(message));
+    assert.deepEqual(result.blocked, []);
+    assert.ok(messages.some(message => message.includes(`${front}: not installed; skipped.`)));
+    assert.equal(fs.readFileSync(path.join(f.backend, 'index.cjs'), 'utf8'), '// updated server');
+    assert.equal(fs.existsSync(f.frontend), false);
+    // Naming a component that is not installed still fails.
+    assert.throws(() => install({ ...f.options, update: true, component: 'frontend', 'replace-modified': true }, quiet), /not installed/);
+});
+
+test('one blocked component does not stop the other from updating', t => {
+    const f = bootstrapFixture(t);
+    withGitMapping(f.env, () => {
+        install({ host: f.host }, quiet);
+        put(path.join(f.frontend, 'index.js'), '// local edit');
+        for (const [name, entry] of [[front, 'index.js'], [server, 'index.cjs']]) {
+            put(path.join(f.source, name, entry), '// v0.4.1');
+            gitAt(path.join(f.source, name), ['add', entry]);
+            gitAt(path.join(f.source, name), ['commit', '-m', 'release']);
+            gitAt(path.join(f.source, name), ['tag', 'v0.4.1']);
+        }
+        const messages = [];
+        const result = install({ host: f.host, update: true }, message => messages.push(message));
+        assert.deepEqual(result.blocked, [front]);
+        assert.ok(messages.some(message => message.startsWith(`${front}: not updated`) && message.includes('Local changes')));
+        assert.equal(fs.readFileSync(path.join(f.frontend, 'index.js'), 'utf8'), '// local edit');
+        assert.equal(fs.readFileSync(path.join(f.backend, 'index.cjs'), 'utf8'), '// v0.4.1');
+        const backups = path.join(f.host, '.paygo-install-backups');
+        const backup = fs.readdirSync(backups).sort().at(-1);
+        const record = JSON.parse(fs.readFileSync(path.join(backups, backup, 'restore.json'), 'utf8'));
+        assert.deepEqual(record.components.map(c => [c.name, c.changed]), [[front, false], [server, true]]);
+        assert.equal(fs.existsSync(path.join(backups, backup, front)), false);
+    });
+});
+
+test('an update that would split the protocol versions is held back', t => {
+    const f = fixture(t);
+    setProtocol(f.source, front, 2);
+    setProtocol(f.source, server, 2);
+    install(f.options, quiet);
+    const update = { ...f.options, update: true, 'replace-modified': true };
+
+    // The new frontend needs protocol v3, but the server source is still v2.
+    setProtocol(f.source, front, 3);
+    put(path.join(f.source, server, 'index.cjs'), '// server on v2');
+    const result = install(update, quiet);
+    assert.deepEqual(result.blocked, [front]);
+    assert.equal(fs.readFileSync(path.join(f.frontend, 'src/constants.js'), 'utf8'), 'export const PROTOCOL_VERSION = 2;\n');
+    assert.equal(fs.readFileSync(path.join(f.backend, 'index.cjs'), 'utf8'), '// server on v2');
+
+    // Updating only the frontend cannot split the pair either.
+    assert.throws(() => install({ ...update, component: 'frontend' }, quiet), /requires protocol v3, but ST-Vertex-PayGo-Server stays on v2/);
+
+    // Both sources on v3 move together; a fresh install never mixes versions.
+    setProtocol(f.source, server, 3);
+    assert.deepEqual(install(update, quiet).blocked, []);
+    assert.equal(fs.readFileSync(path.join(f.frontend, 'src/constants.js'), 'utf8'), 'export const PROTOCOL_VERSION = 3;\n');
+    setProtocol(f.source, server, 2);
+    assert.throws(() => install({ ...f.options, 'replace-modified': true }, quiet), /requires protocol v3|requires protocol v2/);
 });
 
 test('legacy ZIP user-scope and version-suffixed directories update in place after backup consent', t => {

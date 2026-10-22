@@ -4,13 +4,14 @@
 
 **前提**：宿主环境已配置完成——Node.js ≥ 20、Git 可用、宿主依赖已安装。安装器复用宿主的 `yaml` 解析器，不运行 npm、不安装或升级系统依赖、不下载酒馆本体。Google 账号仍在宿主界面配置。
 
-**版本**：默认安装两个仓库 `main` 分支上最新可达的同名 tag（包含预发布）。前端与后端须为同一版本；安装或更新完成后重启宿主并刷新页面。各版本变化见 [更新日志](CHANGELOG.md)。
+**版本**：前端与后端**各自独立**选择版本，默认各自安装所在仓库 `main` 分支上最新可达的 tag（包含预发布），tag 名称不必相同。两个组件只需通信协议版本一致；会造成协议不一致的更新会被暂缓并说明原因。安装或更新完成后重启宿主并刷新页面。各版本变化见 [更新日志](CHANGELOG.md)。
 
 ## 目录
 
 - [快速开始](#快速开始)
 - [一条命令在线安装](#一条命令在线安装)
 - [一条命令更新](#一条命令更新)
+- [前后端独立更新](#前后端独立更新)
 - [面板内更新](#面板内更新)
 - [下载文件后运行](#下载文件后运行)
 - [选择版本：tag、分支、commit 与本地源码](#选择版本tag分支commit-与本地源码)
@@ -102,16 +103,37 @@ Termux / Linux / macOS / WSL：
 curl -fsSL https://raw.githubusercontent.com/mananekoha114/ST-Vertex-PayGo/main/update.sh | sh
 ```
 
-更新入口每次下载最新版更新器，仅更新已安装的 PayGo 前端和 Server。它会扫描并识别唯一的旧前端（全局或用户扩展目录）和 Server 变体目录，更新时保留原路径；发现多个副本会拒绝更新并列出冲突。目标必须位于宿主根目录内，且不能经过软链接 / junction。任一组件缺失都会停止并提示先安装，不会默默补装到另一个位置。
+更新入口每次下载最新版更新器，更新已安装的 PayGo 前端和 / 或 Server。它会扫描并识别唯一的旧前端（全局或用户扩展目录）和 Server 变体目录，更新时保留原路径；发现多个副本会拒绝更新并列出冲突。目标必须位于宿主根目录内，且不能经过软链接 / junction。只装了其中一个组件时，只更新已安装的那个并提示另一个已跳过，不会默默补装；两个都没装时停止并提示先安装。
 
 ### 更新规则
 
 - **保留跟踪分支**：普通更新命令不需要附加参数。旧 Git 安装按分支或标签推断，之后依据 `.git/paygo-updater.json` 中的记录识别。默认策略每次由跟踪分支决定：`main` 追踪最新可达 tag，开发分支按 commit 判断更新；开发版不会自动换回 `main`。显式指定分支会同时应用于两个组件。记录中的 mode、tag 和 commit 仅用于识别与展示，一次 `--mode commit` 不会永久改变 `main` 的默认策略。
 - **保留配置**：更新不会启用被关闭的插件，也不改写 `config.yaml` 或聊天、账号、插件设置等宿主数据；必须能找到当前使用的配置文件。
-- **备份与回滚**：先下载并验证两个组件，再备份和替换；捕获到的替换错误会回滚。更新时保留完整的所选远端分支历史，用于检查本地提交是否会丢失。
+- **备份与回滚**：先下载并验证要更新的组件，再备份和替换；捕获到的替换错误会回滚。更新时保留完整的所选远端分支历史，用于检查本地提交是否会丢失。
 - **保护本地修改**：未提交修改、非远端提交、分叉或远端历史重写默认阻止更新，不会执行强制 reset。确实要覆盖时须显式指定 `--replace-modified` / `PAYGO_REPLACE_MODIFIED=1`，原目录仍完整保存在备份中。
 - **已是最新**：版本和跟踪元数据均一致且工作区无修改时，显示 `Already up to date`，不替换插件、不创建备份。旧安装首次写入跟踪元数据时，即使版本相同也可能备份并替换。只有一个组件需要更新时，只备份和替换该组件。下载检查本身仍需要网络和临时空间。
 - **不自动降级**：已安装的 `main` 官方提交若领先最新 tag，默认保留当前版本并提示等待新 tag，或显式用 `--mode commit` 继续追踪提交。默认 tag 模式找不到可达 tag 时失败，不会自动切换为 commit 模式。
+
+### 前后端独立更新
+
+两个组件互不绑定：
+
+- **各自选版**：前端和后端分别跟随各自仓库的跟踪分支与 tag，tag 名称不必相同。
+- **互不阻塞**：一个组件因本地修改、下载失败或无法识别来源等原因不能更新时，只跳过它并说明原因，另一个组件照常更新。此时命令以退出码 `1` 结束，提示有组件未更新。
+- **协议守卫**：前端要求后端的通信协议版本与自己一致，否则会判定后端不可用。更新器会比较两个组件更新后的协议版本（前端 `src/constants.js`、后端 `src/protocol.cjs` 中的 `PROTOCOL_VERSION`），只采用能保持一致的那部分更新，暂缓会造成不一致的一侧。读不到协议版本时不做限制；已安装的两个组件本身就不一致时照常更新，因为更新是修复它的唯一途径。
+- **只处理一个组件**：用 `--component frontend` 或 `--component server`（在线入口用 `PAYGO_COMPONENT`）只安装或更新指定组件。指定的组件必须已安装才能更新。
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mananekoha114/ST-Vertex-PayGo/main/update.sh | sh -s -- --component server
+```
+
+```powershell
+$env:PAYGO_COMPONENT = 'server'
+irm https://raw.githubusercontent.com/mananekoha114/ST-Vertex-PayGo/main/update.ps1 | iex
+Remove-Item Env:PAYGO_COMPONENT
+```
+
+全新安装仍是整体操作：任一组件准备失败或协议不一致都会终止，不会只装上一半。
 
 ### 常用更新选项
 
@@ -185,9 +207,10 @@ curl -fsSL https://raw.githubusercontent.com/mananekoha114/ST-Vertex-PayGo/main/
 
 ## 面板内更新
 
-如果前端扩展由宿主的扩展管理器安装（粘贴 Git 地址），后端由「用户设置 → 管理员面板 → 服务端插件」安装，则不必打开终端：管理员可在 **扩展程序 → ST-Vertex-PayGo →「常规」→ 日志与维护** 中检查并执行配套更新。
+如果前端扩展由宿主的扩展管理器安装（粘贴 Git 地址），后端由「用户设置 → 管理员面板 → 服务端插件」安装，则不必打开终端：管理员可在 **扩展程序 → ST-Vertex-PayGo →「常规」→ 日志与维护** 中检查并执行组件更新。
 
-- 与命令行更新入口遵循同一套版本规则与保护：同一配套 tag、保留跟踪分支、保护本地修改、不自动降级、先下载校验再备份替换、失败回滚。
+- 与命令行更新入口遵循同一套版本规则与保护：各组件独立选版、保留跟踪分支、保护本地修改、不自动降级、先下载校验再备份替换、失败回滚，并同样执行 [协议守卫](#前后端独立更新)。
+- 面板会逐个列出每个组件的目标版本；不能更新的组件会显示原因，另一个组件仍可更新。
 - 不需要系统 Git、不需要 npm，也不需要先停止宿主；替换后需**重启宿主并刷新页面**才能加载新版本，面板会明确提示这一点。
 - 不会修改宿主的 `enableServerPluginsAutoUpdate` 设置；需要严格固定已装版本的用户请自行关闭该设置。
 - 后端版本过旧或当前会话不是管理员时，面板不显示该入口。
@@ -230,7 +253,7 @@ scripts/
 - <https://github.com/mananekoha114/ST-Vertex-PayGo>
 - <https://github.com/mananekoha114/ST-Vertex-PayGo-Server>
 
-安装器选择 `main` 提交图上最近可达的 tag；同一提交有多个 tag 时，按 Git 版本排序选择最高者，`-suffix` 按预发布处理。两个组件均为 tag 模式时，所选 tag 名称必须一致；自动选择的前后端 tag 不匹配会停止，并提示等待 tag 同步，或用 `--tag` 明确指定两仓库已有的同名 tag。
+安装器在每个仓库中各自选择 `main` 提交图上最近可达的 tag；同一提交有多个 tag 时，按 Git 版本排序选择最高者，`-suffix` 按预发布处理。前后端选中的 tag 名称不必相同。
 
 ### 指定 tag
 
@@ -238,7 +261,7 @@ scripts/
 sh ./install.sh --host "$HOME/SillyTavern" --tag vX.Y.Z
 ```
 
-旧写法 `--branch vX.Y.Z` 仍兼容，建议使用 `--tag` 表达固定发布版本。
+`--tag` 作用于本次处理的所有组件，每个仓库都必须有这个 tag；前后端需要不同 tag 时，分两次运行并配合 `--component`。旧写法 `--branch vX.Y.Z` 仍兼容，建议使用 `--tag` 表达固定发布版本。
 
 ### 开发分支
 
@@ -250,15 +273,15 @@ sh ./install.sh --host "$HOME/SillyTavern" --branch feat/your-feature
 
 ### 精确 commit
 
-`main` 的最新开发提交须显式选择 `--mode commit`。也可精确固定两个仓库的提交；SHA 必须来自各自仓库，不能把前端 SHA 同时用于后端：
+`main` 的最新开发提交须显式选择 `--mode commit`。也可精确固定提交；SHA 必须来自各自仓库，不能把前端 SHA 同时用于后端：
 
 ```sh
 sh ./install.sh --host "$HOME/SillyTavern" --branch main --mode commit --frontend-commit FRONTEND_SHA --server-commit SERVER_SHA
 ```
 
-`--frontend-commit` 和 `--server-commit` 必须成对提供，仅用于 commit 模式。
+`--frontend-commit` 和 `--server-commit` 可以单独提供，只作用于对应组件，另一个组件按默认规则选版；它们不能与 `--mode tag` 或 `--tag` 同用，也不能与只处理另一组件的 `--component` 同用。
 
-安装器先准备并校验两个组件，再替换现有安装。分支不存在、网络失败或任一组件入口缺失都会终止安装。`--dry-run` 不下载，因此不验证远端分支是否存在：
+安装器先准备并校验组件，再替换现有安装。全新安装时，分支不存在、网络失败或任一组件入口缺失都会终止安装；更新时只跳过出问题的组件。`--dry-run` 不下载，因此不验证远端分支是否存在：
 
 ```sh
 sh ./install.sh --host "$HOME/SillyTavern" --dry-run
@@ -319,11 +342,12 @@ node ./scripts/install.mjs --update --host /path/to/SillyTavern --local-source /
 | 参数 | 含义 |
 | --- | --- |
 | `--host PATH` | 宿主根目录；省略时按 [宿主路径识别](#宿主路径识别) 的顺序查找 |
-| `--update` | 更新已安装的两个组件；识别已有分支 / 标签及版本模式，配置文件保持原文 |
-| `--branch NAME` | 两个组件共同使用的分支；安装默认 `main`，更新默认保留各自分支。`main` 默认 tag 模式，其他分支默认 commit 模式 |
+| `--update` | 更新已安装的组件；识别已有分支 / 标签及版本模式，配置文件保持原文 |
+| `--component NAME` | `frontend`、`server` 或 `all`（默认）；只安装或更新指定组件 |
+| `--branch NAME` | 本次处理的组件使用的分支；安装默认 `main`，更新默认保留各自分支。`main` 默认 tag 模式，其他分支默认 commit 模式 |
 | `--mode tag\|commit` | 显式选择版本模式；`main` 高级开发更新用 `commit` |
-| `--tag TAG` | 两仓库中同名的明确发布 tag |
-| `--frontend-commit SHA` / `--server-commit SHA` | commit 模式下成对指定两仓库各自的提交 |
+| `--tag TAG` | 本次处理的组件使用的明确发布 tag，每个仓库都须存在 |
+| `--frontend-commit SHA` / `--server-commit SHA` | 指定对应组件的提交，可单独使用 |
 | `--local-source PATH` | 从本地源码目录安装（含未提交修改） |
 | `--config PATH` | 本次宿主启动使用的配置；相对路径按宿主根目录解析，默认 `config.yaml` |
 | `--data-root PATH` | 宿主启动参数覆盖后的数据目录，优先于配置中的 `dataRoot`，用于检查重复扩展 |
@@ -340,10 +364,11 @@ node ./scripts/install.mjs --update --host /path/to/SillyTavern --local-source /
 | 环境变量 | 用途 |
 | --- | --- |
 | `PAYGO_HOST` | 宿主路径 |
-| `PAYGO_BRANCH` | 前端和后端共同选择的分支，首次安装默认 `main` |
+| `PAYGO_COMPONENT` | `frontend` / `server` / `all`，只处理指定组件 |
+| `PAYGO_BRANCH` | 本次处理的组件选择的分支，首次安装默认 `main` |
 | `PAYGO_MODE` | `tag` / `commit`；`main` 默认 `tag`，其他分支默认 `commit` |
-| `PAYGO_TAG` | 安装或更新到两仓库中同名的 tag |
-| `PAYGO_FRONTEND_COMMIT` / `PAYGO_SERVER_COMMIT` | 两仓库各自的提交 SHA，必须成对提供且仅用于 `commit` 模式 |
+| `PAYGO_TAG` | 安装或更新到指定 tag，每个仓库都须存在 |
+| `PAYGO_FRONTEND_COMMIT` / `PAYGO_SERVER_COMMIT` | 对应组件的提交 SHA，可单独使用，仅用于 `commit` 模式 |
 | `PAYGO_DRY_RUN=1` | 仅预览宿主安装 |
 | `PAYGO_REPLACE_MODIFIED=1` | 明确允许备份后替换有本地修改或非远端提交的旧安装 |
 | `PAYGO_INSTALLER_REF` | 仅供维护者测试安装器，见 [维护者说明](#维护者说明) |

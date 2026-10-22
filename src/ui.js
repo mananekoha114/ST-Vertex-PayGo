@@ -37,7 +37,7 @@ import {
     validatePluginState,
 } from './state-machine.js';
 
-import { createMessageCostPlacementControl } from './message-cost-settings.js';
+import { createMessageCostPlacementControl, DEFAULT_MESSAGE_COST_PLACEMENT } from './message-cost-settings.js';
 
 const RECONCILE_STABILITY_MS = 250;
 const PROFILE_TRANSITION_TIMEOUT_MS = 30_000;
@@ -221,7 +221,7 @@ export function createPayGoUi({
     notifyWarning = () => {},
     logger = console,
     localize,
-    getMessageCostPlacement = () => 'footer',
+    getMessageCostPlacement = () => DEFAULT_MESSAGE_COST_PLACEMENT,
     setMessageCostPlacement = () => {},
     getMessageCostRecentCount = () => 20, setMessageCostRecentCount = () => {},
 }) {

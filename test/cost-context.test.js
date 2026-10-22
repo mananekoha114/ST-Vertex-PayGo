@@ -18,11 +18,11 @@ function fixture() {
     return { current, api, listeners };
 }
 
-test('message placement defaults to footer and persists globally without changing pricing or chat data', () => {
+test('message placement defaults below the avatar and persists globally without changing pricing or chat data', () => {
     const { current, api } = fixture();
-    assert.equal(api.getMessageCostPlacement(), 'footer');
+    assert.equal(api.getMessageCostPlacement(), 'avatar');
     assert.equal(current.saves, 0);
-    for (const placement of ['header', 'avatar', 'hidden', 'footer']) {
+    for (const placement of ['header', 'footer', 'hidden', 'avatar']) {
         api.setMessageCostPlacement(placement);
         const reload = createCostContext({ getContext: () => current });
         current.chatId = `another-${placement}`;
@@ -33,7 +33,7 @@ test('message placement defaults to footer and persists globally without changin
     assert.deepEqual(current.extensionSettings['vertex-paygo-costs'].conversations, {});
     assert.deepEqual(current.extensionSettings['vertex-paygo-costs'].prices, {});
     current.extensionSettings['vertex-paygo-costs'].messageCostPlacement = 'unsupported';
-    assert.equal(api.getMessageCostPlacement(), 'footer');
+    assert.equal(api.getMessageCostPlacement(), 'avatar');
     api.destroy();
 });
 

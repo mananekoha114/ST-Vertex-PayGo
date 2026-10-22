@@ -128,7 +128,7 @@ test('moving and resizing the recent window removes old triggers and closes thei
     let count = 3;
     const read = [];
     const ui = createUi({ documentRef: dom.document, getContext: () => ({ chat }), getRecentCount: () => count,
-        getMessageCost: message => { read.push(message.id); return snapshot; } });
+        getPlacement: () => 'footer', getMessageCost: message => { read.push(message.id); return snapshot; } });
     const ids = () => dom.walk().filter(item => item.className === 'vertex-paygo-message-cost-trigger')
         .map(button => button.dataset.messageId);
     ui.render();
@@ -215,7 +215,8 @@ test('chat replacement clears detached triggers and hidden placement reads no sn
 
 test('rebuilding message contents closes details anchored to a removed trigger', () => {
     const dom = fakeDom();
-    const ui = createUi({ documentRef: dom.document, getContext: () => ({ chat: [{}] }), getMessageCost: () => snapshot });
+    const ui = createUi({ documentRef: dom.document, getContext: () => ({ chat: [{}] }), getMessageCost: () => snapshot,
+        getPlacement: () => 'footer' });
     ui.render();
     const oldButton = dom.block.children.at(-1);
     oldButton.onclick({ stopPropagation() {} });
@@ -470,9 +471,19 @@ test('removes a stale trigger when a message snapshot disappears', () => {
     ui.destroy();
 });
 
-test('defaults to a footer after attachments and survives replacement of message text', () => {
+test('defaults below the avatar as in releases before 0.5.0', () => {
     const dom = fakeDom();
     const ui = createUi({ documentRef: dom.document, getContext: () => ({ chat: [{}] }), getMessageCost: () => snapshot });
+    ui.render();
+    assert.equal(dom.avatar.children[0].dataset.placement, 'avatar');
+    assert.equal(dom.block.children.some(item => item.className === 'vertex-paygo-message-cost-trigger'), false);
+    ui.destroy();
+});
+
+test('the footer follows attachments and survives replacement of message text', () => {
+    const dom = fakeDom();
+    const ui = createUi({ documentRef: dom.document, getContext: () => ({ chat: [{}] }), getMessageCost: () => snapshot,
+        getPlacement: () => 'footer' });
     ui.render();
     const button = dom.block.children.at(-1);
     assert.equal(button.dataset.placement, 'footer');
@@ -510,7 +521,7 @@ test('switches all placements immediately, preserves open details, and hides wit
     assert.deepEqual(data, snapshot);
     placement = 'invalid';
     ui.render();
-    assert.equal(dom.block.children.at(-1).dataset.placement, 'footer');
+    assert.equal(dom.avatar.children.at(-1).dataset.placement, 'avatar');
     ui.destroy();
 });
 

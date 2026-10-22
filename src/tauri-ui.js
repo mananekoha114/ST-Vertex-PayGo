@@ -7,7 +7,7 @@ import { getModelPolicy, getTierSupport } from './model-policy.js';
 import { validatePluginState } from './state-machine.js';
 import { applyTauriParameters, readTauriState } from './tauri-parameters.js';
 
-import { createMessageCostPlacementControl } from './message-cost-settings.js';
+import { createMessageCostPlacementControl, DEFAULT_MESSAGE_COST_PLACEMENT } from './message-cost-settings.js';
 import { mountExtensionSettings } from './extension-settings.js';
 
 const CURRENT = '__current__';
@@ -30,7 +30,7 @@ export function currentTauriRequest(context) {
 // The native settings are the source of truth: presets and manual Additional
 // Parameters edits therefore cannot diverge from a second extension-only tier.
 export function createTauriUi({ getContext, connections, yaml, documentRef = globalThis.document,
-    getMessageCostPlacement = () => 'footer', setMessageCostPlacement = () => {},
+    getMessageCostPlacement = () => DEFAULT_MESSAGE_COST_PLACEMENT, setMessageCostPlacement = () => {},
     getMessageCostRecentCount = () => 20, setMessageCostRecentCount = () => {},
     localize = createLocalizer(), notifyError = () => {}, notifyWarning = () => {} }) {
     const container = documentRef.getElementById('extensions_settings2')

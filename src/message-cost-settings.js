@@ -9,14 +9,16 @@ export function normalizeMessageCostRecentCount(value) {
     return Number.isFinite(count) ? Math.min(1000, Math.max(1, Math.trunc(count))) : DEFAULT_MESSAGE_COST_RECENT_COUNT;
 }
 
-export const MESSAGE_COST_PLACEMENTS = Object.freeze(['footer', 'header', 'avatar', 'hidden']);
+// Matches releases before 0.5.0; users who never chose a position keep it below the avatar.
+export const DEFAULT_MESSAGE_COST_PLACEMENT = 'avatar';
+export const MESSAGE_COST_PLACEMENTS = Object.freeze(['avatar', 'footer', 'header', 'hidden']);
 
 export function normalizeMessageCostPlacement(value) {
-    return MESSAGE_COST_PLACEMENTS.includes(value) ? value : 'footer';
+    return MESSAGE_COST_PLACEMENTS.includes(value) ? value : DEFAULT_MESSAGE_COST_PLACEMENT;
 }
 
 export function createMessageCostPlacementControl({ documentRef = globalThis.document, localize,
-    getMessageCostPlacement = () => 'footer', setMessageCostPlacement = () => {},
+    getMessageCostPlacement = () => DEFAULT_MESSAGE_COST_PLACEMENT, setMessageCostPlacement = () => {},
     getMessageCostRecentCount = () => DEFAULT_MESSAGE_COST_RECENT_COUNT, setMessageCostRecentCount = () => {} }) {
     const element = (tag, attributes, key) => {
         const node = documentRef.createElement(tag);

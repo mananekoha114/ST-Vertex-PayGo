@@ -6,7 +6,8 @@
 
 import { formatMessageCostLabel, formatMessageMoney, summarizeMessageCost } from './message-cost-view.js';
 import { createLocalizer, getTierLabel } from './i18n.js';
-import { DEFAULT_MESSAGE_COST_RECENT_COUNT, normalizeMessageCostPlacement, normalizeMessageCostRecentCount } from './message-cost-settings.js';
+import { DEFAULT_MESSAGE_COST_PLACEMENT, DEFAULT_MESSAGE_COST_RECENT_COUNT, normalizeMessageCostPlacement,
+    normalizeMessageCostRecentCount } from './message-cost-settings.js';
 
 const ROOT_CLASS = 'vertex-paygo-message-cost';
 const messageKey = name => `vertex_paygo.message_cost.${name}`;
@@ -116,7 +117,7 @@ function buildCard(documentRef, summary, onClose, localize) {
     return card;
 }
 
-export function createMessageCostUi({ getContext, getMessageCost, getPrices, getPlacement = () => 'footer',
+export function createMessageCostUi({ getContext, getMessageCost, getPrices, getPlacement = () => DEFAULT_MESSAGE_COST_PLACEMENT,
     getRecentCount = () => DEFAULT_MESSAGE_COST_RECENT_COUNT,
     documentRef = globalThis.document, onOpen, localize } = {}) {
     localize ??= createLocalizer((fallback, key) => getContext?.()?.translate?.(fallback, key));

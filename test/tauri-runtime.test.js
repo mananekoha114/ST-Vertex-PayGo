@@ -130,7 +130,7 @@ test('native placement settings save, immediately rerender messages and survive 
             messageCostUi: ({ getPlacement, getRecentCount }) => ({ render() { displayed.push(getPlacement()); recentDisplayed.push(getRecentCount()); }, destroy() {} }),
         } });
     let runtime = await start();
-    assert.equal(displayed.at(-1), 'footer');
+    assert.equal(displayed.at(-1), 'avatar');
     const select = documentRef.getElementById('vertex-paygo-message-cost-placement');
     select.value = 'hidden'; await select.fire('change');
     assert.equal(displayed.at(-1), 'hidden');

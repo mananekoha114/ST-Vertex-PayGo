@@ -11,6 +11,9 @@ import { MODEL_POLICY_SNAPSHOT } from './model-policy.js';
 
 export const MESSAGES = Object.freeze({
     'vertex_paygo.gemini4.server_upgrade': 'Gemini 4 compatibility requires the updated server plugin. Update the server plugin and restart SillyTavern.',
+    'vertex_paygo.gemini4.budget_exhausted': 'Gemini 4 used the whole output budget before writing any reply text. Thinking tokens count toward Max Response Length: raise it or lower the Reasoning Effort.',
+    'vertex_paygo.gemini4.no_output': 'Gemini 4 returned no reply text (reason: {reason}).',
+    'vertex_paygo.gemini4.upstream_error': 'Google rejected the Gemini 4 request (HTTP {status}): {message}',
     'vertex_paygo.backup.open': 'Restore PayGo data',
     'vertex_paygo.backup.title': 'Restore PayGo data',
     'vertex_paygo.backup.description': 'PayGo saves changed data at startup and before updates or restoration. Older snapshots rotate using the host backup count. These are local recovery points, not continuous or off-device backups.',

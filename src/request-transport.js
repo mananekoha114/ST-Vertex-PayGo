@@ -5,7 +5,7 @@
 import { DEFAULT_STATE, EXTENSION_ID, isGoogleSource } from './constants.js';
 import { createRequestHook, installFailureSink } from './request-hook.js';
 import { normalizeState, requiresPlugin } from './state-machine.js';
-import { enrichGemini4ModelList, getGemini4RequestTarget, isNativeGemini4Request } from './gemini4-request.js';
+import { enrichGemini4ModelList, getGemini4RequestTarget, isNativeGemini4Request, localizeGemini4Response } from './gemini4-request.js';
 import { createGemini4SignatureTracker } from './gemini4-signatures.js';
 
 const REQUEST_STATE = '__vertexPayGoRequestState';
@@ -105,6 +105,7 @@ export function installRequestTransport({ context, stateProvider, target = globa
         const costToken = metadata?.messageCostToken;
         const signatureToken = isNativeGemini4Request(data) ? signatures.capture(data, metadata?.background) : null;
         let requestTarget = input;
+        let nativeGemini4 = false;
         try {
             const prepared = await prepareRequest(data);
             if (isNativeGemini4Request(data)) {
@@ -115,6 +116,7 @@ export function installRequestTransport({ context, stateProvider, target = globa
                 }
                 data.native_gemini_api_version = prepared.nativeGeminiApiVersion;
                 requestTarget = getGemini4RequestTarget(input, origin);
+                nativeGemini4 = true;
             }
             if (costToken) observe('prepared', costToken, prepared?.usageId, {
                 chatId: usageChatId, model: data.model, source: data.chat_completion_source,
@@ -130,11 +132,12 @@ export function installRequestTransport({ context, stateProvider, target = globa
         try {
             signal?.throwIfAborted();
             if (costToken) observe('started', costToken);
-            const response = await originalFetch.call(this, requestTarget, { ...init, body: JSON.stringify(data) });
+            let response = await originalFetch.call(this, requestTarget, { ...init, body: JSON.stringify(data) });
             if (signatureToken) {
                 try { await signatures.observe(signatureToken, response); }
                 catch (error) { console.warn('[Vertex PayGo] Could not preserve the native Gemini signature.', error); }
             }
+            if (nativeGemini4) response = await localizeGemini4Response(response, hookOptions.localize);
             return costToken ? observe('response', costToken, response, signal) ?? response : response;
         } catch (error) {
             if (costToken) observe('failed', costToken);

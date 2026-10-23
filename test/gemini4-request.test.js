@@ -71,3 +71,42 @@ test('model list receives missing limits before host status handling, preserving
     const error = new Response('failure', { status: 502 });
     assert.equal(await enrichGemini4ModelList(error), error);
 });
+
+test('known Gemini 4 failures are localized in JSON responses and SSE error events', async () => {
+    const { localizeGemini4Response } = await import('../src/gemini4-request.js');
+    const localize = (key, parameters) => `${key}|${JSON.stringify(parameters)}`;
+    const failure = { code: 'GEMINI4_UPSTREAM_HTTP_ERROR', message: 'English', details: { upstreamStatus: 429, upstreamMessage: 'Quota exceeded' } };
+    const json = await localizeGemini4Response(new Response(JSON.stringify({ error: failure, code: failure.code, message: 'English' }),
+        { status: 429, headers: { 'Content-Type': 'application/json', 'Content-Length': '1' } }), localize);
+    const body = await json.json();
+    assert.equal(json.status, 429);
+    assert.equal(body.error.message, 'vertex_paygo.gemini4.upstream_error|{"status":429,"message":"Quota exceeded"}');
+    assert.equal(body.message, body.error.message);
+    const unknown = new Response(JSON.stringify({ error: { code: 'OTHER', message: 'kept' } }), { status: 500 });
+    assert.equal(await localizeGemini4Response(unknown, localize), unknown);
+
+    const frames = ['data: {"candidates":[{"content":{"parts":[{"text":"思考"}]}}]}',
+        'data: {"error":{"code":"GEMINI4_OUTPUT_BUDGET_EXHAUSTED","message":"English","details":{"reason":"MAX_TOKENS"}}}',
+        'data: {"error":{"code":"OTHER","message":"kept"}}'];
+    const bytes = new TextEncoder().encode(frames.join('\n\n') + '\n\n');
+    const stream = new ReadableStream({ start(controller) {
+        controller.enqueue(bytes.subarray(0, 23)); controller.enqueue(bytes.subarray(23)); controller.close();
+    } });
+    const sse = await localizeGemini4Response(new Response(stream, { headers: { 'Content-Type': 'text/event-stream' } }), localize);
+    const output = (await sse.text()).trim().split('\n\n');
+    assert.equal(output[0], frames[0]);
+    assert.equal(JSON.parse(output[1].slice(6)).error.message, 'vertex_paygo.gemini4.budget_exhausted|{}');
+    assert.equal(JSON.parse(output[1].slice(6)).error.code, 'GEMINI4_OUTPUT_BUDGET_EXHAUSTED');
+    assert.equal(output[2], frames[2]);
+});
+
+test('native Gemini 4 responses pass through the localizer while other routes stay untouched', async () => {
+    const target = { location: { origin }, fetch: async () => new Response(JSON.stringify({ error: { code: 'NATIVE_GEMINI_EMPTY_RESPONSE', message: 'English', details: { reason: 'SAFETY' } } }), { status: 502 }) };
+    const hook = installRequestTransport({ context: {}, target, origin, localize: (key, parameters) => `${key}:${parameters.reason}`,
+        stateProvider: () => ({ tier: 'standard', paygoOnly: false }),
+        serverClient: { prepare: async () => ({ proxyUrl: 'http://127.0.0.1:12345/proxy/ticket', proxySecret: 'mock-secret', nativeGemini4: true, nativeGeminiApiVersion: 'v1beta' }) } });
+    const body = payload('makersuite');
+    hook(body);
+    const response = await target.fetch(route, { method: 'POST', headers: {}, body: JSON.stringify(body) });
+    assert.equal((await response.json()).error.message, 'vertex_paygo.gemini4.no_output:SAFETY');
+});

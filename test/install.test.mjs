@@ -427,7 +427,7 @@ test('main defaults to tag commits; advanced mode uses SHA and never silently do
         install({ host: f.host, update: true }, quiet);
         assert.equal(gitAt(f.frontend, ['rev-parse', 'HEAD']), advancedHead);
         assert.equal(gitAt(f.frontend, ['branch', '--show-current']), 'main');
-        assert.equal(gitAt(f.backend, ['branch', '--show-current']), '');
+        assert.equal(gitAt(f.backend, ['branch', '--show-current']), 'main');
     });
 });
 
@@ -462,6 +462,122 @@ test('missing tags never fall back to unreleased main; different tag names insta
         install({ host: f.host }, quiet);
         assert.equal(gitAt(f.frontend, ['describe', '--tags', '--exact-match', 'HEAD']), 'v0.5.0');
         assert.equal(gitAt(f.backend, ['describe', '--tags', '--exact-match', 'HEAD']), 'v0.4.0');
+    });
+});
+
+// Exercise the same Git operations as ST's src/plugin-loader.js, including
+// its upstream resolution before checking whether a pull is needed.
+function hostAutoUpdate(directory) {
+    gitAt(directory, ['fetch']);
+    const head = gitAt(directory, ['rev-parse', 'HEAD']);
+    const upstream = gitAt(directory, ['rev-parse', '--abbrev-ref', '@{u}']);
+    const changes = gitAt(directory, ['log', '--format=%H', `${head}..${upstream}`]);
+    if (changes) gitAt(directory, ['pull']);
+    return changes;
+}
+
+for (const selection of ['tag', 'sha']) {
+    test(`server ${selection} installs support ST auto-update without advancing the selected version`, t => {
+        const f = bootstrapFixture(t);
+        const source = path.join(f.source, server);
+        const selected = gitAt(source, ['rev-parse', 'HEAD']);
+        const branch = selection === 'tag' ? 'main' : 'release/test';
+        if (selection === 'tag') gitAt(source, ['tag', '-a', 'v0.4.1', '-m', 'annotated release']);
+        else gitAt(source, ['checkout', '-b', branch]);
+        const options = { host: f.host, component: 'server', branch,
+            ...(selection === 'sha' ? { 'server-commit': selected } : {}) };
+        withGitMapping(f.env, () => {
+            install(options, quiet);
+            assert.equal(gitAt(f.backend, ['branch', '--show-current']), branch);
+            assert.equal(gitAt(f.backend, ['rev-parse', 'HEAD']), selected);
+            assert.equal(gitAt(f.backend, ['config', '--get', `branch.${branch}.remote`]), '.');
+            const metadata = JSON.parse(fs.readFileSync(path.join(f.backend, '.git/paygo-updater.json'), 'utf8'));
+            assert.equal(metadata.mode, selection === 'tag' ? 'tag' : 'commit');
+            assert.equal(metadata.tag, selection === 'tag' ? 'v0.4.1' : null);
+
+            put(path.join(source, 'index.cjs'), '// untagged remote change');
+            gitAt(source, ['add', 'index.cjs']);
+            gitAt(source, ['commit', '-m', 'unreleased change']);
+            assert.equal(hostAutoUpdate(f.backend), '');
+            gitAt(f.backend, ['pull']); // A manual pull is also a no-op for a pin.
+            assert.equal(gitAt(f.backend, ['rev-parse', 'HEAD']), selected);
+            const backupRoot = path.join(f.host, '.paygo-install-backups');
+            const backups = fs.readdirSync(backupRoot);
+            install({ ...options, update: true }, quiet);
+            assert.deepEqual(fs.readdirSync(backupRoot), backups);
+
+            if (selection === 'tag') {
+                gitAt(source, ['tag', 'v0.4.2']);
+                install({ host: f.host, component: 'server', update: true }, quiet);
+            } else {
+                // Choosing regular commit mode restores the real upstream.
+                install({ host: f.host, component: 'server', update: true, mode: 'commit' }, quiet);
+                assert.equal(gitAt(f.backend, ['rev-parse', '--abbrev-ref', '@{u}']), `origin/${branch}`);
+                put(path.join(source, 'index.cjs'), '// next development commit');
+                gitAt(source, ['add', 'index.cjs']);
+                gitAt(source, ['commit', '-m', 'next development commit']);
+                assert.notEqual(hostAutoUpdate(f.backend), '');
+            }
+            assert.equal(gitAt(f.backend, ['rev-parse', 'HEAD']), gitAt(source, ['rev-parse', 'HEAD']));
+        });
+    });
+}
+
+for (const legacy of ['detached', 'tag-without-metadata', 'missing-upstream', 'wrong-upstream']) {
+    test(`update repairs a ${legacy} server at the same release and remains idempotent`, t => {
+        const f = bootstrapFixture(t);
+        withGitMapping(f.env, () => {
+            install({ host: f.host }, quiet);
+            const head = gitAt(f.backend, ['rev-parse', 'HEAD']);
+            if (legacy.startsWith('detached') || legacy === 'tag-without-metadata') {
+                gitAt(f.backend, ['checkout', '--detach']);
+                const result = spawnSync('git', ['rev-parse', '--abbrev-ref', '@{u}'], { cwd: f.backend, encoding: 'utf8' });
+                assert.notEqual(result.status, 0);
+                assert.match(result.stderr, /HEAD does not point to a branch/);
+            }
+            if (legacy === 'tag-without-metadata') fs.rmSync(path.join(f.backend, '.git/paygo-updater.json'));
+            if (legacy === 'missing-upstream') gitAt(f.backend, ['config', '--remove-section', 'branch.main']);
+            if (legacy === 'wrong-upstream') gitAt(f.backend, ['config', 'branch.main.remote', 'origin']);
+            const configPath = path.join(f.host, 'config.yaml');
+            const config = '# keep auto-update on for other plugins\r\nenableServerPlugins: true\r\nenableServerPluginsAutoUpdate: true\r\n';
+            put(configPath, config);
+            const backupRoot = path.join(f.host, '.paygo-install-backups');
+            const before = fs.readdirSync(backupRoot);
+            const options = { host: f.host, update: true, component: 'server' };
+            install(options, quiet);
+            const backups = fs.readdirSync(backupRoot);
+            const backup = backups.find(name => !before.includes(name));
+            assert.ok(backup, 'repair at the same SHA must still back up and replace');
+            assert.equal(gitAt(path.join(backupRoot, backup, server), ['rev-parse', 'HEAD']), head);
+            assert.equal(gitAt(f.backend, ['branch', '--show-current']), 'main');
+            assert.equal(hostAutoUpdate(f.backend), '');
+            assert.equal(gitAt(f.backend, ['rev-parse', 'HEAD']), head);
+            assert.equal(fs.readFileSync(configPath, 'utf8'), config);
+            install(options, quiet);
+            assert.deepEqual(fs.readdirSync(backupRoot), backups);
+        });
+    });
+}
+
+test('repairing a detached server ahead of the latest tag preserves its official commit', t => {
+    const f = bootstrapFixture(t);
+    withGitMapping(f.env, () => {
+        const source = path.join(f.source, server);
+        put(path.join(source, 'index.cjs'), '// newer official commit');
+        gitAt(source, ['add', 'index.cjs']);
+        gitAt(source, ['commit', '-m', 'after release']);
+        const head = gitAt(source, ['rev-parse', 'HEAD']);
+        install({ host: f.host, component: 'server', 'server-commit': head }, quiet);
+        gitAt(f.backend, ['checkout', '--detach']);
+        const options = { host: f.host, update: true, component: 'server' };
+        install(options, quiet);
+        assert.equal(gitAt(f.backend, ['rev-parse', 'HEAD']), head);
+        assert.equal(gitAt(f.backend, ['branch', '--show-current']), 'main');
+        assert.equal(hostAutoUpdate(f.backend), '');
+        const backupRoot = path.join(f.host, '.paygo-install-backups');
+        const backups = fs.readdirSync(backupRoot);
+        install(options, quiet);
+        assert.deepEqual(fs.readdirSync(backupRoot), backups);
     });
 });
 

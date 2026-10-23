@@ -113,6 +113,21 @@ curl -fsSL https://raw.githubusercontent.com/mananekoha114/ST-Vertex-PayGo/main/
 - **保护本地修改**：未提交修改、非远端提交、分叉或远端历史重写默认阻止更新，不会执行强制 reset。确实要覆盖时须显式指定 `--replace-modified` / `PAYGO_REPLACE_MODIFIED=1`，原目录仍完整保存在备份中。
 - **已是最新**：版本和跟踪元数据均一致且工作区无修改时，显示 `Already up to date`，不替换插件、不创建备份。旧安装首次写入跟踪元数据时，即使版本相同也可能备份并替换。只有一个组件需要更新时，只备份和替换该组件。下载检查本身仍需要网络和临时空间。
 - **不自动降级**：已安装的 `main` 官方提交若领先最新 tag，默认保留当前版本并提示等待新 tag，或显式用 `--mode commit` 继续追踪提交。默认 tag 模式找不到可达 tag 时失败，不会自动切换为 commit 模式。
+- **修复 ST 自动更新报错**：更新器会把后端旧的 detached HEAD 或缺少上游的安装迁移为带上游的本地分支，即使没有新版本也会先备份再修复。无需关闭 `enableServerPluginsAutoUpdate`；tag / 指定 SHA 的后端保持所选版本，后续通过 PayGo 更新命令升级。
+
+### `HEAD does not point to a branch` 修复
+
+旧脚本按 tag 安装后端时会留下 detached HEAD。SillyTavern 启动时先解析插件分支的上游，因此可能显示：
+
+```text
+Failed to update plugin ST-Vertex-PayGo-Server: fatal: HEAD does not point to a branch
+```
+
+关闭酒馆后，运行上方的最新在线更新命令即可。只修复后端可使用 `--component server`（PowerShell 设置 `PAYGO_COMPONENT=server`，示例见下节）。已有安装仍受本地修改保护；修复时备份旧目录，保留宿主配置。若无法推断旧 detached 安装的渠道，显式加 `--branch main`；脚本不会自动覆盖本地修改或回退领先 tag 的官方提交。
+
+后端的 tag / 指定 SHA 安装使用真实渠道名作为本地分支，并把该分支的 Git 上游指向自身。这样 ST 的无参数 fetch 和上游比较在本地完成，不会报错或拉取越过所选版本的提交；手动 `git pull` 也不会升级该固定版本，请使用 PayGo 更新命令。非固定 SHA 的 commit 模式跟踪 `origin/<分支>`，仍可由 ST 自动更新。此设置只写入该后端仓库的 `.git/config`，不影响其他服务端插件。
+
+此修复适用于本页的命令行安装和更新入口。现有后端的面板更新器仍可能在 tag 更新后重新生成 detached HEAD；发生时再运行最新在线更新命令修复。
 
 ### 前后端独立更新
 
@@ -331,7 +346,7 @@ node ./scripts/install.mjs --update --host /path/to/SillyTavern --local-source /
   ```
 
 - **重复扩展检查**：安装模式会扫描全局目录及 `dataRoot/<用户>/extensions`。发现已有同名或已知 PayGo 身份的其他目录时停止并显示冲突路径，避免用户级旧版遮蔽全局新版或开发副本被重复加载。请先备份并移走旧副本再重试；安装器不迁移不同扩展目录对应的用户设置。更新模式则保留已识别的唯一旧安装路径。
-- **自动更新**：宿主的 `enableServerPluginsAutoUpdate` 不会被改变；若指定固定标签或希望严格固定版本，请自行检查该设置。
+- **自动更新**：宿主的 `enableServerPluginsAutoUpdate` 不会被改变。脚本为后端建立带上游的本地分支；tag / 指定 SHA 安装由 PayGo 更新命令升级，普通 commit 模式可继续跟随 ST 自动更新。详见 [`HEAD does not point to a branch` 修复](#head-does-not-point-to-a-branch-修复)。
 - **路径边界**：**配置文件和插件目标须位于宿主根目录内**，目标路径中的软链接 / junction 会被拒绝；外置数据目录只用于只读的重复检查。插件放在外部磁盘或外置配置的布局会明确报错，请改用手动安装。该边界使备份、暂存与替换留在同一宿主文件系统中。
 - **Luker**：默认读取配置中的 `serverPluginsPath` 和 `globalExtensionsPath`；如果启动时还用了覆盖参数，安装时必须通过 `--plugins-path` / `--extensions-path` 提供对应路径。安装器不修改这些目录配置。SillyTavern 使用其标准插件目录。
 
@@ -402,5 +417,5 @@ PowerShell 中用 `$env:变量名 = '值'` 设置，使用后可用 `Remove-Item
 - **测试安装器本身**：需要同时更改 raw URL 中的分支，并设置 `PAYGO_INSTALLER_REF`；只更改 URL 仍会下载 `main` 的安装器。普通安装和更新始终使用默认 `main` 的最新工具，与插件版本分开。
 - **迁移仓库**：请同步更新引导脚本中的仓库地址与本文档中的命令。
 - **同步更新入口**：修改 `bootstrap.sh` / `bootstrap.ps1` 后，运行 `node scripts/sync-update-launchers.mjs` 生成在线更新入口；CI 的 `--check` 会防止两套引导逻辑不同步。
-- **测试**：运行 `node --test test/install.test.mjs`。覆盖离线 Git 下载、带空格 / 中文路径、首次安装、备份更新、失败回滚、重复扩展、YAML 配置、Luker 自定义目录，以及将在线安装 / 更新正文真正通过 stdin / Invoke-Expression 执行、下载失败、安装失败、无交互终端、正文截断和临时文件清理。更新用例还覆盖分支保留、本地提交保护、detached HEAD、原样保留关闭状态的配置、无新提交时跳过替换。测试用本地 Git 仓库替代远端，避免真实网络影响结果。
+- **测试**：运行 `node --test test/install.test.mjs`。覆盖离线 Git 下载、带空格 / 中文路径、首次安装、备份更新、失败回滚、重复扩展、YAML 配置、Luker 自定义目录，以及将在线安装 / 更新正文真正通过 stdin / Invoke-Expression 执行、下载失败、安装失败、无交互终端、正文截断和临时文件清理。更新用例还覆盖分支保留、本地提交保护、detached HEAD 与缺失 / 错误上游的同版本修复、tag / 指定 SHA 下模拟 ST 自动更新不越过所选版本、普通 commit 模式的自动 pull、领先 tag 的修复不降级、原样保留关闭状态的配置、无新提交时跳过替换。测试用本地 Git 仓库替代远端，避免真实网络影响结果。
 - **CI**：跨平台配置见 `.github/workflows/installer.yml`。Android / Termux 真机运行需要单独验证，桌面测试不能代替真机测试。

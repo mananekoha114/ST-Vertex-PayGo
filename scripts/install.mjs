@@ -93,6 +93,11 @@ function runGit(args, cwd) {
     return result.stdout.trim();
 }
 
+function gitConfig(directory, key) {
+    try { return runGit(['config', '--local', '--get', key], directory); }
+    catch { return null; }
+}
+
 export function inside(root, target) {
     const relative = path.relative(root, target);
     return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
@@ -258,6 +263,10 @@ function prepareUpdate(component, options) {
         component.modified = Boolean(runGit(['status', '--porcelain'], component.target));
         try { component.oldBranch = runGit(['symbolic-ref', '--quiet', '--short', 'HEAD'], component.target); }
         catch { component.oldBranch = null; }
+        if (component.name === SERVER && component.oldBranch) {
+            component.oldRemote = gitConfig(component.target, `branch.${component.oldBranch}.remote`);
+            component.oldMerge = gitConfig(component.target, `branch.${component.oldBranch}.merge`);
+        }
         const metadataFile = path.join(component.target, '.git/paygo-updater.json');
         if (exists(metadataFile)) {
             const metadata = readJson(metadataFile);
@@ -364,21 +373,41 @@ function prepareRemote(component, options, log) {
         c.newHead = explicitCommit ? gitCommit(c.staged, explicitCommit) : branchHead;
         if (!c.newHead || (explicitCommit && !c.newHead.toLowerCase().startsWith(explicitCommit.toLowerCase())) || !ancestor(c.staged, c.newHead, branchHead)) fail(`Requested commit is not in ${c.name}/${c.branch} history.`);
     }
+    let pinned = c.mode === 'tag' || Boolean(explicitCommit);
     if (options.update && c.oldHead && !options['replace-modified']) {
         if (!ancestor(c.staged, c.oldHead, branchHead)) fail(`${c.name} contains commits absent from the selected remote history (local commits or divergent history). Use --replace-modified only to back up and replace them.`);
         if (!ancestor(c.staged, c.oldHead, c.newHead)) {
             if (c.mode === 'tag' && !options.tag && !legacyTag && (c.oldBranch || c.trackingBranch || c.branch) === c.branch && ancestor(c.staged, c.newHead, c.oldHead)) {
-                c.unchanged = true;
                 log(`${c.name}: installed ${c.oldHead.slice(0, 8)} is ahead of tag ${c.tag}; keeping it until a newer tag (or choose --mode commit).`);
+                if (c.name === SERVER) {
+                    // Repair legacy detached/missing-upstream installs even
+                    // when their official revision is ahead of the latest tag.
+                    c.newHead = c.oldHead;
+                    c.mode = c.oldMetadata?.mode || 'commit';
+                    c.tag = c.oldMetadata?.tag || null;
+                    pinned = c.mode === 'tag' || !c.oldBranch || c.oldRemote === '.';
+                } else c.unchanged = true;
             } else fail(`${c.name}: selected version is older or divergent. Use --replace-modified to explicitly back up and replace it.`);
         }
     }
-    if (c.mode === 'commit' && !explicitCommit) runGit(['checkout', '-B', c.branch, `refs/remotes/origin/${c.branch}`], c.staged);
+    const newBranch = c.name === SERVER || (c.mode === 'commit' && !explicitCommit) ? c.branch : null;
+    if (newBranch) runGit(['checkout', '-B', newBranch, c.newHead], c.staged);
     else runGit(['checkout', '--detach', c.newHead], c.staged);
+    if (c.name === SERVER) {
+        // ST resolves @{u} before deciding whether to pull. Tags and explicit
+        // SHAs still need an attached branch, but tracking origin would allow
+        // ST to pull unreleased commits past the selected version. A local
+        // self-upstream makes its fetch/log check a successful no-op. PayGo's
+        // updater continues to select releases from a fresh origin clone.
+        runGit(['config', '--local', `branch.${c.branch}.remote`, pinned ? '.' : 'origin'], c.staged);
+        runGit(['config', '--local', `branch.${c.branch}.merge`, `refs/heads/${c.branch}`], c.staged);
+    } else if (newBranch) {
+        runGit(['branch', '--set-upstream-to', `origin/${c.branch}`, c.branch], c.staged);
+    }
     fs.writeFileSync(path.join(c.staged, '.git/paygo-updater.json'), JSON.stringify({ schema: 1, branch: c.branch, mode: c.mode, tag: c.tag || null, commit: c.newHead }, null, 2));
-    const newBranch = c.mode === 'commit' && !explicitCommit ? c.branch : null;
     const sameChannel = c.oldMetadata?.branch === c.branch && c.oldMetadata?.mode === c.mode && c.oldMetadata?.tag === (c.tag || null);
-    c.unchanged ||= Boolean(options.update && c.oldHead === c.newHead && c.oldBranch === newBranch && sameChannel && !c.modified);
+    const sameUpstream = c.name !== SERVER || (c.oldRemote === (pinned ? '.' : 'origin') && c.oldMerge === `refs/heads/${c.branch}`);
+    c.unchanged ||= Boolean(options.update && c.oldHead === c.newHead && c.oldBranch === newBranch && sameChannel && sameUpstream && !c.modified);
     log(`${c.name}: ${c.oldHead?.slice(0, 8) || 'existing/new'} -> ${c.newHead.slice(0, 8)} (${c.mode === 'tag' ? `tag ${c.tag}` : `${c.branch}, commit mode`})`);
 }
 

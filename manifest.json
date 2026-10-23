@@ -7,7 +7,7 @@
   "generate_interceptor": "vertexPayGoGemini4GenerateInterceptor",
   "css": "style.css",
   "author": "Mana Nekoha (@mananekoha114)",
-  "version": "0.6.0",
+  "version": "0.6.1-pre1",
   "i18n": {
     "default": "locales/en.json",
     "en": "locales/en.json",

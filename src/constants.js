@@ -7,7 +7,7 @@
  */
 
 export const EXTENSION_ID = 'vertex-paygo';
-export const CLIENT_VERSION = '0.6.0';
+export const CLIENT_VERSION = '0.6.1-pre1';
 export const CONFIG_VERSION = 1;
 export const PROTOCOL_VERSION = 2;
 export const REQUIRED_TRANSPORT = 'loopback-http';

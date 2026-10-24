@@ -19,6 +19,7 @@ import { getModelPolicy, getTierSupport } from './model-policy.js';
 import { downloadLogText, showLogViewer } from './log-actions.js';
 import { createDataBackupControl } from './data-backup-ui.js';
 import { mountExtensionSettings } from './extension-settings.js';
+import { createFloatingTierUi } from './floating-tier-ui.js';
 import {
     attachStateToProfile,
     getActiveProfile,
@@ -272,6 +273,13 @@ export function createPayGoUi({
     let finishUpdatePoll = null;
     const reconcileGuard = createReconcileGuard();
 
+    const floatingTier = createFloatingTierUi({ getContext: () => context, localize, notifyError,
+        getTarget: () => ({ source: getSource(), model: getModel(), tier: state.tier,
+            busy: transitionPending || profileTransitionPending }),
+        selectTier,
+    });
+    controls.displayGroup.append(floatingTier.setting);
+
     const popup = context.Popup;
     const popupResult = context.POPUP_RESULT;
 
@@ -452,6 +460,7 @@ export function createPayGoUi({
 
     function render() {
         if (destroyed) return;
+        floatingTier.render();
         placementControl.render();
         const aiStudio = getSource() === AI_STUDIO_SOURCE;
         // One panel, one controller, and one set of listeners serve both sources.
@@ -710,13 +719,16 @@ export function createPayGoUi({
     }
 
     async function onTierChanged() {
+        return selectTier(controls.tierSelect.value);
+    }
+
+    async function selectTier(requestedTier) {
         if (transitionPending) {
             reconcileGuard.invalidate();
             reconcileQueued = true;
             render();
             return;
         }
-        const requestedTier = controls.tierSelect.value;
         const decision = resolveTierSelection({ state, requestedTier, region: getRegion(), model: getModel(), source: getSource() });
 
         if (decision.type === 'reject') {
@@ -1232,6 +1244,7 @@ export function createPayGoUi({
             finishUpdatePoll?.();
             finishUpdatePoll = null;
             placementControl.destroy();
+            floatingTier.destroy();
             dataBackupControl.destroy();
             unmountSettings();
             controls.root.remove();

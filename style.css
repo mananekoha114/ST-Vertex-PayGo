@@ -589,3 +589,268 @@
 .vertex-paygo-data-recovery [hidden] {
     display: none;
 }
+
+/* ------------------------------------------------------------------ */
+/* Floating service tier switcher, outside the host's drawers.         */
+/* ------------------------------------------------------------------ */
+
+.vertex-paygo-floating {
+    /* Keep the size in sync with BALL_SIZE in src/floating-tier-ui.js. */
+    --vertex-paygo-floating-size: 60px;
+    --vertex-paygo-floating-surface: var(--SmartThemeBlurTintColor, #252935);
+    --vertex-paygo-floating-border: var(--SmartThemeBorderColor, #667);
+    /* Standard stays neutral; the host quote colour is often orange and would read as Priority. */
+    --vertex-paygo-floating-tier: color-mix(in srgb, var(--SmartThemeBodyColor, #eee) 55%, transparent);
+    position: fixed;
+    right: 12px;
+    top: 60vh;
+    width: var(--vertex-paygo-floating-size);
+    height: var(--vertex-paygo-floating-size);
+    z-index: 2000;
+    color: var(--SmartThemeBodyColor, #eee);
+    font-family: inherit;
+    transition: left 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), top 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.vertex-paygo-floating--dragging {
+    transition: none;
+}
+
+.vertex-paygo-floating[hidden], .vertex-paygo-floating [hidden] {
+    display: none !important;
+}
+
+/* Each tier carries one accent: the ball ring, the option stripe and its check mark. */
+.vertex-paygo-floating [data-tier="flex"] { --vertex-paygo-floating-tier: #5fc59a; }
+.vertex-paygo-floating [data-tier="priority"] { --vertex-paygo-floating-tier: #e2a956; }
+
+.vertex-paygo-floating-ball {
+    position: relative;
+    box-sizing: border-box;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1px;
+    border: 2px solid var(--vertex-paygo-floating-tier);
+    border-radius: 50%;
+    background:
+        radial-gradient(circle at 50% 25%, color-mix(in srgb, var(--vertex-paygo-floating-tier) 30%, transparent), transparent 70%),
+        var(--vertex-paygo-floating-surface);
+    backdrop-filter: blur(12px);
+    box-shadow: 0 4px 14px #0006, 0 0 0 4px color-mix(in srgb, var(--vertex-paygo-floating-tier) 16%, transparent);
+    color: inherit;
+    font-family: inherit;
+    line-height: 1.1;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.2s ease, opacity 0.2s ease;
+}
+
+@media (hover: hover) {
+    .vertex-paygo-floating-ball:not(:disabled):hover { transform: scale(1.06); }
+}
+
+.vertex-paygo-floating-ball:not(:disabled):active { transform: scale(0.95); }
+
+.vertex-paygo-floating-ball[aria-expanded="true"] {
+    box-shadow: 0 4px 14px #0006, 0 0 0 5px color-mix(in srgb, var(--vertex-paygo-floating-tier) 32%, transparent);
+}
+
+.vertex-paygo-floating--dragging .vertex-paygo-floating-ball:not(:disabled) {
+    cursor: grabbing;
+    transform: scale(1.08);
+    box-shadow: 0 10px 24px #0008, 0 0 0 4px color-mix(in srgb, var(--vertex-paygo-floating-tier) 16%, transparent);
+}
+
+.vertex-paygo-floating-brand {
+    font-size: 9px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    opacity: 0.7;
+}
+
+.vertex-paygo-floating-mode {
+    max-width: calc(100% - 4px);
+    overflow: hidden;
+    font-size: 10.5px;
+    font-weight: 700;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* A spinning arc on the ring while a tier change or host transition is running. */
+.vertex-paygo-floating-ball:disabled {
+    cursor: progress;
+    opacity: 0.8;
+}
+
+.vertex-paygo-floating-ball[aria-busy="true"]::after {
+    content: "";
+    position: absolute;
+    inset: -5px;
+    border: 2px solid transparent;
+    border-top-color: var(--vertex-paygo-floating-tier);
+    border-radius: 50%;
+    animation: vertex-paygo-floating-spin 0.8s linear infinite;
+}
+
+.vertex-paygo-floating button:focus-visible {
+    outline: 2px solid var(--vertex-paygo-floating-tier);
+    outline-offset: 3px;
+}
+
+.vertex-paygo-floating-options {
+    --vertex-paygo-floating-shift: -4px;
+    position: absolute;
+    top: calc(100% + 10px);
+    left: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px;
+    box-sizing: border-box;
+    border: 1px solid var(--vertex-paygo-floating-border);
+    border-radius: 12px;
+    background: var(--vertex-paygo-floating-surface);
+    backdrop-filter: blur(16px);
+    box-shadow: 0 8px 28px #0008;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    animation: vertex-paygo-floating-in 0.14s ease-out;
+}
+
+.vertex-paygo-floating[data-placement="above"] .vertex-paygo-floating-options {
+    --vertex-paygo-floating-shift: 4px;
+    top: auto;
+    bottom: calc(100% + 10px);
+}
+
+.vertex-paygo-floating-header {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    padding: 2px 6px 8px;
+    border-bottom: 1px solid color-mix(in srgb, var(--vertex-paygo-floating-border) 60%, transparent);
+    margin-bottom: 2px;
+}
+
+.vertex-paygo-floating-header small {
+    font-size: 11px;
+    opacity: 0.7;
+}
+
+.vertex-paygo-floating-model {
+    overflow: hidden;
+    font-size: 12px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.vertex-paygo-floating-option {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    width: 100%;
+    margin: 0;
+    padding: 8px 30px 8px 14px;
+    box-sizing: border-box;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: inherit;
+    font-family: inherit;
+    text-align: start;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.vertex-paygo-floating-option::before {
+    content: "";
+    position: absolute;
+    left: 5px;
+    top: 9px;
+    bottom: 9px;
+    width: 3px;
+    border-radius: 2px;
+    background: var(--vertex-paygo-floating-tier);
+    opacity: 0.45;
+}
+
+.vertex-paygo-floating-option:not(:disabled):hover {
+    background: color-mix(in srgb, var(--vertex-paygo-floating-tier) 12%, transparent);
+}
+
+.vertex-paygo-floating-option[aria-pressed="true"] {
+    border-color: color-mix(in srgb, var(--vertex-paygo-floating-tier) 60%, transparent);
+    background: color-mix(in srgb, var(--vertex-paygo-floating-tier) 16%, transparent);
+}
+
+.vertex-paygo-floating-option[aria-pressed="true"]::before { opacity: 1; }
+
+.vertex-paygo-floating-option[aria-pressed="true"]::after {
+    content: "✓";
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--vertex-paygo-floating-tier);
+    font-weight: 700;
+}
+
+.vertex-paygo-floating button.vertex-paygo-floating-option:focus-visible { outline-offset: 1px; }
+
+.vertex-paygo-floating-name {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.vertex-paygo-floating-hint {
+    font-size: 11px;
+    line-height: 1.35;
+    opacity: 0.72;
+    overflow-wrap: anywhere;
+}
+
+.vertex-paygo-floating-option[data-support="caution"] .vertex-paygo-floating-hint {
+    color: var(--warning-color, #e7b55e);
+    opacity: 1;
+}
+
+.vertex-paygo-floating-option:disabled { cursor: not-allowed; }
+.vertex-paygo-floating-option:disabled :is(.vertex-paygo-floating-name, .vertex-paygo-floating-hint),
+.vertex-paygo-floating-option:disabled::before { opacity: 0.45; }
+
+.vertex-paygo-floating-setting { margin: 10px 0; }
+
+@keyframes vertex-paygo-floating-spin {
+    to { transform: rotate(360deg); }
+}
+
+@keyframes vertex-paygo-floating-in {
+    from {
+        opacity: 0;
+        transform: translateY(var(--vertex-paygo-floating-shift)) scale(0.97);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .vertex-paygo-floating,
+    .vertex-paygo-floating-ball,
+    .vertex-paygo-floating-option {
+        transition: none;
+    }
+
+    .vertex-paygo-floating-options { animation: none; }
+    .vertex-paygo-floating-ball[aria-busy="true"]::after { animation-duration: 2.4s; }
+}

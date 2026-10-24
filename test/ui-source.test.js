@@ -151,6 +151,19 @@ test('one settings controller moves between sources, preserves profiles, and app
     assert.equal(paygo.parentElement.hidden, true);
     assert.equal(select.querySelector('option[value="priority"]').hidden, true);
     assert.equal(select.querySelector('option[value="flex"]').disabled, false);
+    const floatingEnabled = dom.document.getElementById('vertex-paygo-floating-enabled');
+    const floating = dom.document.getElementById('vertex-paygo-floating');
+    assert.equal(floating.hidden, true);
+    floatingEnabled.checked = true;
+    await floatingEnabled.fire('change');
+    assert.equal(floating.hidden, false);
+    const floatingOptions = dom.document.getElementById('vertex-paygo-floating-options');
+    await floatingOptions.children.find(node => node['data-tier'] === 'flex').fire('click');
+    assert.equal(ui.getState().tier, 'flex');
+    assert.equal(select.value, 'flex');
+    assert.equal(studio[EXTENSION_ID].tier, 'flex');
+    await floatingOptions.children.find(node => node['data-tier'] === 'standard').fire('click');
+    assert.equal(ui.getState().tier, 'standard');
     select.value = 'flex';
     await select.fire('change');
     assert.equal(ui.getState().tier, 'flex');
@@ -183,6 +196,7 @@ test('one settings controller moves between sources, preserves profiles, and app
     context.chatCompletionSettings.chat_completion_source = 'openai';
     handlers.get('CHATCOMPLETION_SOURCE_CHANGED')();
     assert.equal(general.parentElement, generalPanel, 'global settings remain available for other sources');
+    assert.equal(floating.hidden, true);
     assert.equal(dom.elements.filter(element => element.id === drawer.id).length, 1);
     ui.destroy();
     assert.equal(general.parentElement, null);

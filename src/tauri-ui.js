@@ -9,6 +9,7 @@ import { applyTauriParameters, readTauriState } from './tauri-parameters.js';
 
 import { createMessageCostPlacementControl, DEFAULT_MESSAGE_COST_PLACEMENT } from './message-cost-settings.js';
 import { mountExtensionSettings } from './extension-settings.js';
+import { createFloatingTierUi } from './floating-tier-ui.js';
 
 const CURRENT = '__current__';
 
@@ -74,13 +75,22 @@ export function createTauriUi({ getContext, connections, yaml, documentRef = glo
         label: localize('vertex_paygo.settings.tab.general') });
     let busy = false;
     let destroyed = false;
+    const floatingTier = createFloatingTierUi({ documentRef, getContext, localize, notifyError,
+        getTarget: () => {
+            const data = currentTauriRequest(getContext());
+            return { source: data.chat_completion_source, model: data.model,
+                tier: readTauriState(data, { yaml }).tier, busy };
+        },
+        selectTier: requestedTier => change({ current: true, requestedTier }),
+    });
+    displayGroup.append(floatingTier.setting);
     const disposers = [];
     const listen = (node, event, handler) => {
         node.addEventListener(event, handler);
         disposers.push(() => node.removeEventListener(event, handler));
     };
-    function selected() {
-        if (scope.value && scope.value !== CURRENT) return connections.read(scope.value);
+    function selected(current = false) {
+        if (!current && scope.value && scope.value !== CURRENT) return connections.read(scope.value);
         const data = currentTauriRequest(getContext());
         return { id: CURRENT, source: data.chat_completion_source, model: data.model,
             region: data.vertexai_region, state: readTauriState(data, { yaml }), data };
@@ -90,6 +100,7 @@ export function createTauriUi({ getContext, connections, yaml, documentRef = glo
     }
     function render() {
         if (destroyed) return;
+        floatingTier.render();
         placementControl.render();
         try {
             const item = selected();
@@ -137,16 +148,18 @@ export function createTauriUi({ getContext, connections, yaml, documentRef = glo
     function signature(item) {
         return JSON.stringify([item.id, item.source, item.model, item.region, item.state, item.data]);
     }
-    async function change() {
+    async function change({ current = false, requestedTier } = {}) {
         if (busy || destroyed) return;
-        const requested = { tier: tier.value, paygoOnly: paygo.checked };
         const context = getContext();
         const beforeSettings = context.chatCompletionSettings;
         busy = true;
         scope.disabled = tier.disabled = paygo.disabled = refresh.disabled = true;
+        floatingTier.render();
         try {
-            const item = selected();
+            const item = selected(current);
             if (!item || !isGoogleSource(item.source)) throw new Error(localize('vertex_paygo.tauri.select_google'));
+            const requested = { tier: requestedTier ?? tier.value,
+                paygoOnly: current ? item.state.paygoOnly : paygo.checked };
             if (item.source === AI_STUDIO_SOURCE) requested.paygoOnly = false;
             const before = signature(item);
             let region = item.region;
@@ -160,7 +173,7 @@ export function createTauriUi({ getContext, connections, yaml, documentRef = glo
                 region = 'global';
             }
             const liveContext = getContext();
-            const afterItem = selected();
+            const afterItem = selected(current);
             if (destroyed || liveContext.chatCompletionSettings !== beforeSettings || !afterItem || signature(afterItem) !== before) {
                 throw new Error(localize('vertex_paygo.tauri.settings_changed'));
             }
@@ -200,8 +213,8 @@ export function createTauriUi({ getContext, connections, yaml, documentRef = glo
         finally { busy = false; reload(); }
     }
     listen(scope, 'change', render);
-    listen(tier, 'change', change);
-    listen(paygo, 'change', change);
+    listen(tier, 'change', () => change());
+    listen(paygo, 'change', () => change());
     listen(refresh, 'click', reload);
     const changed = event => { if (!root.contains(event.target) && !busy) reload(); };
     listen(documentRef, 'change', changed);
@@ -222,6 +235,6 @@ export function createTauriUi({ getContext, connections, yaml, documentRef = glo
             return { source: item?.source, model: item?.model, tier: item?.state?.tier ?? 'standard' };
         },
         onModelPolicyChanged: reload,
-        destroy() { destroyed = true; placementControl.destroy(); for (const dispose of disposers) dispose(); unmountSettings(); },
+        destroy() { destroyed = true; floatingTier.destroy(); placementControl.destroy(); for (const dispose of disposers) dispose(); unmountSettings(); },
     };
 }

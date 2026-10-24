@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import yaml from 'yaml';
 import { createTauriUi } from '../src/tauri-ui.js';
 import { nativeContext, nativeDocument } from './helpers/native-dom.js';
+import { EXTENSION_ID } from '../src/constants.js';
 
 function fixture() {
     const context = nativeContext(); const documentRef = nativeDocument(); const errors = [];
@@ -10,6 +11,53 @@ function fixture() {
         connections: { list: () => [], read: () => null }, notifyError: text => errors.push(text) });
     return { context, documentRef, errors, ui };
 }
+
+test('floating tier targets the current native connection while the drawer edits another Agent', async () => {
+    const context = nativeContext();
+    context.extensionSettings[EXTENSION_ID] = { floatingTier: { enabled: true } };
+    context.chatCompletionSettings.additional_parameters_by_source.vertexai = {
+        include_headers: 'X-Vertex-AI-LLM-Request-Type: shared\n',
+    };
+    const documentRef = nativeDocument();
+    const errors = [];
+    const agent = { id: 'agent', name: 'Other', source: 'makersuite', model: 'gemini-2.5-pro',
+        state: { tier: 'standard', paygoOnly: false } };
+    const ui = createTauriUi({ getContext: () => context, documentRef, yaml,
+        connections: { list: () => [agent], read: () => agent,
+            save: () => assert.fail('floating mode must never save the offline Agent') },
+        notifyError: error => errors.push(error) });
+    const scope = documentRef.getElementById('vertex-paygo-scope');
+    scope.value = 'agent';
+    await scope.fire('change');
+    const options = documentRef.getElementById('vertex-paygo-floating-options');
+    await options.children.find(node => node['data-tier'] === 'flex').fire('click');
+    assert.deepEqual(errors, []);
+    assert.equal(ui.getState().tier, 'flex');
+    assert.equal(ui.getState().paygoOnly, true, 'preserve the current connection paygoOnly');
+    assert.equal(agent.state.tier, 'standard');
+    assert.equal(documentRef.getElementById('vertex-paygo-tier').value, 'standard');
+    const ball = documentRef.getElementById('vertex-paygo-floating').children[0];
+    assert.equal(ball.dataset.tier, 'flex');
+    ui.destroy();
+});
+
+test('floating native selection reuses global confirmation and rejects a stale source', async () => {
+    const { context, documentRef, errors, ui } = fixture();
+    context.extensionSettings[EXTENSION_ID] = { floatingTier: { enabled: true } };
+    context.chatCompletionSettings.vertexai_region = 'us-central1';
+    let resolve;
+    context.Popup.show.confirm = () => new Promise(done => { resolve = done; });
+    const options = documentRef.getElementById('vertex-paygo-floating-options');
+    const change = options.children.find(node => node['data-tier'] === 'flex').fire('click');
+    assert.equal(documentRef.getElementById('vertex-paygo-floating').children[0].disabled, true);
+    context.chatCompletionSettings.chat_completion_source = 'makersuite';
+    resolve(context.POPUP_RESULT.AFFIRMATIVE);
+    await change;
+    assert.equal(errors.length, 1);
+    assert.equal(context.chatCompletionSettings.vertexai_region, 'us-central1');
+    assert.deepEqual(context.chatCompletionSettings.additional_parameters_by_source, {});
+    ui.destroy();
+});
 
 test('native tier UI preserves unrelated YAML and persists Flex/global through native settings', async () => {
     const { context, documentRef, errors, ui } = fixture();

@@ -1,4 +1,11 @@
 {
+  "vertex_paygo.floating.enabled": "显示 PayGo 计价模式悬浮球",
+  "vertex_paygo.floating.current": "当前连接 · 计价模式",
+  "vertex_paygo.floating.toggle": "当前模式：{tier}。点击选择计价模式",
+  "vertex_paygo.floating.guidance": "点击选择计价模式；可拖到屏幕左右边缘，位置会自动保存。",
+  "vertex_paygo.floating.hint.standard": "默认价格与速度",
+  "vertex_paygo.floating.hint.flex": "更便宜但响应较慢，繁忙时可能失败",
+  "vertex_paygo.floating.hint.priority": "价格更高，优先处理",
   "vertex_paygo.gemini4.server_upgrade": "Gemini 4 兼容修复需要新版服务端插件。请更新服务端插件并重启 SillyTavern。",
   "vertex_paygo.gemini4.budget_exhausted": "Gemini 4 在写出正文前就用完了输出预算。思考内容也计入“最大回复长度”，请调高该值或降低“推理强度”。",
   "vertex_paygo.gemini4.no_output": "Gemini 4 没有返回正文（原因：{reason}）。",

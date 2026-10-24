@@ -10,6 +10,13 @@ import { PROTOCOL_VERSION, REQUIRED_TRANSPORT } from './constants.js';
 import { MODEL_POLICY_SNAPSHOT } from './model-policy.js';
 
 export const MESSAGES = Object.freeze({
+    'vertex_paygo.floating.enabled': 'Show the PayGo floating button',
+    'vertex_paygo.floating.current': 'Current connection · service tier',
+    'vertex_paygo.floating.toggle': 'Current tier: {tier}. Choose a service tier',
+    'vertex_paygo.floating.guidance': 'Click to choose a service tier. Drag it along either screen edge; the position is remembered.',
+    'vertex_paygo.floating.hint.standard': 'Default price and speed',
+    'vertex_paygo.floating.hint.flex': 'Cheaper but slower; may fail when Google is busy',
+    'vertex_paygo.floating.hint.priority': 'Costs more; handled first',
     'vertex_paygo.gemini4.server_upgrade': 'Gemini 4 compatibility requires the updated server plugin. Update the server plugin and restart SillyTavern.',
     'vertex_paygo.gemini4.budget_exhausted': 'Gemini 4 used the whole output budget before writing any reply text. Thinking tokens count toward Max Response Length: raise it or lower the Reasoning Effort.',
     'vertex_paygo.gemini4.no_output': 'Gemini 4 returned no reply text (reason: {reason}).',

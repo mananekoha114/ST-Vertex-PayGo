@@ -105,6 +105,8 @@
 
 > 📌 **检查状态**：SillyTavern / Luker 用户请确认 API 面板中的“服务端插件状态”显示为 **就绪（Ready）**；TauriTavern 用户走系统原生接口，无需此状态。
 
+在 **扩展设置 → ST-Vertex-PayGo → 常规** 中开启「显示 PayGo 计价模式悬浮球」（默认关闭），即可在聊天界面点击悬浮球，快速选择当前连接的 Standard / Flex / Priority。悬浮球以颜色和文字显示当前模式（灰 Standard / 绿 Flex / 琥珀 Priority），可拖动，松手后贴靠最近的左右边缘并记住位置。菜单显示当前模型，每个模式附有简短说明；不支持的模式会禁用并直接写出原因（触屏同样可见），AI Studio 隐藏 Priority，其他服务商不显示悬浮球。切换沿用原有模型校验与区域确认，保留 PayGo-only 状态。TauriTavern 的悬浮球始终控制当前连接，不受设置页中选中的 Agent 目标影响。
+
 ### 3. AI Studio 反向代理（SillyTavern / Luker）
 
 直接使用宿主 API 设置中的“反向代理”地址与代理密码，无需在扩展中重复填写：

@@ -54,8 +54,8 @@
 
 ## 使用限制
 
-- Carbon 尚无公开的 API 文档：兼容层按与 Argon 相同的 Gemini 4 接口处理（`thinkingLevel`、签名、续传令牌、Vertex `v1beta1`），上下文与输出容量按 1,048,576 token 处理。Google 公布文档后如有差异会再调整。目前 Carbon 只在 Vertex 开放。
-- 服务层级：Vertex 的 Flex PayGo 不支持 Gemini 4，Argon 可用 Standard 与 Priority；Carbon 暂只开放 Standard，等 Google 公布层级支持后再开放。AI Studio 的 Argon 可用 Standard 与 Flex。
+- Carbon 已在 AI Studio 与 Vertex 正式开放。Google 说明从 Argon 升级无需修改请求结构，兼容层沿用同一套 Gemini 4 接口（`thinkingLevel`、签名、续传令牌、Vertex `v1beta1`），上下文与输出容量按 1,048,576 token 处理。Carbon 与 Argon 都不提供免费层。
+- 服务层级：Vertex 的 Flex PayGo 不支持 Gemini 4，Carbon 与 Argon 可用 Standard 与 Priority。AI Studio 的 Carbon 与 Argon 可用 Standard 与 Flex。
 - 温度、Top-P、Top-K 在 Gemini 4 上不再具有原来的采样效果；兼容层不会伪造这些参数的效果。
 - 输出预算同时包含模型思考和正文，较小的预算（ST 默认 300）仍可能在正文出现前用尽；此时会明确提示，而不是返回空白消息。
 - 是否有模型访问权限、区域或服务层配额，仍由 Google 决定。
@@ -69,6 +69,8 @@
 ## 官方依据
 
 - [GenerateContent 迁移说明](https://ai.google.dev/gemini-api/docs/generate-content/latest-model)
-- [Argon 开发指南](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/guides/gemini-4-argon)
+- [Argon 开发指南](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/guides/gemini-4-argon) / [Carbon 开发指南](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/guides/gemini-4-carbon)
+- [Gemini 4 Carbon 更新说明](https://aistudio.google.com/docs/whats-new-gemini-4-carbon)
+- [AI Studio 价格](https://aistudio.google.com/docs/pricing) / [Flex 推理支持模型](https://aistudio.google.com/docs/flex-inference)
 - [Vertex Flex PayGo](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/flex-paygo) / [Priority PayGo](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/priority-paygo) 支持模型
 - [思考签名](https://ai.google.dev/gemini-api/docs/generate-content/thought-signatures)

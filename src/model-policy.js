@@ -14,7 +14,7 @@ import { BUNDLED_PRICING } from './bundled-pricing.js';
 export const BUNDLED_MODEL_POLICY = Object.freeze({
     schemaVersion: 1,
     pricing: BUNDLED_PRICING,
-    updatedAt: '2026-11-10',
+    updatedAt: '2026-11-11',
     tiers: Object.freeze({
         flex: Object.freeze([
             'gemini-3.8-flash',
@@ -30,6 +30,7 @@ export const BUNDLED_MODEL_POLICY = Object.freeze({
             'gemini-3-flash-preview',
         ]),
         priority: Object.freeze([
+            'gemini-4-carbon',
             'gemini-4-argon',
             'gemini-4-argon-cyber-permissive',
             'gemini-3.8-flash',
@@ -67,9 +68,10 @@ export const BUNDLED_MODEL_POLICY = Object.freeze({
         'gemini-2.5-flash-lite',
     ]),
     aiStudio: Object.freeze({
-        updatedAt: '2026-10-14',
+        updatedAt: '2026-11-11',
         tiers: Object.freeze({
             flex: Object.freeze([
+                'gemini-4-carbon',
                 'gemini-4-argon',
                 'gemini-3.8-flash',
                 'gemini-3.7-flash',
@@ -85,6 +87,7 @@ export const BUNDLED_MODEL_POLICY = Object.freeze({
             ]),
         }),
         knownModels: Object.freeze([
+            'gemini-4-carbon',
             'gemini-4-argon',
             'gemini-3.8-flash',
             'gemini-3.7-flash',

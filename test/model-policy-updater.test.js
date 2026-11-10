@@ -115,7 +115,11 @@ test('strict validation rejects incompatible, malformed, or incomplete documents
         error => error.code === 'INVALID_MODEL_ID',
     );
     assert.throws(
-        () => parseModelPolicyDocument({ ...valid, knownModels: valid.knownModels.slice(1) }),
+        // Drop a tiered model: a standard-only known model may be omitted.
+        () => parseModelPolicyDocument({
+            ...valid,
+            knownModels: valid.knownModels.filter(model => model !== valid.tiers.flex[0]),
+        }),
         error => error.code === 'INCOMPLETE_KNOWN_MODELS',
     );
     assert.throws(

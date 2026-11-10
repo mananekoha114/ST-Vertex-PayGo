@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { installRequestTransport } from '../src/request-transport.js';
 import { enrichGemini4ModelList, GEMINI4_NATIVE_ROUTE, isNativeGemini4Request } from '../src/gemini4-request.js';
+import { GEMINI4_MODELS } from '../src/gemini4-models.js';
 
 const origin = 'http://localhost:8000';
 const route = '/api/backends/chat-completions/generate';
@@ -14,22 +15,23 @@ function fixture(prepared = {}) {
     const hook = installRequestTransport({ context: {}, target, origin,
         stateProvider: () => ({ tier: 'standard', paygoOnly: false }),
         serverClient: { prepare: async () => ({ proxyUrl: 'http://127.0.0.1:12345/proxy/ticket',
-            proxySecret: 'mock-secret', nativeGemini4: true, nativeGeminiApiVersion: 'v1beta', ...prepared }) },
+            proxySecret: 'mock-secret', nativeGemini4: true, nativeGeminiApiVersion: 'v1beta',
+            nativeGemini4Models: [...GEMINI4_MODELS], ...prepared }) },
     });
     return { target, hook, sent };
 }
-const payload = source => ({ chat_completion_source: source, model: 'gemini-4-argon',
+const payload = (source, model = 'gemini-4-argon') => ({ chat_completion_source: source, model,
     vertexai_region: 'global', vertexai_auth_mode: 'express', max_tokens: 4096,
     messages: [{ role: 'user', content: 'question' }], include_reasoning: true, reasoning_effort: 'medium', stream: true });
 
-test('only native Google Argon requests use the compatibility route', async () => {
-    for (const source of ['makersuite', 'vertexai']) {
+test('only native Google Gemini 4 requests use the compatibility route', async () => {
+    for (const model of GEMINI4_MODELS) for (const source of ['makersuite', 'vertexai']) {
         const f = fixture();
-        const body = payload(source);
+        const body = payload(source, model);
         f.hook(body);
         await f.target.fetch(route, { method: 'POST', headers: { 'x-csrf-token': 'fixture' }, body: JSON.stringify(body) });
         assert.equal(f.sent[0].input, origin + GEMINI4_NATIVE_ROUTE);
-        assert.equal(f.sent[0].data.model, 'gemini-4-argon');
+        assert.equal(f.sent[0].data.model, model);
         assert.equal(f.sent[0].data.reasoning_effort, 'medium');
         assert.equal(f.sent[0].data.max_tokens, 4096);
         assert.equal(f.sent[0].data.native_gemini_api_version, 'v1beta');
@@ -37,6 +39,7 @@ test('only native Google Argon requests use the compatibility route', async () =
     }
     assert.equal(isNativeGemini4Request({ ...payload('custom') }), false);
     assert.equal(isNativeGemini4Request({ ...payload('makersuite'), model: 'gemini-3.1-pro-preview' }), false);
+    assert.equal(isNativeGemini4Request({ ...payload('vertexai'), model: 'gemini-4-carbon-preview' }), false);
 });
 
 test('retargeted Request preserves headers, method and cancellation', async () => {
@@ -60,6 +63,19 @@ test('old server fails before generation instead of silently dropping Argon reas
     assert.equal(f.sent.length, 0);
 });
 
+test('a server without the advertised model list keeps Argon native and refuses Carbon before generation', async () => {
+    const legacy = { nativeGemini4Models: undefined };
+    const argon = fixture(legacy);
+    await argon.target.fetch(route, { method: 'POST', body: JSON.stringify(payload('vertexai', 'gemini-4-argon')) });
+    assert.equal(argon.sent[0].input, origin + GEMINI4_NATIVE_ROUTE);
+    for (const prepared of [legacy, { nativeGemini4Models: ['gemini-4-argon'] }]) {
+        const carbon = fixture(prepared);
+        await assert.rejects(carbon.target.fetch(route, { method: 'POST', body: JSON.stringify(payload('vertexai', 'gemini-4-carbon')) }),
+            { code: 'GEMINI4_SERVER_UPGRADE_REQUIRED' });
+        assert.equal(carbon.sent.length, 0);
+    }
+});
+
 test('model list receives missing limits before host status handling, preserving authoritative values', async () => {
     const response = Response.json({ data: [{ id: 'gemini-4-argon', inputTokenLimit: 900000 }, { id: 'unrelated' }] });
     const result = await enrichGemini4ModelList(response);
@@ -67,6 +83,7 @@ test('model list receives missing limits before host status handling, preserving
     assert.equal(data.data.find(record => record.id === 'gemini-4-argon').inputTokenLimit, 900000);
     assert.equal(data.data.find(record => record.id === 'gemini-4-argon').outputTokenLimit, 1048576);
     assert.equal(data.data.find(record => record.id === 'gemini-4-argon-cyber-permissive').inputTokenLimit, 1048576);
+    assert.equal(data.data.find(record => record.id === 'gemini-4-carbon').outputTokenLimit, 1048576);
     assert.deepEqual(data.data.find(record => record.id === 'unrelated'), { id: 'unrelated' });
     const error = new Response('failure', { status: 502 });
     assert.equal(await enrichGemini4ModelList(error), error);

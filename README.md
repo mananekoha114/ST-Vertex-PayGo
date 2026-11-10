@@ -5,7 +5,7 @@
 
 安装本扩展后，程序会自动识别你当前运行的客户端环境，并直接复用已有的 Google 认证配置。无需手写复杂的 API 请求头，直接在界面勾选即可享受弹性低价（Flex）或高优先级（Priority）！
 
-当前版本 **v0.6.0** · [更新日志](CHANGELOG.md) · [安装与更新脚本](INSTALL.md) · [Gemini 4 Argon 兼容说明](GEMINI4.md)
+当前版本 **v0.6.0** · [更新日志](CHANGELOG.md) · [安装与更新脚本](INSTALL.md) · [Gemini 4 兼容说明](GEMINI4.md)
 
 ---
 
@@ -19,7 +19,7 @@
 - **🏷️ 单条回复费用**：默认在角色头像下方显示这一版回复的估算花费（如 `≈ $0.02331`），也可切换到消息底部、消息顶部或隐藏。点击金额还能弹出**详细用量卡片**，查看输入、输出、思维链（Reasoning）Token、耗时与生成速率。
 - **🔄 动态模型与价格同步**：启动及运行中每 6 小时自动同步最新支持的模型名单与官方计费价格，断网时自动启用本地离线快照，也支持手动自定义单价。
 - **🔌 Google OpenAI 兼容桥接**：为数据库、摘要等插件提供本机 OpenAI Chat Completions 接口，复用宿主中的 Google 凭据（仅 SillyTavern / Luker）。
-- **🧩 Gemini 4 Argon 原生兼容**：为原生 Gemini 来源补齐思考配置、媒体、签名与长输出续传（仅 SillyTavern / Luker）。
+- **🧩 Gemini 4 原生兼容**：为原生 Gemini 来源补齐思考配置、媒体、签名与长输出续传（仅 SillyTavern / Luker）。
 - **🛡️ 智能防扣错机制**：严格校验模型、区域与层级组合；后端异常或 Flex 排队失败时直接拦截，**绝不静默回退到贵价通道**。
 - **🧰 面板内维护**：管理员可在扩展菜单中查看日志、更新前后端组件、恢复 PayGo 数据快照。
 - **📱 跨客户端适配**：同时兼容网页版酒馆、Luker 以及 TauriTavern 桌面/移动客户端；设置菜单适配桌面与手机布局。
@@ -250,9 +250,9 @@ console.log(models);
 
 ---
 
-## 🧩 Gemini 4 Argon 原生兼容
+## 🧩 Gemini 4 原生兼容
 
-适用于 SillyTavern / Luker 的 Google AI Studio 和 Vertex AI 原生来源，识别 `gemini-4-argon` 与 `gemini-4-argon-cyber-permissive`，需前后端均为 0.6.0 及以上。兼容层处理思考档位映射、媒体计入预算、工具调用签名、长输出续传与费用汇总；不会向模型下拉菜单添加 Argon 选项。完整行为与限制见 [GEMINI4.md](GEMINI4.md)。
+适用于 SillyTavern / Luker 的 Google AI Studio 和 Vertex AI 原生来源，识别 `gemini-4-carbon`、`gemini-4-argon` 与 `gemini-4-argon-cyber-permissive`。Argon 需前后端均为 0.6.0 及以上，Carbon 需两者都是 0.6.1-pre1 之后的版本。兼容层处理思考档位映射、媒体计入预算、工具调用签名、长输出续传与费用汇总；不会向模型下拉菜单添加 Gemini 4 选项。完整行为与限制见 [GEMINI4.md](GEMINI4.md)。
 
 ---
 

@@ -6,6 +6,7 @@ import { DEFAULT_STATE, EXTENSION_ID, isGoogleSource } from './constants.js';
 import { createRequestHook, installFailureSink } from './request-hook.js';
 import { normalizeState, requiresPlugin } from './state-machine.js';
 import { enrichGemini4ModelList, getGemini4RequestTarget, isNativeGemini4Request, localizeGemini4Response } from './gemini4-request.js';
+import { serverSupportsNativeGemini4 } from './gemini4-models.js';
 import { createGemini4SignatureTracker } from './gemini4-signatures.js';
 
 const REQUEST_STATE = '__vertexPayGoRequestState';
@@ -109,7 +110,7 @@ export function installRequestTransport({ context, stateProvider, target = globa
         try {
             const prepared = await prepareRequest(data);
             if (isNativeGemini4Request(data)) {
-                if (prepared?.nativeGemini4 !== true) {
+                if (!serverSupportsNativeGemini4(prepared, data.model)) {
                     const message = hookOptions.localize?.('vertex_paygo.gemini4.server_upgrade')
                         ?? 'Gemini 4 compatibility requires the updated server plugin. Update the server plugin and restart SillyTavern.';
                     throw Object.assign(new Error(message), { code: 'GEMINI4_SERVER_UPGRADE_REQUIRED' });

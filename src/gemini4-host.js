@@ -1,6 +1,7 @@
-/** Runtime compatibility for hosts whose Gemini allowlists predate Argon. */
-export const GEMINI4_MODELS = ['gemini-4-argon', 'gemini-4-argon-cyber-permissive'];
-export const isGemini4Model = model => GEMINI4_MODELS.includes(model);
+/** Runtime compatibility for hosts whose Gemini allowlists predate Gemini 4. */
+import { GEMINI4_MODELS, GEMINI4_MODEL_LIMIT, isGemini4Model } from './gemini4-models.js';
+
+export { GEMINI4_MODELS, isGemini4Model };
 
 export function selectedMedia(prompt) {
     if (!Array.isArray(prompt?.media)) return [];
@@ -16,7 +17,7 @@ export function selectedMedia(prompt) {
  */
 export async function installGemini4HostCompatibility({
     context, host, document: doc = globalThis.document,
-    models = GEMINI4_MODELS.map(id => ({ id, inputTokenLimit: 1048576, outputTokenLimit: 1048576 })), isEnabled = () => true,
+    models = GEMINI4_MODELS.map(id => ({ id, inputTokenLimit: GEMINI4_MODEL_LIMIT, outputTokenLimit: GEMINI4_MODEL_LIMIT })), isEnabled = () => true,
 } = {}) {
     host ??= await import('/scripts/openai.js');
     const settings = () => host.oai_settings ?? context?.chatCompletionSettings ?? {};

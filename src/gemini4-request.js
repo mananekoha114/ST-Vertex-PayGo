@@ -3,17 +3,17 @@
  * License, v. 2.0. https://mozilla.org/MPL/2.0/ */
 
 import { isGoogleSource } from './constants.js';
+import { GEMINI4_MODELS, GEMINI4_MODEL_LIMIT, isGemini4Model } from './gemini4-models.js';
 
+export { GEMINI4_MODEL_LIMIT };
 export const GEMINI4_NATIVE_ROUTE = '/api/plugins/vertex-paygo/native-gemini/generate';
-export const GEMINI4_MODEL_LIMIT = 1048576;
-const models = ['gemini-4-argon', 'gemini-4-argon-cyber-permissive'];
 
 export async function enrichGemini4ModelList(response) {
     if (!response?.ok || typeof response.clone !== 'function') return response;
     let data;
     try { data = await response.clone().json(); } catch { return response; }
     if (!Array.isArray(data?.data)) return response;
-    for (const id of models) {
+    for (const id of GEMINI4_MODELS) {
         let record = data.data.find(record => record.id === id);
         if (!record) data.data.push(record = { id });
         record.inputTokenLimit ??= GEMINI4_MODEL_LIMIT;
@@ -89,7 +89,7 @@ export async function localizeGemini4Response(response, localize) {
 
 export function isNativeGemini4Request(data) {
     return isGoogleSource(data?.chat_completion_source)
-        && /^gemini-4-argon(?:-cyber-permissive)?$/u.test(data?.model ?? '');
+        && isGemini4Model(data?.model);
 }
 
 // Keep Request headers, credentials and cancellation when only its destination

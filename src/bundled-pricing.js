@@ -2,11 +2,12 @@
  * Copyright (c) 2026 Mana Nekoha
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0.
- * Pricing verified 2026-11-12. Vertex AI entries use the published Global base rates.
+ * Pricing verified 2026-11-13. Vertex AI entries use the published Global base rates.
  * Gemini 4 Hydrogen is not on the Vertex pricing page yet. Its Standard input
  * and output rates come from Cloud Billing SKU C1CE-B525-5A70; cached input
  * follows the 5% of input that every other Gemini 4 model charges, and
- * Priority is 1.8x Standard like every other Vertex model.
+ * Priority is 1.8x Standard like every other Vertex model. All three match
+ * the Google AI Studio published Hydrogen rates, which have no end date.
  * Gemini 4 Carbon and Argon rates end 2026-11-30 and double on 2026-12-01;
  * replace them with the published December rates instead of letting them
  * lapse unpriced.
@@ -19,7 +20,7 @@
  */
 
 export const BUNDLED_PRICING = {
-    updatedAt: '2026-11-12',
+    updatedAt: '2026-11-13',
     currency: 'USD',
     unit: 'per_million_tokens',
     entries: [
@@ -59,6 +60,9 @@ export const BUNDLED_PRICING = {
         { source: 'vertexai', model: 'gemini-2.5-flash', tier: 'priority', input: 0.54, cachedInput: 0.054, output: 4.5, sourceUrl: 'https://cloud.google.com/gemini-enterprise-agent-platform/generative-ai/pricing' },
         { source: 'vertexai', model: 'gemini-2.5-flash-lite', tier: 'standard', input: 0.1, cachedInput: 0.01, output: 0.4, sourceUrl: 'https://cloud.google.com/gemini-enterprise-agent-platform/generative-ai/pricing' },
         { source: 'vertexai', model: 'gemini-2.5-flash-lite', tier: 'priority', input: 0.18, cachedInput: 0.018, output: 0.72, sourceUrl: 'https://cloud.google.com/gemini-enterprise-agent-platform/generative-ai/pricing' },
+        { source: 'makersuite', model: 'gemini-4-hydrogen', tier: 'standard', input: 1.5, cachedInput: 0.075, output: 7.5, sourceUrl: 'https://ai.google.dev/gemini-api/docs/pricing' },
+        { source: 'makersuite', model: 'gemini-4-hydrogen', tier: 'flex', input: 0.75, cachedInput: 0.0375, output: 3.75, sourceUrl: 'https://ai.google.dev/gemini-api/docs/pricing' },
+        { source: 'makersuite', model: 'gemini-4-hydrogen', tier: 'priority', input: 2.7, cachedInput: 0.135, output: 13.5, sourceUrl: 'https://ai.google.dev/gemini-api/docs/pricing' },
         { source: 'makersuite', model: 'gemini-4-carbon', tier: 'standard', input: 2, cachedInput: 0.1, output: 10, validUntil: '2026-11-30', sourceUrl: 'https://ai.google.dev/gemini-api/docs/pricing' },
         { source: 'makersuite', model: 'gemini-4-carbon', tier: 'flex', input: 1, cachedInput: 0.05, output: 5, validUntil: '2026-11-30', sourceUrl: 'https://ai.google.dev/gemini-api/docs/pricing' },
         { source: 'makersuite', model: 'gemini-4-carbon', tier: 'priority', input: 3.6, cachedInput: 0.18, output: 18, validUntil: '2026-11-30', sourceUrl: 'https://ai.google.dev/gemini-api/docs/pricing' },

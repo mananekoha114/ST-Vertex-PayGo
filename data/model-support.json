@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-11-11",
+  "updatedAt": "2026-11-12",
   "sources": {
     "flex": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/flex-paygo",
     "priority": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/priority-paygo",
@@ -21,6 +21,7 @@
       "gemini-3-flash-preview"
     ],
     "priority": [
+      "gemini-4-hydrogen",
       "gemini-4-carbon",
       "gemini-4-argon",
       "gemini-4-argon-cyber-permissive",
@@ -38,6 +39,7 @@
     ]
   },
   "knownModels": [
+    "gemini-4-hydrogen",
     "gemini-4-carbon",
     "gemini-4-argon",
     "gemini-4-argon-cyber-permissive",
@@ -95,10 +97,12 @@
     ]
   },
   "pricing": {
-    "updatedAt": "2026-11-11",
+    "updatedAt": "2026-11-12",
     "currency": "USD",
     "unit": "per_million_tokens",
     "entries": [
+      { "source": "vertexai", "model": "gemini-4-hydrogen", "tier": "standard", "input": 1.5, "cachedInput": 0.075, "output": 7.5, "sourceUrl": "https://cloud.google.com/skus?filter=C1CE-B525-5A70" },
+      { "source": "vertexai", "model": "gemini-4-hydrogen", "tier": "priority", "input": 2.7, "cachedInput": 0.135, "output": 13.5, "sourceUrl": "https://cloud.google.com/skus?filter=C1CE-B525-5A70" },
       { "source": "vertexai", "model": "gemini-4-carbon", "tier": "standard", "input": 2, "cachedInput": 0.1, "output": 10, "validUntil": "2026-11-30", "sourceUrl": "https://cloud.google.com/gemini-enterprise-agent-platform/generative-ai/pricing" },
       { "source": "vertexai", "model": "gemini-4-carbon", "tier": "priority", "input": 3.6, "cachedInput": 0.18, "output": 18, "validUntil": "2026-11-30", "sourceUrl": "https://cloud.google.com/gemini-enterprise-agent-platform/generative-ai/pricing" },
       { "source": "vertexai", "model": "gemini-4-argon", "tier": "standard", "input": 2, "cachedInput": 0.1, "output": 10, "validUntil": "2026-11-30", "sourceUrl": "https://cloud.google.com/gemini-enterprise-agent-platform/generative-ai/pricing" },

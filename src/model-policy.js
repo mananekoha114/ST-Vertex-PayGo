@@ -14,7 +14,7 @@ import { BUNDLED_PRICING } from './bundled-pricing.js';
 export const BUNDLED_MODEL_POLICY = Object.freeze({
     schemaVersion: 1,
     pricing: BUNDLED_PRICING,
-    updatedAt: '2026-11-11',
+    updatedAt: '2026-11-12',
     tiers: Object.freeze({
         flex: Object.freeze([
             'gemini-3.8-flash',
@@ -30,6 +30,7 @@ export const BUNDLED_MODEL_POLICY = Object.freeze({
             'gemini-3-flash-preview',
         ]),
         priority: Object.freeze([
+            'gemini-4-hydrogen',
             'gemini-4-carbon',
             'gemini-4-argon',
             'gemini-4-argon-cyber-permissive',
@@ -49,6 +50,7 @@ export const BUNDLED_MODEL_POLICY = Object.freeze({
     // Keep retired entries here as tombstones even after removing them from
     // both tier arrays, so they do not become "unknown" and fail open again.
     knownModels: Object.freeze([
+        'gemini-4-hydrogen',
         'gemini-4-carbon',
         'gemini-4-argon',
         'gemini-4-argon-cyber-permissive',

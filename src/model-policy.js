@@ -17,6 +17,7 @@ export const BUNDLED_MODEL_POLICY = Object.freeze({
     updatedAt: '2026-11-13',
     tiers: Object.freeze({
         flex: Object.freeze([
+            'gemini-4-hydrogen',
             'gemini-3.8-flash',
             'gemini-3.7-flash',
             'gemini-3.6-flash',

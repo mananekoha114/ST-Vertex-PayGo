@@ -5,9 +5,11 @@
  * Pricing verified 2026-11-13. Vertex AI entries use the published Global base rates.
  * Gemini 4 Hydrogen is not on the Vertex pricing page yet. Its Standard input
  * and output rates come from Cloud Billing SKU C1CE-B525-5A70; cached input
- * follows the 5% of input that every other Gemini 4 model charges, and
- * Priority is 1.8x Standard like every other Vertex model. All three match
- * the Google AI Studio published Hydrogen rates, which have no end date.
+ * follows the 5% of input that every other Gemini 4 model charges, Flex is
+ * half of Standard like every other Vertex Flex model, and Priority is 1.8x
+ * Standard like every other Vertex model. Hydrogen is the only Gemini 4 model
+ * on the Vertex Flex PayGo roster. All three tiers match the Google AI Studio
+ * published Hydrogen rates, which have no end date.
  * Gemini 4 Carbon and Argon rates end 2026-11-30 and double on 2026-12-01;
  * replace them with the published December rates instead of letting them
  * lapse unpriced.
@@ -25,6 +27,7 @@ export const BUNDLED_PRICING = {
     unit: 'per_million_tokens',
     entries: [
         { source: 'vertexai', model: 'gemini-4-hydrogen', tier: 'standard', input: 1.5, cachedInput: 0.075, output: 7.5, sourceUrl: 'https://cloud.google.com/skus?filter=C1CE-B525-5A70' },
+        { source: 'vertexai', model: 'gemini-4-hydrogen', tier: 'flex', input: 0.75, cachedInput: 0.0375, output: 3.75, sourceUrl: 'https://cloud.google.com/skus?filter=C1CE-B525-5A70' },
         { source: 'vertexai', model: 'gemini-4-hydrogen', tier: 'priority', input: 2.7, cachedInput: 0.135, output: 13.5, sourceUrl: 'https://cloud.google.com/skus?filter=C1CE-B525-5A70' },
         { source: 'vertexai', model: 'gemini-4-carbon', tier: 'standard', input: 2, cachedInput: 0.1, output: 10, validUntil: '2026-11-30', sourceUrl: 'https://cloud.google.com/gemini-enterprise-agent-platform/generative-ai/pricing' },
         { source: 'vertexai', model: 'gemini-4-carbon', tier: 'priority', input: 3.6, cachedInput: 0.18, output: 18, validUntil: '2026-11-30', sourceUrl: 'https://cloud.google.com/gemini-enterprise-agent-platform/generative-ai/pricing' },

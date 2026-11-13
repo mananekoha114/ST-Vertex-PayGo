@@ -40,6 +40,7 @@ test('only native Google Gemini 4 requests use the compatibility route', async (
     assert.equal(isNativeGemini4Request({ ...payload('custom') }), false);
     assert.equal(isNativeGemini4Request({ ...payload('makersuite'), model: 'gemini-3.1-pro-preview' }), false);
     assert.equal(isNativeGemini4Request({ ...payload('vertexai'), model: 'gemini-4-carbon-preview' }), false);
+    assert.equal(isNativeGemini4Request({ ...payload('makersuite'), model: 'gemini-4-hydrogen-preview' }), false);
 });
 
 test('retargeted Request preserves headers, method and cancellation', async () => {
@@ -76,6 +77,20 @@ test('a server without the advertised model list keeps Argon native and refuses 
     }
 });
 
+test('a Carbon-era server refuses Hydrogen before generation', async () => {
+    const carbonEra = { nativeGemini4Models: ['gemini-4-carbon', 'gemini-4-argon', 'gemini-4-argon-cyber-permissive'] };
+    for (const source of ['makersuite', 'vertexai']) {
+        const hydrogen = fixture(carbonEra);
+        await assert.rejects(hydrogen.target.fetch(route, { method: 'POST', body: JSON.stringify(payload(source, 'gemini-4-hydrogen')) }),
+            { code: 'GEMINI4_SERVER_UPGRADE_REQUIRED' });
+        assert.equal(hydrogen.sent.length, 0);
+    }
+    const legacy = fixture({ nativeGemini4Models: undefined });
+    await assert.rejects(legacy.target.fetch(route, { method: 'POST', body: JSON.stringify(payload('vertexai', 'gemini-4-hydrogen')) }),
+        { code: 'GEMINI4_SERVER_UPGRADE_REQUIRED' });
+    assert.equal(legacy.sent.length, 0);
+});
+
 test('model list receives missing limits before host status handling, preserving authoritative values', async () => {
     const response = Response.json({ data: [{ id: 'gemini-4-argon', inputTokenLimit: 900000 }, { id: 'unrelated' }] });
     const result = await enrichGemini4ModelList(response);
@@ -84,6 +99,7 @@ test('model list receives missing limits before host status handling, preserving
     assert.equal(data.data.find(record => record.id === 'gemini-4-argon').outputTokenLimit, 1048576);
     assert.equal(data.data.find(record => record.id === 'gemini-4-argon-cyber-permissive').inputTokenLimit, 1048576);
     assert.equal(data.data.find(record => record.id === 'gemini-4-carbon').outputTokenLimit, 1048576);
+    assert.equal(data.data.find(record => record.id === 'gemini-4-hydrogen').inputTokenLimit, 1048576);
     assert.deepEqual(data.data.find(record => record.id === 'unrelated'), { id: 'unrelated' });
     const error = new Response('failure', { status: 502 });
     assert.equal(await enrichGemini4ModelList(error), error);

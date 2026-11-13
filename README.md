@@ -252,7 +252,7 @@ console.log(models);
 
 ## 🧩 Gemini 4 原生兼容
 
-适用于 SillyTavern / Luker 的 Google AI Studio 和 Vertex AI 原生来源，识别 `gemini-4-carbon`、`gemini-4-argon` 与 `gemini-4-argon-cyber-permissive`。Argon 需前后端均为 0.6.0 及以上，Carbon 需两者都是 0.6.1-pre1 之后的版本。兼容层处理思考档位映射、媒体计入预算、工具调用签名、长输出续传与费用汇总；不会向模型下拉菜单添加 Gemini 4 选项。完整行为与限制见 [GEMINI4.md](GEMINI4.md)。
+适用于 SillyTavern / Luker 的 Google AI Studio 和 Vertex AI 原生来源，识别 `gemini-4-hydrogen`、`gemini-4-carbon`、`gemini-4-argon` 与 `gemini-4-argon-cyber-permissive`。Argon 需前后端均为 0.6.0 及以上，Carbon 与 Hydrogen 需两者都是 0.6.1-pre1 之后的版本（Hydrogen 需要比 Carbon 支持更新的版本）。兼容层处理思考档位映射、媒体计入预算、工具调用签名、长输出续传与费用汇总；不会向模型下拉菜单添加 Gemini 4 选项。完整行为与限制见 [GEMINI4.md](GEMINI4.md)。
 
 ---
 

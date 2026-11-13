@@ -3,7 +3,7 @@
  * License, v. 2.0. https://mozilla.org/MPL/2.0/ */
 
 /** Gemini 4 models that need the native compatibility route. */
-export const GEMINI4_MODELS = Object.freeze(['gemini-4-carbon', 'gemini-4-argon', 'gemini-4-argon-cyber-permissive']);
+export const GEMINI4_MODELS = Object.freeze(['gemini-4-hydrogen', 'gemini-4-carbon', 'gemini-4-argon', 'gemini-4-argon-cyber-permissive']);
 export const GEMINI4_MODEL_LIMIT = 1048576;
 export const isGemini4Model = model => GEMINI4_MODELS.includes(model);
 

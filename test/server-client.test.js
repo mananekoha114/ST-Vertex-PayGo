@@ -89,12 +89,12 @@ test('usage reader follows pages without silently dropping older charges or loop
     await assert.rejects(loop.readUsage('conversation-1'), error => error.code === 'INVALID_USAGE_RESPONSE');
 });
 
-test('health handshake requires protocol v2 and loopback transport', async () => {
+test('health handshake requires protocol v3 and loopback transport', async () => {
     let request;
     const client = createServerClient({
         fetchImpl: async (url, options) => {
             request = { url, options };
-            return jsonResponse({ ok: true, pluginId: 'vertex-paygo', protocolVersion: 2, transport: 'loopback-http', pluginVersion: '0.2.0' });
+            return jsonResponse({ ok: true, pluginId: 'vertex-paygo', protocolVersion: 3, transport: 'loopback-http', pluginVersion: '0.2.0' });
         },
         getRequestHeaders: () => ({ 'X-CSRF-Token': 'test' }),
     });
@@ -111,7 +111,7 @@ test('rejects protocol and transport mismatches', async () => {
     await assert.rejects(() => protocolClient.checkHealth(), error => error instanceof ServerPluginError && error.code === 'PROTOCOL_MISMATCH');
 
     const transportClient = createServerClient({
-        fetchImpl: async () => jsonResponse({ ok: true, pluginId: 'vertex-paygo', protocolVersion: 2, transport: 'same-origin' }),
+        fetchImpl: async () => jsonResponse({ ok: true, pluginId: 'vertex-paygo', protocolVersion: 3, transport: 'same-origin' }),
     });
     await assert.rejects(() => transportClient.checkHealth(), error => error.code === 'TRANSPORT_MISMATCH');
 });
@@ -121,7 +121,7 @@ test('prepare validates and returns only an absolute 127.0.0.1 HTTP proxy', asyn
         fetchImpl: async () => jsonResponse({
             ok: true,
             pluginId: 'vertex-paygo',
-            protocolVersion: 2,
+            protocolVersion: 3,
             transport: 'loopback-http',
             proxyUrl: `http://127.0.0.1:32145/proxy/${'a'.repeat(32)}`,
             ticket: 'a'.repeat(32),
@@ -148,7 +148,7 @@ test('prepare rejects a ticket that does not match the proxy URL', async () => {
         fetchImpl: async () => jsonResponse({
             ok: true,
             pluginId: 'vertex-paygo',
-            protocolVersion: 2,
+            protocolVersion: 3,
             transport: 'loopback-http',
             proxyUrl: `http://127.0.0.1:32145/proxy/${'a'.repeat(32)}`,
             ticket: 'b'.repeat(32),

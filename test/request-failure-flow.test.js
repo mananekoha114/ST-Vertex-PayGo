@@ -73,7 +73,7 @@ test('invalid Vertex regions and custom proxies fail before any network request'
 test('a failed attempt does not poison a subsequent successful preparation', async () => {
     const f = setup(() => f.requests.length === 1
         ? new Response('Bad Gateway', { status: 502 })
-        : Response.json({ ok: true, pluginId: 'vertex-paygo', protocolVersion: 2, transport: 'loopback-http',
+        : Response.json({ ok: true, pluginId: 'vertex-paygo', protocolVersion: 3, transport: 'loopback-http',
             proxyUrl: `http://127.0.0.1:1234/proxy/${'a'.repeat(32)}`, ticket: 'a'.repeat(32), proxySecret: 's'.repeat(32) }));
     const init = { method: 'POST', body: JSON.stringify({ chat_completion_source: 'makersuite', model: 'gemini-2.5-pro' }) };
     await assert.rejects(f.target.fetch(endpoint, init), { code: 'HTTP_ERROR', status: 502 });

@@ -106,7 +106,7 @@ test('installs the failure sink before awaiting prepare and replaces it only aft
     assert.equal(data.reverse_proxy, `http://127.0.0.1:32145/proxy/${'a'.repeat(32)}`);
     assert.equal(data.proxy_password, 'proxy-secret-value');
     assert.deepEqual(payload, {
-        protocolVersion: 2,
+        protocolVersion: 3,
         chat_completion_source: 'vertexai',
         model: 'gemini-3.1-pro-preview',
         stream: true,
@@ -205,7 +205,7 @@ test('payload builder supplies safe defaults for optional Vertex fields', () => 
         vertexai_region: ' GLOBAL ',
         vertexai_express_project_id: ' project-id ',
     }), { tier: TIER.STANDARD, paygoOnly: true }), {
-        protocolVersion: 2,
+        protocolVersion: 3,
         chat_completion_source: 'vertexai',
         model: 'gemini-3.1-pro-preview',
         stream: false,

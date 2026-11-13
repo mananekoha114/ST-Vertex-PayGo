@@ -75,7 +75,7 @@ test('AI Studio hook uses the same ticket preparation with a source-specific pay
             } },
         });
         await hook(data);
-        assert.deepEqual(payload, { protocolVersion: 2, chat_completion_source: source, model: 'gemini-2.5-pro', stream, tier: TIER.FLEX, paygoOnly: false });
+        assert.deepEqual(payload, { protocolVersion: 3, chat_completion_source: source, model: 'gemini-2.5-pro', stream, tier: TIER.FLEX, paygoOnly: false });
         assert.equal(data.proxy_password, 'disposable');
         assert.equal(data.vertexai_region, 'us-central1');
     }

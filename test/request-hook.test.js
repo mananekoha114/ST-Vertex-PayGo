@@ -30,18 +30,22 @@ function vertexData(overrides = {}) {
     };
 }
 
-test('Standard rejects custom reverse proxies before collecting usage', async () => {
-    const data = vertexData({ reverse_proxy: 'https://user-proxy.example' });
-    let prepares = 0;
-    const hook = createRequestHook({
+test('Standard collects usage through a custom Vertex reverse proxy', async () => {
+    const data = vertexData({ vertexai_region: 'europe-west4', reverse_proxy: ' https://user-proxy.example/prefix/ ' });
+    let payload;
+    await createRequestHook({
         stateProvider: () => ({ tier: TIER.STANDARD, paygoOnly: false }),
-        serverClient: { prepare: async () => prepares++ },
+        serverClient: { prepare: async value => {
+            payload = value;
+            return { proxyUrl: 'http://127.0.0.1:1234/proxy/fixture', proxySecret: 'fixture-secret' };
+        } },
         origin: ORIGIN,
-    });
-    await assert.rejects(hook(data), { code: 'CUSTOM_REVERSE_PROXY_CONFLICT' });
-    assert.equal(prepares, 0);
-    assert.match(data.reverse_proxy, /^vertex-paygo-blocked:/);
-    assert.equal(Object.hasOwn(data, 'proxy_password'), true);
+    })(data);
+    assert.equal(payload.reverse_proxy, 'https://user-proxy.example/prefix/');
+    assert.equal(payload.proxy_password, '');
+    assert.equal(payload.vertexai_region, 'europe-west4');
+    assert.equal(data.reverse_proxy, 'http://127.0.0.1:1234/proxy/fixture');
+    assert.equal(data.proxy_password, 'fixture-secret');
 });
 
 test('Standard collects usage without changing region or enabling PayGo-only', async () => {
@@ -179,23 +183,29 @@ test('unverified model warning is shown only once per model in a page session', 
     assert.equal(warnings[0], warnings[1]);
 });
 
-test('pre-existing custom Vertex reverse proxy conflicts fail closed', async () => {
+test('a pre-existing custom Vertex reverse proxy reaches prepare and never the generation request', async () => {
     const errors = [];
-    let prepares = 0;
+    const payloads = [];
     const data = vertexData({ reverse_proxy: 'https://user-proxy.example', proxy_password: 'user-secret' });
     const hook = createRequestHook({
-        stateProvider: () => ({ tier: TIER.PRIORITY, paygoOnly: false }),
-        serverClient: { prepare: async () => prepares++ },
+        stateProvider: () => ({ tier: TIER.PRIORITY, paygoOnly: true }),
+        serverClient: { prepare: async value => {
+            payloads.push(value);
+            return { proxyUrl: 'http://127.0.0.1:1234/proxy/fixture', proxySecret: 'fixture-secret' };
+        } },
         origin: ORIGIN,
         notifyError: message => errors.push(message),
         logger: { error() {} },
-        secretFactory: () => 'blocked-conflict',
     });
-    await assert.rejects(hook(data), { code: 'CUSTOM_REVERSE_PROXY_CONFLICT' });
-    assert.equal(prepares, 0);
-    assert.equal(data.reverse_proxy, 'vertex-paygo-blocked://request');
-    assert.equal(data.proxy_password, 'blocked-conflict');
-    assert.match(errors[0], /Vertex AI.*custom reverse proxy/i);
+    await hook(data);
+    assert.equal(payloads.length, 1);
+    assert.equal(payloads[0].reverse_proxy, 'https://user-proxy.example');
+    assert.equal(payloads[0].proxy_password, 'user-secret');
+    assert.equal(payloads[0].tier, TIER.PRIORITY);
+    assert.equal(payloads[0].paygoOnly, true);
+    assert.equal(data.reverse_proxy, 'http://127.0.0.1:1234/proxy/fixture');
+    assert.equal(data.proxy_password, 'fixture-secret');
+    assert.deepEqual(errors, []);
 });
 
 test('payload builder supplies safe defaults for optional Vertex fields', () => {

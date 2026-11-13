@@ -59,7 +59,7 @@ export function buildPreparePayload(generateData, state, upstreamProxy = generat
         chat_completion_source: source,
         model: String(generateData.model ?? '').trim(),
         stream: Boolean(generateData.stream),
-        ...(source === AI_STUDIO_SOURCE && upstreamProxy.reverse_proxy ? {
+        ...(upstreamProxy.reverse_proxy ? {
             reverse_proxy: String(upstreamProxy.reverse_proxy).trim(),
             proxy_password: String(upstreamProxy.proxy_password ?? ''),
         } : {}),
@@ -145,10 +145,6 @@ export function createRequestHook({
         });
 
         try {
-            if (existingReverseProxy && source !== AI_STUDIO_SOURCE) {
-                throw new PayGoRequestError(localize('vertex_paygo.hook.proxy_conflict'), 'CUSTOM_REVERSE_PROXY_CONFLICT');
-            }
-
             const validation = validatePluginState({
                 state,
                 source,

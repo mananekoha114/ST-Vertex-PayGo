@@ -55,10 +55,10 @@ test('a genuine CSRF failure ends at prepare with the correct refresh guidance',
     assert.match(f.errors[0], /CSRF token.*403.*Refresh/);
 });
 
-test('invalid Vertex regions and custom proxies fail before any network request', async () => {
+test('invalid Vertex regions fail before any network request, even behind a custom proxy', async () => {
     for (const [overrides, expectedCode] of [
         [{ vertexai_region: 'us-central1' }, 'TIER_REQUIRES_GLOBAL'],
-        [{ vertexai_region: 'global', reverse_proxy: 'https://custom.example' }, 'CUSTOM_REVERSE_PROXY_CONFLICT'],
+        [{ vertexai_region: 'us-central1', reverse_proxy: 'https://custom.example' }, 'TIER_REQUIRES_GLOBAL'],
     ]) {
         const f = setup(() => assert.fail('Invalid settings must not prepare'), { tier: 'flex' });
         const payload = { chat_completion_source: 'vertexai', model: 'gemini-3.1-pro-preview', ...overrides };

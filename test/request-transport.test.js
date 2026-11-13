@@ -91,7 +91,7 @@ test('direct preset requests use that preset and direct payloads default to Stan
     await assert.rejects(f.context.ChatCompletionService.processRequest(data(), { presetName: 'missing' }), /Cannot resolve/);
 });
 
-test('preparation failure and proxy conflicts reject before any generation request', async () => {
+test('preparation failure rejects before any generation request', async () => {
     const failure = Object.assign(new Error('Selected Google credential was not found.'), {
         code: 'HTTP_ERROR', serverCode: 'EXPLICIT_SECRET_NOT_FOUND', status: 400,
     });
@@ -99,12 +99,6 @@ test('preparation failure and proxy conflicts reject before any generation reque
     const payload = data();
     f.hook(payload);
     await assert.rejects(f.target.fetch(endpoint, { method: 'POST', body: JSON.stringify(payload) }), error => error === failure);
-    assert.equal(f.sent.length, 0);
-    const conflict = { ...data(), chat_completion_source: 'vertexai', reverse_proxy: 'https://custom.example' };
-    f.hook(conflict);
-    await assert.rejects(f.target.fetch(endpoint, { method: 'POST', body: JSON.stringify(conflict) }), {
-        code: 'CUSTOM_REVERSE_PROXY_CONFLICT',
-    });
     assert.equal(f.prepared.length, 1);
     assert.equal(f.sent.length, 0);
 });
@@ -172,6 +166,29 @@ test('Studio proxy credentials survive the chat failure sink and remain isolated
         assert.match(sent.data.reverse_proxy, /^http:\/\/127\.0\.0\.1:/u);
         assert.equal(sent.data.proxy_password, 'fake-token');
         assert.equal(Object.keys(sent.data).some(k => k.startsWith('__vertex')), false);
+    }
+});
+
+test('Vertex proxy credentials survive the chat failure sink and remain isolated across background requests', async () => {
+    const vertex = () => ({ ...data(), chat_completion_source: 'vertexai', vertexai_auth_mode: 'full', vertexai_region: 'global' });
+    const f = setup({ state: { tier: 'priority', paygoOnly: true }, presets: {
+        preset: { payload: { reverse_proxy: 'https://preset.example/v1/', proxy_password: 'preset-password' } },
+    } });
+    const request = { ...vertex(), reverse_proxy: 'https://vertex.example/prefix/', proxy_password: 'chat-password' };
+    f.hook(request);
+    assert.notEqual(request.proxy_password, 'chat-password');
+    await Promise.all([
+        f.target.fetch(endpoint, { method: 'POST', body: JSON.stringify(request) }),
+        f.context.ChatCompletionService.processRequest(vertex(), { presetName: 'preset' }),
+    ]);
+    assert.deepEqual(f.prepared.map(p => [p.chat_completion_source, p.reverse_proxy, p.proxy_password, p.tier, p.paygoOnly]), [
+        ['vertexai', 'https://vertex.example/prefix/', 'chat-password', 'priority', true],
+        // A preset without its own PayGo state defaults to Standard.
+        ['vertexai', 'https://preset.example/v1/', 'preset-password', 'standard', false],
+    ]);
+    for (const sent of f.sent) {
+        assert.match(sent.data.reverse_proxy, /^http:\/\/127\.0\.0\.1:/u);
+        assert.equal(sent.data.proxy_password, 'fake-token');
     }
 });
 

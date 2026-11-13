@@ -13,7 +13,8 @@
 
 - **多层级调度与 PayGo 开关**：
   - Vertex AI：支持 Standard / Flex / Priority，并可单独开启 `PayGo-only`（强制按量计费，避开预配额限制）。
-  - Google AI Studio：支持 Standard / Flex 弹性推理，并可使用宿主中填写的反向代理。
+  - Google AI Studio：支持 Standard / Flex 弹性推理。
+  - 反向代理：Vertex AI 与 AI Studio 均可使用宿主 API 设置中填写的反向代理，插件转发的请求与宿主原生请求一致。
 - **一键同步 Global 区域**：选择 Vertex Flex / Priority 时，Google 官方要求必须使用 `global` 区域，扩展会弹窗协助你一键切换（AI Studio 无需设置区域）。
 - **💰 实时对话费用估算**：点击输入框左侧的“魔法棒 🪄”菜单，即可查看当前对话的 Token 用量、缓存命中率以及消费金额小计。
 - **🏷️ 单条回复费用**：默认在角色头像下方显示这一版回复的估算花费（如 `≈ $0.02331`），也可切换到消息底部、消息顶部或隐藏。点击金额还能弹出**详细用量卡片**，查看输入、输出、思维链（Reasoning）Token、耗时与生成速率。
@@ -107,14 +108,23 @@
 
 在 **扩展设置 → ST-Vertex-PayGo → 常规** 中开启「显示 PayGo 计价模式悬浮球」（默认关闭），即可在聊天界面点击悬浮球，快速选择当前连接的 Standard / Flex / Priority。悬浮球以颜色和文字显示当前模式（灰 Standard / 绿 Flex / 琥珀 Priority），可拖动，松手后贴靠最近的左右边缘并记住位置。菜单显示当前模型，每个模式附有简短说明；不支持的模式会禁用并直接写出原因（触屏同样可见），AI Studio 隐藏 Priority，其他服务商不显示悬浮球。切换沿用原有模型校验与区域确认，保留 PayGo-only 状态。TauriTavern 的悬浮球始终控制当前连接，不受设置页中选中的 Agent 目标影响。
 
-### 3. AI Studio 反向代理（SillyTavern / Luker）
+### 3. 反向代理（SillyTavern / Luker）
 
-直接使用宿主 API 设置中的“反向代理”地址与代理密码，无需在扩展中重复填写：
+Vertex AI 与 AI Studio 都直接使用宿主 API 设置中的“反向代理”地址与代理密码，无需在扩展中重复填写：
 
-- 支持 HTTP / HTTPS 和带路径前缀的基址（如 `https://proxy.example/gemini`）。宿主会追加 `/v1beta/models/...` 等原生 Gemini 路径，不要额外填写该后缀。
-- 代理密码用于上游认证，可以留空；代理启用时不读取 Google 官方密钥。
-- Standard / Flex、流式与非流式均经过插件的用量采集；Flex 要求上游支持 `service_tier: "flex"`。
-- 适用于主聊天及后台原生 Gemini 请求。独立的 OpenAI 兼容桥接仍使用官方端点；Vertex 自定义反代仍不支持。
+- 支持 HTTP / HTTPS 和带路径前缀的基址（如 `https://proxy.example/gemini`）。宿主会追加原生路径（AI Studio 为 `/v1beta/models/...`，Vertex 为 `/v1/publishers/google/models/...`），不要额外填写该后缀。
+- 插件发给反代的请求与宿主原生请求一致：AI Studio 的代理密码放在 `?key=`，Vertex 的放在 `Authorization: Bearer`；请求体带 `Content-Length`，不分块上传。插件只额外加入所选层级的参数。
+- 代理密码可以留空；代理启用时，SillyTavern 只使用代理密码，不读取 Google 官方密钥。Luker 的 AI Studio 在代理密码为空时会按宿主逻辑改用已保存的密钥，插件照样转发。
+- 走反代时，以 `gemini-` 开头（不分大小写）的模型名都会交给反代，例如 `Gemini-2.5-Pro`、`gemini-2.5-pro-假流式`；名称中不能含有 `/ \ ? # %`、空白或控制字符。官方端点仍只接受官方模型 ID。
+- 各层级、PayGo-only、流式与非流式都经过插件的用量采集；费用按官方单价估算，可能与反代的实际计费不同。
+- 适用于主聊天及后台原生 Gemini 请求。独立的 OpenAI 兼容桥接仍使用官方端点。TauriTavern 由宿主原生处理反代，层级参数照常作为附加参数发出。
+
+已知限制：
+
+- Vertex 的 Flex / Priority 仍要求区域为 `global`；反代还需转发到 global 端点，并透传 `X-Vertex-AI-*` 请求头。
+- AI Studio Flex 要求反代支持请求体中的 `service_tier: "flex"`。会拒绝未知字段的反代（如 ais2api）请改用 Standard。
+- Vertex 上的 Gemini 4 与官方一致改用 `v1beta1` 路径，反代需要支持该路径。
+- 反代返回 3xx 重定向时，插件不会跟随，请直接填写最终地址。
 
 ### 4. 如何彻底切回默认 / 卸载扩展？
 
@@ -307,7 +317,7 @@ console.log(models);
 
 ### Q: 生成被拦截并提示请求失败，原因在哪里看？
 
-**A**：参数校验、反代冲突或服务端准备失败时，扩展会立即终止生成并显示具体原因，保留服务端错误码和 HTTP 状态。需要更多细节时，管理员可在「常规」标签页查看日志。
+**A**：参数校验或服务端准备失败时，扩展会立即终止生成并显示具体原因，保留服务端错误码和 HTTP 状态。需要更多细节时，管理员可在「常规」标签页查看日志。
 
 ---
 

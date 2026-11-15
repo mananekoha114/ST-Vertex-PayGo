@@ -301,5 +301,17 @@
   "vertex_paygo.update.separator": "；",
   "vertex_paygo.update.component.frontend": "前端扩展",
   "vertex_paygo.update.component.server": "服务端插件",
-  "vertex_paygo.update.held": "{component}暂不更新：{reason}"
+  "vertex_paygo.update.held": "{component}暂不更新：{reason}",
+  "vertex_paygo.server_error.google_secret_missing": "还没有配置 Google AI Studio API 密钥喵，请先在连接设置中填入或选好密钥喵~",
+  "vertex_paygo.server_error.vertex_secret_missing_express": "还没有配置 Vertex AI Express API 密钥喵，请填入 Express 密钥或切换到完整服务账号认证模式喵~",
+  "vertex_paygo.server_error.vertex_secret_missing_full": "还没有配置 Vertex AI 服务账号 JSON 凭据喵，请先在连接设置中保存或选择服务账号凭据喵~",
+  "vertex_paygo.server_error.vertex_invalid_service_account": "已保存的 Vertex AI 服务账号 JSON 或私钥格式无效喵，请重新导入完整的服务账号密钥文件喵 QAQ",
+  "vertex_paygo.server_error.vertex_oauth_rejected": "Google OAuth 拒绝了 Vertex AI 服务账号认证（{reason}），请检查系统时间是否准确以及服务账号密钥状态喵 QAQ",
+  "vertex_paygo.server_error.vertex_oauth_rejected_generic": "Google OAuth 拒绝了 Vertex AI 服务账号认证，请检查系统时间是否准确以及服务账号密钥状态喵 QAQ",
+  "vertex_paygo.server_error.vertex_oauth_rate_limited": "Google OAuth 获取访问令牌触发了速率限制（HTTP 429），请稍等片刻再试喵 QAQ",
+  "vertex_paygo.server_error.vertex_oauth_upstream_error": "获取 Vertex AI 访问令牌时，Google OAuth 或出站代理返回了 HTTP {upstreamStatus} 喵 QAQ",
+  "vertex_paygo.server_error.vertex_oauth_timeout": "连接 oauth2.googleapis.com 获取 Vertex AI 访问令牌超时了喵，请检查出站网络或代理设置喵 QAQ",
+  "vertex_paygo.server_error.vertex_oauth_network_failed": "无法连接 oauth2.googleapis.com 获取 Vertex AI 访问令牌（{networkCode}），请检查出站网络或代理分流规则喵 QAQ",
+  "vertex_paygo.server_error.vertex_oauth_network_failed_generic": "无法连接 oauth2.googleapis.com 获取 Vertex AI 访问令牌，请检查出站网络或代理分流规则喵 QAQ",
+  "vertex_paygo.server_error.vertex_oauth_invalid_response": "Google OAuth 返回了无效的令牌响应喵，请检查代理是否拦截或改写了 oauth2.googleapis.com 的响应喵 QAQ"
 }

@@ -52,8 +52,20 @@ export function installFailureSink(generateData, _origin, secretFactory = create
     return generateData;
 }
 
-export function buildPreparePayload(generateData, state, upstreamProxy = generateData) {
+function pickNonEmptyString(...candidates) {
+    for (const candidate of candidates) {
+        if (candidate === undefined || candidate === null) continue;
+        const text = String(candidate).trim();
+        if (text) return text;
+    }
+    return '';
+}
+
+export function buildPreparePayload(generateData, state, upstreamProxy = generateData, vertexDefaults = undefined) {
     const source = generateData.chat_completion_source === AI_STUDIO_SOURCE ? AI_STUDIO_SOURCE : VERTEX_SOURCE;
+    const expressProjectId = generateData.vertexai_express_project_id !== undefined
+        ? String(generateData.vertexai_express_project_id ?? '').trim()
+        : String(vertexDefaults?.vertexai_express_project_id ?? '').trim();
     return {
         protocolVersion: PROTOCOL_VERSION,
         chat_completion_source: source,
@@ -65,9 +77,9 @@ export function buildPreparePayload(generateData, state, upstreamProxy = generat
         } : {}),
         ...(generateData.secret_id ? { secret_id: generateData.secret_id } : {}),
         ...(source === VERTEX_SOURCE ? {
-            vertexai_auth_mode: String(generateData.vertexai_auth_mode || 'express').trim().toLowerCase(),
-            vertexai_region: String(generateData.vertexai_region || 'us-central1').trim().toLowerCase(),
-            vertexai_express_project_id: String(generateData.vertexai_express_project_id || '').trim(),
+            vertexai_auth_mode: pickNonEmptyString(generateData.vertexai_auth_mode, vertexDefaults?.vertexai_auth_mode, 'express').toLowerCase(),
+            vertexai_region: pickNonEmptyString(generateData.vertexai_region, vertexDefaults?.vertexai_region, 'us-central1').toLowerCase(),
+            vertexai_express_project_id: expressProjectId,
         } : {}),
         tier: state.tier,
         paygoOnly: source === VERTEX_SOURCE && state.paygoOnly,
@@ -88,13 +100,13 @@ function recordClientEvent(logger, level, event, context = {}) {
     }
 }
 
-function buildSafeRequestLogContext(generateData, state, requestId) {
+function buildSafeRequestLogContext(generateData, state, requestId, effectiveRegion = undefined) {
     return {
         requestId,
         provider: generateData?.chat_completion_source,
         model: String(generateData?.model ?? '').trim(),
         region: generateData?.chat_completion_source === VERTEX_SOURCE
-            ? String(generateData?.vertexai_region ?? '').trim().toLowerCase() : undefined,
+            ? String(effectiveRegion ?? generateData?.vertexai_region ?? '').trim().toLowerCase() : undefined,
         tier: state?.tier,
         paygoOnly: generateData?.chat_completion_source === VERTEX_SOURCE && state?.paygoOnly,
         stream: Boolean(generateData?.stream),
@@ -111,6 +123,8 @@ export function createRequestHook({
     secretFactory = createEphemeralSecret,
     localize = createLocalizer(),
     usageProvider = () => ({}),
+    vertexDefaultsProvider = () => undefined,
+    requestOptionsProvider = () => undefined,
 }) {
     if (typeof stateProvider !== 'function') {
         throw new TypeError('stateProvider must be a function.');
@@ -129,11 +143,16 @@ export function createRequestHook({
             return;
         }
 
+        const background = requestOptionsProvider(generateData)?.background === true;
+        const vertexDefaults = source === VERTEX_SOURCE ? vertexDefaultsProvider(generateData) : undefined;
+        const effectiveRegion = source === VERTEX_SOURCE
+            ? pickNonEmptyString(generateData.vertexai_region, vertexDefaults?.vertexai_region)
+            : undefined;
         const existingReverseProxy = String(generateData.reverse_proxy ?? '').trim();
         const upstreamProxy = { reverse_proxy: existingReverseProxy, proxy_password: generateData.proxy_password };
         const requestId = logger?.createRequestId?.();
         const startedAt = Date.now();
-        const logContext = buildSafeRequestLogContext(generateData, state, requestId);
+        const logContext = buildSafeRequestLogContext(generateData, state, requestId, effectiveRegion);
 
         // EventEmitter.emit catches listener errors. Install the failure sink
         // before validation or I/O so no exceptional path can fall back to a
@@ -149,7 +168,7 @@ export function createRequestHook({
                 state,
                 source,
                 model: generateData.model,
-                region: generateData.vertexai_region,
+                region: effectiveRegion,
             });
             if (!validation.ok) {
                 throw new PayGoRequestError(localizeValidation(localize, validation, state), validation.code);
@@ -157,8 +176,10 @@ export function createRequestHook({
             if (validation.warning) {
                 const warningKey = `${source}:${validation.support?.level ?? 'warning'}:${String(generateData.model ?? '').trim().toLowerCase()}`;
                 if (!shownWarningKeys.has(warningKey)) {
-                    shownWarningKeys.add(warningKey);
-                    notifyWarning(localizeSupport(localize, validation.support, state.tier));
+                    if (!background) {
+                        shownWarningKeys.add(warningKey);
+                        notifyWarning(localizeSupport(localize, validation.support, state.tier));
+                    }
                     recordClientEvent(logger, 'warn', 'request.support_unverified', {
                         ...logContext,
                         phase: 'warning',
@@ -169,11 +190,11 @@ export function createRequestHook({
 
             const usage = usageProvider(generateData, validation.state);
             const prepared = await serverClient.prepare({
-                ...buildPreparePayload(generateData, validation.state, upstreamProxy),
+                ...buildPreparePayload(generateData, validation.state, upstreamProxy, vertexDefaults),
                 ...usage,
             });
             applyPreparedProxy(generateData, prepared);
-            if (usage.usageChatId && !prepared.usageId) {
+            if (!background && usage.usageChatId && !prepared.usageId) {
                 notifyWarning(localize('vertex_paygo.costs.recording_unavailable'));
             }
             recordClientEvent(logger, 'info', 'request.prepare_succeeded', {
@@ -186,11 +207,13 @@ export function createRequestHook({
             const failure = error instanceof Error ? error : new PayGoRequestError(String(error), undefined, { cause: error });
             const blocked = failure instanceof PayGoRequestError;
             // UI and diagnostics must not replace the original failure.
-            try {
-                notifyError(blocked ? failure.message : localize('vertex_paygo.hook.request_blocked', {
-                    message: localizeError(localize, failure),
-                }));
-            } catch { /* Preserve the request error. */ }
+            if (!background) {
+                try {
+                    notifyError(blocked ? failure.message : localize('vertex_paygo.hook.request_blocked', {
+                        message: localizeError(localize, failure),
+                    }));
+                } catch { /* Preserve the request error. */ }
+            }
             recordClientEvent(logger, blocked ? 'warn' : 'error', blocked ? 'request.blocked' : 'request.prepare_failed', {
                 ...logContext,
                 phase: blocked ? 'blocked' : 'failed',

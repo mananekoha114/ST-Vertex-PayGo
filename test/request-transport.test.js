@@ -232,3 +232,89 @@ test('background preset work keeps its conversation and missing conversation doe
     await f.target.fetch(endpoint, { method: 'POST', body: JSON.stringify(request) });
     assert.equal(f.prepared[1].usageChatId, undefined);
 });
+
+test('background Vertex requests inherit saved chatCompletionSettings and suppress global error toasts while foreground chat still toasts', async () => {
+    const errors = [];
+    const prepared = [];
+    let failNext = false;
+    const target = {
+        location: { origin },
+        fetch: async (_input, init) => ({ ok: true, body: init?.body }),
+    };
+    class ChatCompletionService {
+        static async processRequest(payload) {
+            return this.sendRequest(structuredClone(payload));
+        }
+        static sendRequest(payload) {
+            return target.fetch(endpoint, { method: 'POST', body: JSON.stringify(payload) });
+        }
+    }
+    class ConnectionManagerRequestService {
+        static getProfile(id) {
+            return id === 'vertex-profile'
+                ? { mode: 'cc', api: 'vertexai', 'vertex-paygo': flex, 'secret-id': 'sa-secret-id' }
+                : undefined;
+        }
+        static sendRequest(id, _prompt, _max, _custom, overrides) {
+            const profile = this.getProfile(id);
+            return ChatCompletionService.processRequest({
+                chat_completion_source: 'vertexai',
+                model: 'gemini-3.1-pro-preview',
+                stream: false,
+                secret_id: profile['secret-id'],
+                ...overrides,
+            });
+        }
+    }
+    const context = {
+        chatCompletionSettings: {
+            vertexai_auth_mode: 'full',
+            vertexai_region: 'global',
+            vertexai_express_project_id: '',
+        },
+        ChatCompletionService,
+        ConnectionManagerRequestService,
+        getPresetManager: () => ({ getCompletionPresetByName: () => undefined }),
+    };
+    const hook = installRequestTransport({
+        context,
+        target,
+        stateProvider: () => flex,
+        notifyError: message => errors.push(message),
+        logger: { error() {} },
+        serverClient: {
+            prepare: async payload => {
+                prepared.push(payload);
+                if (failNext) {
+                    throw Object.assign(new Error('Google OAuth returned HTTP 500.'), {
+                        code: 'HTTP_ERROR',
+                        status: 500,
+                        serverCode: 'VERTEX_OAUTH_UPSTREAM_ERROR',
+                    });
+                }
+                return { proxyUrl: 'http://127.0.0.1:12345/proxy/ticket', proxySecret: 'fake-token' };
+            },
+        },
+    });
+
+    await context.ConnectionManagerRequestService.sendRequest('vertex-profile', 'probe', 16);
+    assert.equal(prepared[0].vertexai_auth_mode, 'full');
+    assert.equal(prepared[0].vertexai_region, 'global');
+    assert.equal(prepared[0].secret_id, 'sa-secret-id');
+
+    failNext = true;
+    await assert.rejects(
+        context.ConnectionManagerRequestService.sendRequest('vertex-profile', 'probe', 16),
+        { status: 500, serverCode: 'VERTEX_OAUTH_UPSTREAM_ERROR' },
+    );
+    assert.deepEqual(errors, []);
+
+    const foreground = { chat_completion_source: 'vertexai', model: 'gemini-3.1-pro-preview', stream: true };
+    hook(foreground);
+    await assert.rejects(
+        target.fetch(endpoint, { method: 'POST', body: JSON.stringify(foreground) }),
+        { status: 500, serverCode: 'VERTEX_OAUTH_UPSTREAM_ERROR' },
+    );
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /HTTP 500 \/ VERTEX_OAUTH_UPSTREAM_ERROR/u);
+});

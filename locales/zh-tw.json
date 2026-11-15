@@ -301,5 +301,17 @@
   "vertex_paygo.update.separator": "；",
   "vertex_paygo.update.component.frontend": "前端擴充功能",
   "vertex_paygo.update.component.server": "伺服器端外掛",
-  "vertex_paygo.update.held": "{component}暫不更新：{reason}"
+  "vertex_paygo.update.held": "{component}暫不更新：{reason}",
+  "vertex_paygo.server_error.google_secret_missing": "尚未設定 Google AI Studio API 金鑰喵，請先在連線設定中填入或選好金鑰喵~",
+  "vertex_paygo.server_error.vertex_secret_missing_express": "尚未設定 Vertex AI Express API 金鑰喵，請填入 Express 金鑰或切換至完整服務帳戶驗證模式喵~",
+  "vertex_paygo.server_error.vertex_secret_missing_full": "尚未設定 Vertex AI 服務帳戶 JSON 憑證喵，請先在連線設定中儲存或選擇服務帳戶憑證喵~",
+  "vertex_paygo.server_error.vertex_invalid_service_account": "已儲存的 Vertex AI 服務帳戶 JSON 或私鑰格式無效喵，請重新匯入完整的服務帳戶金鑰檔案喵 QAQ",
+  "vertex_paygo.server_error.vertex_oauth_rejected": "Google OAuth 拒絕了 Vertex AI 服務帳戶驗證（{reason}），請檢查系統時間是否準確以及服務帳戶金鑰狀態喵 QAQ",
+  "vertex_paygo.server_error.vertex_oauth_rejected_generic": "Google OAuth 拒絕了 Vertex AI 服務帳戶驗證，請檢查系統時間是否準確以及服務帳戶金鑰狀態喵 QAQ",
+  "vertex_paygo.server_error.vertex_oauth_rate_limited": "Google OAuth 取得存取權杖觸發了速率限制（HTTP 429），請稍等片刻再試喵 QAQ",
+  "vertex_paygo.server_error.vertex_oauth_upstream_error": "取得 Vertex AI 存取權杖時，Google OAuth 或出站代理傳回了 HTTP {upstreamStatus} 喵 QAQ",
+  "vertex_paygo.server_error.vertex_oauth_timeout": "連線 oauth2.googleapis.com 取得 Vertex AI 存取權杖逾時了喵，請檢查出站網路或代理設定喵 QAQ",
+  "vertex_paygo.server_error.vertex_oauth_network_failed": "無法連線 oauth2.googleapis.com 取得 Vertex AI 存取權杖（{networkCode}），請檢查出站網路或代理分流規則喵 QAQ",
+  "vertex_paygo.server_error.vertex_oauth_network_failed_generic": "無法連線 oauth2.googleapis.com 取得 Vertex AI 存取權杖，請檢查出站網路或代理分流規則喵 QAQ",
+  "vertex_paygo.server_error.vertex_oauth_invalid_response": "Google OAuth 傳回了無效的權杖回應喵，請檢查代理是否攔截或改寫了 oauth2.googleapis.com 的回應喵 QAQ"
 }

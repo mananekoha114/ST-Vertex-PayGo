@@ -40,16 +40,23 @@ export function installRequestTransport({ context, stateProvider, target = globa
     if (typeof originalFetch !== 'function') throw new TypeError('fetch is required.');
     const requestStates = new WeakMap();
     const requestUsage = new WeakMap();
+    const requestOptions = new WeakMap();
+    const getHostContext = () => target.SillyTavern?.getContext?.() ?? context;
     const signatures = createGemini4SignatureTracker({ context,
-        getContext: () => target.SillyTavern?.getContext?.() ?? context });
+        getContext: getHostContext });
     // Presentation/telemetry must never prevent a generation or change its route.
     const observe = (method, ...args) => {
         try { return messageCosts?.[method]?.(...args); }
         catch (error) { console.warn('[Vertex PayGo] Message cost observation failed.', error); }
     };
-    const prepareRequest = createRequestHook({ ...hookOptions, origin,
+    const prepareRequest = createRequestHook({
+        vertexDefaultsProvider: () => getHostContext()?.chatCompletionSettings,
+        requestOptionsProvider: data => requestOptions.get(data),
+        ...hookOptions,
+        origin,
         usageProvider: data => requestUsage.get(data) ?? {},
-        stateProvider: data => requestStates.get(data) });
+        stateProvider: data => requestStates.get(data),
+    });
 
     const onSettingsReady = data => {
         if (!isGoogleSource(data?.chat_completion_source)) return;
@@ -97,6 +104,7 @@ export function installRequestTransport({ context, stateProvider, target = globa
             data.proxy_password = metadata.originalProxyPassword ?? '';
         }
         requestStates.set(data, state);
+        requestOptions.set(data, { background: Boolean(metadata?.background) });
         const usageChatId = metadata && Object.hasOwn(metadata, 'usageChatId')
             ? metadata.usageChatId : fallbackChatId;
         requestUsage.set(data, {
@@ -129,6 +137,7 @@ export function installRequestTransport({ context, stateProvider, target = globa
         } finally {
             requestStates.delete(data);
             requestUsage.delete(data);
+            requestOptions.delete(data);
         }
         try {
             signal?.throwIfAborted();

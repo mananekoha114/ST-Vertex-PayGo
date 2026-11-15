@@ -85,3 +85,24 @@ test('a failed attempt does not poison a subsequent successful preparation', asy
     assert.match(sent.reverse_proxy, /^http:\/\/127\.0\.0\.1:/);
     assert.equal(f.errors.length, 1);
 });
+
+test('granular OAuth 5xx, timeout, and invalid_grant details survive server-client parsing and localize clearly', async () => {
+    const f = setup(() => Response.json({
+        error: true,
+        code: 'VERTEX_OAUTH_UPSTREAM_ERROR',
+        message: 'Google OAuth or the network proxy returned HTTP 500.',
+        details: { upstreamStatus: 500 },
+    }, { status: 500 }));
+    const payload = { chat_completion_source: 'vertexai', model: 'gemini-2.5-pro', stream: true, vertexai_auth_mode: 'full', vertexai_region: 'global' };
+    f.hook(payload);
+    await assert.rejects(f.target.fetch(endpoint, { method: 'POST', body: JSON.stringify(payload) }), error => {
+        assert.equal(error.code, 'HTTP_ERROR');
+        assert.equal(error.status, 500);
+        assert.equal(error.serverCode, 'VERTEX_OAUTH_UPSTREAM_ERROR');
+        assert.deepEqual(error.details, { upstreamStatus: 500 });
+        return true;
+    });
+    assert.equal(f.errors.length, 1);
+    assert.match(f.errors[0], /HTTP 500.*VERTEX_OAUTH_UPSTREAM_ERROR/u);
+    assert.doesNotMatch(f.errors[0], /VERTEX_AUTH_CONFIGURATION_FAILED/u);
+});

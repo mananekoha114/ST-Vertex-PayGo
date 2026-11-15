@@ -126,3 +126,43 @@ test('HTTP diagnostics localize CSRF and non-JSON failures without rendering err
     const error = Object.assign(new Error('Credentials invalid.'), { code: 'HTTP_ERROR', status: 400, serverCode: 'INVALID_CREDENTIALS' });
     assert.match(localizeError(localize, error), /Credentials invalid.*HTTP 400.*INVALID_CREDENTIALS/u);
 });
+
+test('granular Vertex OAuth and missing-secret server codes localize across English and Chinese locales', async () => {
+    const zhCn = await readJson('../locales/zh-cn.json');
+    const localizeEn = createLocalizer();
+    const localizeZh = createLocalizer((fallback, key) => zhCn[key] ?? fallback);
+
+    const upstream500 = Object.assign(new Error('raw server message'), {
+        code: 'HTTP_ERROR',
+        status: 500,
+        serverCode: 'VERTEX_OAUTH_UPSTREAM_ERROR',
+        details: { upstreamStatus: 500 },
+    });
+    assert.match(localizeError(localizeEn, upstream500), /returned HTTP 500.*\(HTTP 500 \/ VERTEX_OAUTH_UPSTREAM_ERROR\)/u);
+    assert.match(localizeError(localizeZh, upstream500), /返回了 HTTP 500.*\(HTTP 500 \/ VERTEX_OAUTH_UPSTREAM_ERROR\)/u);
+
+    const rejected = Object.assign(new Error('raw server message'), {
+        code: 'HTTP_ERROR',
+        status: 400,
+        serverCode: 'VERTEX_OAUTH_REJECTED',
+        details: { upstreamStatus: 401, oauthError: 'invalid_grant', oauthDescription: 'Invalid JWT Signature.' },
+    });
+    assert.match(localizeError(localizeEn, rejected), /invalid_grant: Invalid JWT Signature\..*\(HTTP 400 \/ VERTEX_OAUTH_REJECTED\)/u);
+    assert.match(localizeError(localizeZh, rejected), /invalid_grant: Invalid JWT Signature\..*系统时间.*\(HTTP 400 \/ VERTEX_OAUTH_REJECTED\)/u);
+
+    const network = Object.assign(new Error('raw server message'), {
+        code: 'HTTP_ERROR',
+        status: 502,
+        serverCode: 'VERTEX_OAUTH_NETWORK_FAILED',
+        details: { networkCode: 'ECONNRESET' },
+    });
+    assert.match(localizeError(localizeZh, network), /ECONNRESET.*\(HTTP 502 \/ VERTEX_OAUTH_NETWORK_FAILED\)/u);
+
+    const missingFull = Object.assign(new Error('raw server message'), {
+        code: 'HTTP_ERROR',
+        status: 400,
+        serverCode: 'VERTEX_SECRET_MISSING',
+        details: { authMode: 'full' },
+    });
+    assert.match(localizeError(localizeZh, missingFull), /服务账号 JSON.*\(HTTP 400 \/ VERTEX_SECRET_MISSING\)/u);
+});

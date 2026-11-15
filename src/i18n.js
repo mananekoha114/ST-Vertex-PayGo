@@ -203,6 +203,18 @@ export const MESSAGES = Object.freeze({
     'vertex_paygo.costs.recording_unavailable': 'This request could not be added to the usage ledger. Conversation costs will be incomplete.',
     'vertex_paygo.server_error.csrf': 'SillyTavern rejected the CSRF token (HTTP 403). Refresh the page and try again.',
     'vertex_paygo.server_error.http_non_json': 'Server Plugin request failed (HTTP {status}); the server or reverse proxy returned no JSON error details.',
+    'vertex_paygo.server_error.google_secret_missing': 'Google AI Studio API key is missing. Select or save an API key in API Connections.',
+    'vertex_paygo.server_error.vertex_secret_missing_express': 'Vertex AI Express API key is missing. Select an Express API key or switch to Service Account (Full) mode.',
+    'vertex_paygo.server_error.vertex_secret_missing_full': 'Vertex AI service account JSON is missing. Save or select a service account credential in API Connections.',
+    'vertex_paygo.server_error.vertex_invalid_service_account': 'The saved Vertex AI service account JSON or private key is invalid. Re-import a valid service account key file.',
+    'vertex_paygo.server_error.vertex_oauth_rejected': 'Google OAuth rejected the Vertex AI service account credential ({reason}). Check system clock sync and service account status.',
+    'vertex_paygo.server_error.vertex_oauth_rejected_generic': 'Google OAuth rejected the Vertex AI service account credential. Check system clock sync and service account status.',
+    'vertex_paygo.server_error.vertex_oauth_rate_limited': 'Google OAuth rate-limited Vertex AI access token requests (HTTP 429). Wait a moment and try again.',
+    'vertex_paygo.server_error.vertex_oauth_upstream_error': 'Google OAuth or the outbound proxy returned HTTP {upstreamStatus} while obtaining a Vertex AI access token.',
+    'vertex_paygo.server_error.vertex_oauth_timeout': 'Timed out connecting to oauth2.googleapis.com while obtaining a Vertex AI access token. Check your outbound network or proxy.',
+    'vertex_paygo.server_error.vertex_oauth_network_failed': 'Could not reach oauth2.googleapis.com to obtain a Vertex AI access token ({networkCode}). Check your outbound network or proxy routing.',
+    'vertex_paygo.server_error.vertex_oauth_network_failed_generic': 'Could not reach oauth2.googleapis.com to obtain a Vertex AI access token. Check your outbound network or proxy routing.',
+    'vertex_paygo.server_error.vertex_oauth_invalid_response': 'Received an invalid token response while authenticating with Google OAuth. Check whether a proxy intercepted oauth2.googleapis.com.',
     'vertex_paygo.title': 'Vertex AI PayGo',
     'vertex_paygo.ai_studio.title': 'Google AI Studio Flex',
     'vertex_paygo.ai_studio.guidance': 'Flex uses discounted token pricing and may take longer. A paid Gemini API account is required. Failed Flex requests will not automatically switch to Standard.',
@@ -380,6 +392,48 @@ export function localizeValidation(localize, validation, state = undefined) {
     }
 }
 
+function localizeServerHttpErrorMessage(localize, error) {
+    const details = error?.details && typeof error.details === 'object' ? error.details : {};
+    switch (error?.serverCode) {
+        case 'GOOGLE_SECRET_MISSING':
+            return localize('vertex_paygo.server_error.google_secret_missing');
+        case 'VERTEX_SECRET_MISSING':
+            return localize(details.authMode === 'full'
+                ? 'vertex_paygo.server_error.vertex_secret_missing_full'
+                : 'vertex_paygo.server_error.vertex_secret_missing_express');
+        case 'VERTEX_INVALID_SERVICE_ACCOUNT':
+            return localize('vertex_paygo.server_error.vertex_invalid_service_account');
+        case 'VERTEX_OAUTH_REJECTED': {
+            const oauthError = typeof details.oauthError === 'string' ? details.oauthError.trim() : '';
+            const oauthDescription = typeof details.oauthDescription === 'string' ? details.oauthDescription.trim() : '';
+            const reason = oauthError && oauthDescription
+                ? `${oauthError}: ${oauthDescription}`
+                : (oauthError || oauthDescription);
+            return reason
+                ? localize('vertex_paygo.server_error.vertex_oauth_rejected', { reason })
+                : localize('vertex_paygo.server_error.vertex_oauth_rejected_generic');
+        }
+        case 'VERTEX_OAUTH_RATE_LIMITED':
+            return localize('vertex_paygo.server_error.vertex_oauth_rate_limited');
+        case 'VERTEX_OAUTH_UPSTREAM_ERROR':
+            return localize('vertex_paygo.server_error.vertex_oauth_upstream_error', {
+                upstreamStatus: details.upstreamStatus ?? error.status ?? 502,
+            });
+        case 'VERTEX_OAUTH_TIMEOUT':
+            return localize('vertex_paygo.server_error.vertex_oauth_timeout');
+        case 'VERTEX_OAUTH_NETWORK_FAILED': {
+            const networkCode = typeof details.networkCode === 'string' ? details.networkCode.trim() : '';
+            return networkCode
+                ? localize('vertex_paygo.server_error.vertex_oauth_network_failed', { networkCode })
+                : localize('vertex_paygo.server_error.vertex_oauth_network_failed_generic');
+        }
+        case 'VERTEX_OAUTH_INVALID_RESPONSE':
+            return localize('vertex_paygo.server_error.vertex_oauth_invalid_response');
+        default:
+            return error instanceof Error ? error.message : String(error);
+    }
+}
+
 export function localizeError(
     localize,
     error,
@@ -403,8 +457,9 @@ export function localizeError(
     if (error?.code === 'HTTP_ERROR') {
         if (error.responseFormat === 'non-json') return localize('vertex_paygo.server_error.http_non_json', { status: error.status });
         const details = [error.status ? `HTTP ${error.status}` : '', error.serverCode].filter(Boolean).join(' / ');
+        const localizedMessage = localizeServerHttpErrorMessage(localize, error);
         return localize('vertex_paygo.server_error.http', {
-            message: `${error instanceof Error ? error.message : String(error)}${details ? ` (${details})` : ''}`,
+            message: `${localizedMessage}${details ? ` (${details})` : ''}`,
         });
     }
 

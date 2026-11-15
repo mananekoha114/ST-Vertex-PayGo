@@ -301,5 +301,17 @@
   "vertex_paygo.update.separator": "; ",
   "vertex_paygo.update.component.frontend": "frontend extension",
   "vertex_paygo.update.component.server": "server plugin",
-  "vertex_paygo.update.held": "{component} is not updated: {reason}"
+  "vertex_paygo.update.held": "{component} is not updated: {reason}",
+  "vertex_paygo.server_error.google_secret_missing": "Google AI Studio API key is missing. Select or save an API key in API Connections.",
+  "vertex_paygo.server_error.vertex_secret_missing_express": "Vertex AI Express API key is missing. Select an Express API key or switch to Service Account (Full) mode.",
+  "vertex_paygo.server_error.vertex_secret_missing_full": "Vertex AI service account JSON is missing. Save or select a service account credential in API Connections.",
+  "vertex_paygo.server_error.vertex_invalid_service_account": "The saved Vertex AI service account JSON or private key is invalid. Re-import a valid service account key file.",
+  "vertex_paygo.server_error.vertex_oauth_rejected": "Google OAuth rejected the Vertex AI service account credential ({reason}). Check system clock sync and service account status.",
+  "vertex_paygo.server_error.vertex_oauth_rejected_generic": "Google OAuth rejected the Vertex AI service account credential. Check system clock sync and service account status.",
+  "vertex_paygo.server_error.vertex_oauth_rate_limited": "Google OAuth rate-limited Vertex AI access token requests (HTTP 429). Wait a moment and try again.",
+  "vertex_paygo.server_error.vertex_oauth_upstream_error": "Google OAuth or the outbound proxy returned HTTP {upstreamStatus} while obtaining a Vertex AI access token.",
+  "vertex_paygo.server_error.vertex_oauth_timeout": "Timed out connecting to oauth2.googleapis.com while obtaining a Vertex AI access token. Check your outbound network or proxy.",
+  "vertex_paygo.server_error.vertex_oauth_network_failed": "Could not reach oauth2.googleapis.com to obtain a Vertex AI access token ({networkCode}). Check your outbound network or proxy routing.",
+  "vertex_paygo.server_error.vertex_oauth_network_failed_generic": "Could not reach oauth2.googleapis.com to obtain a Vertex AI access token. Check your outbound network or proxy routing.",
+  "vertex_paygo.server_error.vertex_oauth_invalid_response": "Received an invalid token response while authenticating with Google OAuth. Check whether a proxy intercepted oauth2.googleapis.com."
 }

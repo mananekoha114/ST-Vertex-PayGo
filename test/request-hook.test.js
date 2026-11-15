@@ -344,3 +344,68 @@ test('blocked and failed preparations emit stable error metadata only', async ()
     assert.equal(failure.context.statusCode, 503);
     assert.doesNotMatch(JSON.stringify(failure), /secret-bearing detail/u);
 });
+
+test('missing Vertex auth mode and region inherit from vertexDefaultsProvider and background failures stay toast-silent', async () => {
+    const errors = [];
+    const warnings = [];
+    const events = [];
+    let background = true;
+    let shouldFail = false;
+    const payloads = [];
+
+    const hook = createRequestHook({
+        stateProvider: () => ({ tier: TIER.FLEX, paygoOnly: true }),
+        vertexDefaultsProvider: () => ({
+            vertexai_auth_mode: 'full',
+            vertexai_region: 'global',
+            vertexai_express_project_id: 'saved-express-project',
+        }),
+        requestOptionsProvider: () => ({ background }),
+        usageProvider: () => ({ usageChatId: 'chat-1', usagePrice: null }),
+        serverClient: {
+            prepare: async value => {
+                payloads.push(value);
+                if (shouldFail) {
+                    const err = new Error('OAuth upstream HTTP 500');
+                    err.code = 'HTTP_ERROR';
+                    err.status = 500;
+                    err.serverCode = 'VERTEX_OAUTH_UPSTREAM_ERROR';
+                    throw err;
+                }
+                return { usageId: null, proxyUrl: 'http://127.0.0.1:32145/proxy/ticket', proxySecret: 'secret' };
+            },
+        },
+        origin: ORIGIN,
+        notifyError: message => errors.push(message),
+        notifyWarning: message => warnings.push(message),
+        logger: {
+            createRequestId: () => 'req-bg',
+            event: (level, event, context) => events.push({ level, event, context }),
+            error() {},
+        },
+    });
+
+    // Background request omits vertexai_auth_mode and vertexai_region; inherits 'full' and 'global', suppresses warnings.
+    await hook({ chat_completion_source: 'vertexai', model: 'gemini-9.9-future', stream: false });
+    assert.equal(payloads[0].vertexai_auth_mode, 'full');
+    assert.equal(payloads[0].vertexai_region, 'global');
+    assert.equal(payloads[0].vertexai_express_project_id, 'saved-express-project');
+    assert.deepEqual(warnings, []);
+    assert.equal(events[0].context.region, 'global');
+
+    // Background failure still rejects and logs, without popping a foreground toast.
+    shouldFail = true;
+    const failedBg = { chat_completion_source: 'vertexai', model: 'gemini-9.9-future', stream: false };
+    await assert.rejects(hook(failedBg), { serverCode: 'VERTEX_OAUTH_UPSTREAM_ERROR', status: 500 });
+    assert.match(failedBg.reverse_proxy, /^vertex-paygo-blocked:/u);
+    assert.deepEqual(errors, []);
+
+    // Subsequent foreground request still displays both warnings and error toasts normally.
+    background = false;
+    await assert.rejects(hook({ chat_completion_source: 'vertexai', model: 'gemini-9.9-future', stream: false }), {
+        serverCode: 'VERTEX_OAUTH_UPSTREAM_ERROR',
+    });
+    assert.equal(warnings.length, 1);
+    assert.equal(errors.length, 1);
+    assert.match(errors[0], /HTTP 500.*VERTEX_OAUTH_UPSTREAM_ERROR/u);
+});

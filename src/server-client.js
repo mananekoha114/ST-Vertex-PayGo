@@ -24,12 +24,15 @@ import {
 } from './constants.js';
 
 export class ServerPluginError extends Error {
-    constructor(message, { code = 'SERVER_PLUGIN_ERROR', status, serverCode, responseFormat, cause } = {}) {
+    constructor(message, { code = 'SERVER_PLUGIN_ERROR', status, serverCode, details, responseFormat, cause } = {}) {
         super(message, { cause });
         this.name = 'ServerPluginError';
         this.code = code;
         this.status = status;
         this.serverCode = serverCode;
+        if (details && typeof details === 'object' && !Array.isArray(details)) {
+            this.details = details;
+        }
         this.responseFormat = responseFormat;
     }
 }
@@ -113,6 +116,7 @@ async function readHttpError(response) {
     return new ServerPluginError(message, {
         code: 'HTTP_ERROR', status: response.status,
         serverCode: typeof data?.code === 'string' ? data.code : undefined,
+        details: data?.details && typeof data.details === 'object' && !Array.isArray(data.details) ? data.details : undefined,
         responseFormat: data === undefined ? 'non-json' : 'json',
     });
 }

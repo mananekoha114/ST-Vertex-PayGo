@@ -100,10 +100,12 @@
     ]
   },
   "pricing": {
-    "updatedAt": "2026-11-13",
+    "updatedAt": "2026-11-18",
     "currency": "USD",
     "unit": "per_million_tokens",
     "entries": [
+      { "source": "vertexai", "model": "gemini-4-neon", "tier": "standard", "input": 3, "cachedInput": 0.15, "output": 15, "sourceUrl": "https://cloud.google.com/skus?filter=BD37-A5DA-7EB1" },
+      { "source": "vertexai", "model": "gemini-4-neon", "tier": "priority", "input": 5.4, "cachedInput": 0.27, "output": 27, "sourceUrl": "https://cloud.google.com/skus?filter=BD37-A5DA-7EB1" },
       { "source": "vertexai", "model": "gemini-4-hydrogen", "tier": "standard", "input": 1.5, "cachedInput": 0.075, "output": 7.5, "sourceUrl": "https://cloud.google.com/skus?filter=C1CE-B525-5A70" },
       { "source": "vertexai", "model": "gemini-4-hydrogen", "tier": "flex", "input": 0.75, "cachedInput": 0.0375, "output": 3.75, "sourceUrl": "https://cloud.google.com/skus?filter=C1CE-B525-5A70" },
       { "source": "vertexai", "model": "gemini-4-hydrogen", "tier": "priority", "input": 2.7, "cachedInput": 0.135, "output": 13.5, "sourceUrl": "https://cloud.google.com/skus?filter=C1CE-B525-5A70" },

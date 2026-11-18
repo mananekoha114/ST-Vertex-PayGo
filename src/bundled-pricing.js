@@ -2,7 +2,14 @@
  * Copyright (c) 2026 Mana Nekoha
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0.
- * Pricing verified 2026-11-13. Vertex AI entries use the published Global base rates.
+ * Pricing verified 2026-11-18. Vertex AI entries use the published Global base rates.
+ * Gemini 4 Neon is priced ahead of launch. Its Standard input, cached input
+ * and output rates come from the Global Cloud Billing SKUs BD37-A5DA-7EB1,
+ * FEAF-9EAF-DE2D and 6C09-0CBD-7C87 ($3, $0.15 and $15 per 1M tokens; cached
+ * input is 5% of input like every other Gemini 4 model). Priority is 1.8x
+ * Standard like every other Vertex model. Neon stays out of the tier rosters
+ * and knownModels until Google publishes its PayGo support, so tier requests
+ * remain unverified instead of failing closed.
  * Gemini 4 Hydrogen is not on the Vertex pricing page yet. Its Standard input
  * and output rates come from Cloud Billing SKU C1CE-B525-5A70; cached input
  * follows the 5% of input that every other Gemini 4 model charges, Flex is
@@ -22,10 +29,12 @@
  */
 
 export const BUNDLED_PRICING = {
-    updatedAt: '2026-11-13',
+    updatedAt: '2026-11-18',
     currency: 'USD',
     unit: 'per_million_tokens',
     entries: [
+        { source: 'vertexai', model: 'gemini-4-neon', tier: 'standard', input: 3, cachedInput: 0.15, output: 15, sourceUrl: 'https://cloud.google.com/skus?filter=BD37-A5DA-7EB1' },
+        { source: 'vertexai', model: 'gemini-4-neon', tier: 'priority', input: 5.4, cachedInput: 0.27, output: 27, sourceUrl: 'https://cloud.google.com/skus?filter=BD37-A5DA-7EB1' },
         { source: 'vertexai', model: 'gemini-4-hydrogen', tier: 'standard', input: 1.5, cachedInput: 0.075, output: 7.5, sourceUrl: 'https://cloud.google.com/skus?filter=C1CE-B525-5A70' },
         { source: 'vertexai', model: 'gemini-4-hydrogen', tier: 'flex', input: 0.75, cachedInput: 0.0375, output: 3.75, sourceUrl: 'https://cloud.google.com/skus?filter=C1CE-B525-5A70' },
         { source: 'vertexai', model: 'gemini-4-hydrogen', tier: 'priority', input: 2.7, cachedInput: 0.135, output: 13.5, sourceUrl: 'https://cloud.google.com/skus?filter=C1CE-B525-5A70' },

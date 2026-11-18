@@ -14,10 +14,9 @@ import { BUNDLED_PRICING } from './bundled-pricing.js';
 export const BUNDLED_MODEL_POLICY = Object.freeze({
     schemaVersion: 1,
     pricing: BUNDLED_PRICING,
-    updatedAt: '2026-11-13',
+    updatedAt: '2026-11-18',
     tiers: Object.freeze({
         flex: Object.freeze([
-            'gemini-4-hydrogen',
             'gemini-3.8-flash',
             'gemini-3.7-flash',
             'gemini-3.6-flash',

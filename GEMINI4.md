@@ -57,7 +57,7 @@
 
 - Carbon 已在 AI Studio 与 Vertex 正式开放。Google 说明从 Argon 升级无需修改请求结构，兼容层沿用同一套 Gemini 4 接口（`thinkingLevel`、签名、续传令牌、Vertex `v1beta1`），上下文与输出容量按 1,048,576 token 处理。Carbon 与 Argon 都不提供免费层。
 - Hydrogen 已在 AI Studio 与 Vertex 以短期 GA 开放，请求结构与 Carbon / Argon 相同。区别在于默认思考档位为 HIGH 并新增 XHIGH（XHIGH 会明显增加思考 token 与耗时）、非流式单段上限为 65,536，以及上文的 Vertex 签名处理。AI Studio 为 Hydrogen 提供有速率限制的免费层。
-- 服务层级：Vertex 的 Flex PayGo 在 Gemini 4 中只支持 Hydrogen（仅 `global` 区域），Hydrogen 可用 Standard、Flex 与 Priority，Carbon 与 Argon 可用 Standard 与 Priority。AI Studio 的 Hydrogen、Carbon 与 Argon 可用 Standard 与 Flex。
+- 服务层级：Vertex 的 Hydrogen、Carbon 与 Argon 可用 Standard 与 Priority。Google 已将 Hydrogen 从 Vertex Flex PayGo 支持名单中移除，目前没有 Gemini 4 模型支持 Vertex Flex，选择 Flex 时会在发送前拦截。AI Studio 的 Hydrogen、Carbon 与 Argon 可用 Standard 与 Flex。
 - 温度、Top-P、Top-K 在 Gemini 4 上不再具有原来的采样效果；兼容层不会伪造这些参数的效果。
 - 输出预算同时包含模型思考和正文，较小的预算（ST 默认 300）仍可能在正文出现前用尽；此时会明确提示，而不是返回空白消息。
 - 是否有模型访问权限、区域或服务层配额，仍由 Google 决定。

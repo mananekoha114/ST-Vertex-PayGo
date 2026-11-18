@@ -3,16 +3,16 @@
 | 项目 | 说明 |
 | --- | --- |
 | 适用宿主 | SillyTavern / Luker 的 **Google AI Studio** 与 **Vertex AI** 原生来源 |
-| 识别模型 | `gemini-4-hydrogen`、`gemini-4-carbon`、`gemini-4-argon`、`gemini-4-argon-cyber-permissive` |
-| 所需版本 | Argon：前端扩展与 [ST-Vertex-PayGo-Server](https://github.com/mananekoha114/ST-Vertex-PayGo-Server) 均为 **0.6.0** 及以上；Carbon 与 Hydrogen：两者都需要 **0.6.1-pre1 之后**的版本，Hydrogen 还需要比 Carbon 支持更新的版本 |
+| 识别模型 | `gemini-4-neon`、`gemini-4-hydrogen`、`gemini-4-carbon`、`gemini-4-argon`、`gemini-4-argon-cyber-permissive` |
+| 所需版本 | Argon：前端扩展与 [ST-Vertex-PayGo-Server](https://github.com/mananekoha114/ST-Vertex-PayGo-Server) 均为 **0.6.0** 及以上；Carbon、Hydrogen 与 Neon：两者都需要 **0.6.1-pre1 之后**的版本，Hydrogen 需要比 Carbon 支持更新的版本，Neon 又需要比 Hydrogen 支持更新的版本 |
 
-安装或更新两个组件后，重启 SillyTavern 并刷新浏览器。前端会检查服务端能力，并核对服务端声明的 Gemini 4 模型名单；旧服务端不会静默回退到缺少思考配置的请求。服务端没有声明支持当前模型时（例如只支持 Argon 的服务端遇到 Carbon，或只支持到 Carbon 的服务端遇到 Hydrogen），会在发送前提示更新服务端插件。普通模型和其他 API 来源继续使用原来的发送路径。
+安装或更新两个组件后，重启 SillyTavern 并刷新浏览器。前端会检查服务端能力，并核对服务端声明的 Gemini 4 模型名单；旧服务端不会静默回退到缺少思考配置的请求。服务端没有声明支持当前模型时（例如只支持 Argon 的服务端遇到 Carbon，或只支持到 Hydrogen 的服务端遇到 Neon），会在发送前提示更新服务端插件。普通模型和其他 API 来源继续使用原来的发送路径。
 
 ## 已处理的行为
 
 ### 思考配置与模型信息
 
-- 使用 `thinkingLevel`：最低档映射到 LOW，保留 MEDIUM 与 HIGH；最高档在 Carbon / Argon 上映射到 HIGH，在 Hydrogen 上映射到 XHIGH。自动档不发送档位，使用模型默认值（Carbon / Argon 为 MEDIUM，Hydrogen 为 HIGH）。返回思考摘要的开关独立控制 `includeThoughts`。
+- 使用 `thinkingLevel`：最低档映射到 LOW，保留 MEDIUM 与 HIGH；最高档在 Carbon / Argon / Neon 上映射到 HIGH，在 Hydrogen 上映射到 XHIGH。Neon 尚未上线，Google 确认它支持 XHIGH 之前先使用所有 Gemini 4 都接受的 HIGH。自动档不发送档位，使用模型默认值（Carbon / Argon 为 MEDIUM，Hydrogen 为 HIGH）。返回思考摘要的开关独立控制 `includeThoughts`。
 - 不向模型下拉菜单或宿主模型列表添加 Gemini 4 选项，避免与其他插件冲突。对宿主或其他插件已有的模型记录，仅补齐缺失的模型容量信息。
 - 输入、思考和输出共享 1,048,576 token 窗口；保留用户已经选择的上下文及输出预算，不自动提高输出上限。
 
@@ -28,7 +28,7 @@
 - 恢复工具调用的上游 ID 和签名。插件用命名空间元数据穿过旧版 ST 的随机 ID 转换，发给 Google 前还原原始值。
 - 保留多文本片段的独立签名，包括跨长输出段的签名；非流式消息在宿主保存之前补齐签名。
 - 正文被编辑或格式变更后，无法精确匹配的旧签名不会错误地绑定到新内容。
-- Vertex 的 Hydrogen 请求设置 `prefixMismatchBehavior: DROP`。世界书、宏或消息编辑使较早的轮次或系统提示词与签名签发时不同，Google 会丢弃这些签名，而不是返回 HTTP 400。AI Studio 的 `ThinkingConfig` 没有这个字段，因此不发送。
+- Vertex 的 Hydrogen 与 Neon 请求设置 `prefixMismatchBehavior: DROP`。世界书、宏或消息编辑使较早的轮次或系统提示词与签名签发时不同，Google 会丢弃这些签名，而不是返回 HTTP 400。AI Studio 的 `ThinkingConfig` 没有这个字段，因此不发送。
 
 ### 长输出续传与费用
 
@@ -57,6 +57,7 @@
 
 - Carbon 已在 AI Studio 与 Vertex 正式开放。Google 说明从 Argon 升级无需修改请求结构，兼容层沿用同一套 Gemini 4 接口（`thinkingLevel`、签名、续传令牌、Vertex `v1beta1`），上下文与输出容量按 1,048,576 token 处理。Carbon 与 Argon 都不提供免费层。
 - Hydrogen 已在 AI Studio 与 Vertex 以短期 GA 开放，请求结构与 Carbon / Argon 相同。区别在于默认思考档位为 HIGH 并新增 XHIGH（XHIGH 会明显增加思考 token 与耗时）、非流式单段上限为 65,536，以及上文的 Vertex 签名处理。AI Studio 为 Hydrogen 提供有速率限制的免费层。
+- Neon 尚未正式上线，兼容层提前按 Hydrogen 的请求结构接入：最高思考档先映射到 HIGH，Vertex 签名处理与 Hydrogen 相同，上下文与输出容量暂按 1,048,576 token 处理。上线后若 Google 的说明不同，会再调整。是否有访问权限仍由 Google 决定。
 - 服务层级：Vertex 的 Hydrogen、Carbon 与 Argon 可用 Standard 与 Priority。Google 已将 Hydrogen 从 Vertex Flex PayGo 支持名单中移除，目前没有 Gemini 4 模型支持 Vertex Flex，选择 Flex 时会在发送前拦截。AI Studio 的 Hydrogen、Carbon 与 Argon 可用 Standard 与 Flex。
 - 温度、Top-P、Top-K 在 Gemini 4 上不再具有原来的采样效果；兼容层不会伪造这些参数的效果。
 - 输出预算同时包含模型思考和正文，较小的预算（ST 默认 300）仍可能在正文出现前用尽；此时会明确提示，而不是返回空白消息。

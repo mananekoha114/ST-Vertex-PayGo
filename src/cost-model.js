@@ -20,6 +20,30 @@ export function priceKey({ source, model, tier } = {}) {
     return JSON.stringify([String(source ?? ''), String(model ?? ''), String(tier ?? '')]);
 }
 
+/** Key of the non-global endpoint rate for the same source, model and tier. */
+export function regionalPriceKey({ source, model, tier } = {}) {
+    return JSON.stringify([String(source ?? ''), String(model ?? ''), String(tier ?? ''), 'regional']);
+}
+
+/**
+ * Vertex regional and multi-regional endpoints may cost more than global.
+ * A missing region keeps the global rate, which is what records captured
+ * before regional pricing (and Tauri records without a region) always used.
+ */
+export function isRegionalEndpoint({ source, region } = {}) {
+    const location = String(region ?? '').trim().toLowerCase();
+    return source === 'vertexai' && location !== '' && location !== 'global';
+}
+
+/** Looks up the rate for a request or record, preferring its regional rate. */
+export function lookupPrice(prices, key = {}) {
+    if (isRegionalEndpoint(key)) {
+        const regional = prices?.[regionalPriceKey(key)];
+        if (regional) return regional;
+    }
+    return prices?.[priceKey(key)];
+}
+
 export function normalizePrice(price) {
     if (!price || typeof price !== 'object') return null;
     const normalized = {};
@@ -182,7 +206,7 @@ export function summarizeUsage(records, prices = {}) {
     let incompleteCount = 0;
     let estimatedCount = 0;
     for (const record of unique.values()) {
-        const fallback = prices?.[priceKey(record)];
+        const fallback = lookupPrice(prices, record);
         const estimate = estimateRecord(record, fallback);
         details.push({ record, estimate });
         if (estimate.amount !== null) amount += estimate.amount;

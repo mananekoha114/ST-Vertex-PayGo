@@ -61,6 +61,11 @@ function pickNonEmptyString(...candidates) {
     return '';
 }
 
+/** The Vertex region a request uses: its own, else the saved connection's, else the host default. */
+export function resolveVertexRegion(generateData, vertexDefaults = undefined) {
+    return pickNonEmptyString(generateData?.vertexai_region, vertexDefaults?.vertexai_region, 'us-central1').toLowerCase();
+}
+
 export function buildPreparePayload(generateData, state, upstreamProxy = generateData, vertexDefaults = undefined) {
     const source = generateData.chat_completion_source === AI_STUDIO_SOURCE ? AI_STUDIO_SOURCE : VERTEX_SOURCE;
     const expressProjectId = generateData.vertexai_express_project_id !== undefined
@@ -78,7 +83,7 @@ export function buildPreparePayload(generateData, state, upstreamProxy = generat
         ...(generateData.secret_id ? { secret_id: generateData.secret_id } : {}),
         ...(source === VERTEX_SOURCE ? {
             vertexai_auth_mode: pickNonEmptyString(generateData.vertexai_auth_mode, vertexDefaults?.vertexai_auth_mode, 'express').toLowerCase(),
-            vertexai_region: pickNonEmptyString(generateData.vertexai_region, vertexDefaults?.vertexai_region, 'us-central1').toLowerCase(),
+            vertexai_region: resolveVertexRegion(generateData, vertexDefaults),
             vertexai_express_project_id: expressProjectId,
         } : {}),
         tier: state.tier,

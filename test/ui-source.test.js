@@ -480,3 +480,116 @@ for (const failure of ['start', 'status']) {
         assert.equal(f.clock.pending, 0);
     });
 }
+
+// Region support prompts: the host input updates the settings before our
+// listener runs, and setRegion's input event does the same.
+function makeRegionUi(t, { model, region, tier = 'standard', answers = [] }) {
+    const dom = createHostDom();
+    installHostDom(t, dom);
+    // A browser focuses the body when nothing else has focus.
+    dom.document.activeElement = dom.extensions;
+    const context = createUpdaterContext();
+    const profile = context.extensionSettings.connectionManager.profiles[0];
+    profile[EXTENSION_ID].tier = tier;
+    context.chatCompletionSettings.vertexai_model = model;
+    context.chatCompletionSettings.vertexai_region = region;
+    dom.region.value = region;
+    dom.region.dispatchEvent = event => {
+        if (event.type === 'input') context.chatCompletionSettings.vertexai_region = dom.region.value;
+        return true;
+    };
+    const prompts = [];
+    context.Popup.show.confirm = async (title, body, options) => {
+        prompts.push({ title, body, ...options });
+        assert.ok(answers.length > 0, `unexpected prompt: ${title}`);
+        return answers.shift();
+    };
+    const handlers = new Map();
+    let appReady = null;
+    context.eventSource = {
+        on: (name, callback) => handlers.set(name, callback),
+        once: (name, callback) => { if (name === 'APP_READY') appReady = callback; },
+    };
+    const ui = createPayGoUi({ context, serverClient: { checkHealth: async () => ({ capabilities: {} }) } });
+    t.after(() => ui.destroy());
+    const changeRegion = async value => {
+        dom.region.value = value;
+        context.chatCompletionSettings.vertexai_region = value;
+        await dom.region.fire('change');
+    };
+    // Reconciliation waits for the host to settle before checking saved state.
+    const reconcile = async () => { await new Promise(resolve => setTimeout(resolve, 300)); await settle(); };
+    return { dom, ui, context, profile, prompts, answers, handlers, changeRegion, reconcile,
+        start: async () => { appReady(); await reconcile(); } };
+}
+
+test('a region the model is not served in offers global and keeps the region on request', async t => {
+    const { AFFIRMATIVE, NEGATIVE } = { AFFIRMATIVE: 1, NEGATIVE: 0 };
+    const f = makeRegionUi(t, { model: 'gemini-4-hydrogen', region: 'global', tier: 'priority', answers: [NEGATIVE, AFFIRMATIVE] });
+
+    // Keeping the region also leaves Priority, which needs global.
+    await f.changeRegion('europe-west4');
+    assert.equal(f.prompts.length, 1);
+    assert.equal(f.prompts[0].title, 'gemini-4-hydrogen is not available in “europe-west4”');
+    assert.match(f.prompts[0].body, /only in: global, us, eu/u);
+    assert.match(f.prompts[0].body, /switches Priority to Standard/u);
+    assert.equal(f.prompts[0].okButton, 'Switch to global');
+    assert.equal(f.prompts[0].cancelButton, 'Keep europe-west4');
+    assert.equal(f.prompts[0].defaultResult, NEGATIVE);
+    assert.equal(f.dom.region.value, 'europe-west4');
+    assert.equal(f.ui.getState().tier, 'standard');
+    assert.equal(f.profile[EXTENSION_ID].tier, 'standard');
+    assert.equal(f.profile['api-url'], 'europe-west4');
+
+    // On Standard the prompt has no tier note; switching writes the region back.
+    await f.changeRegion('asia-east1');
+    assert.equal(f.prompts.length, 2);
+    assert.doesNotMatch(f.prompts[1].body, /Standard,/u);
+    assert.equal(f.dom.region.value, 'global');
+    assert.equal(f.context.chatCompletionSettings.vertexai_region, 'global');
+    assert.equal(f.profile['api-url'], 'global');
+    assert.equal(f.ui.getState().tier, 'standard');
+
+    // Served regions and models without a region list are not prompted.
+    await f.changeRegion('eu');
+    f.context.chatCompletionSettings.vertexai_model = 'gemini-2.5-pro';
+    await f.changeRegion('asia-east1');
+    assert.equal(f.prompts.length, 2);
+});
+
+test('saved state reconciliation asks for a region once per kept model and region', async t => {
+    const { AFFIRMATIVE, NEGATIVE } = { AFFIRMATIVE: 1, NEGATIVE: 0 };
+    const f = makeRegionUi(t, { model: 'gemini-4-carbon', region: 'us-central1', answers: [NEGATIVE, AFFIRMATIVE] });
+    await f.start();
+    assert.equal(f.prompts.length, 1);
+    assert.equal(f.prompts[0].title, 'gemini-4-carbon is not available in “us-central1”');
+    assert.equal(f.dom.region.value, 'us-central1');
+    assert.equal(f.ui.getState().tier, 'standard');
+
+    // A kept pair is not asked again in this session.
+    f.handlers.get('SETTINGS_UPDATED')?.();
+    f.handlers.get('CHATCOMPLETION_MODEL_CHANGED')();
+    await f.reconcile();
+    assert.equal(f.prompts.length, 1);
+
+    // Another model in the same region is a new pair.
+    f.context.chatCompletionSettings.vertexai_model = 'gemini-4-argon';
+    f.handlers.get('CHATCOMPLETION_MODEL_CHANGED')();
+    await f.reconcile();
+    assert.equal(f.prompts.length, 2);
+    assert.equal(f.prompts[1].title, 'gemini-4-argon is not available in “us-central1”');
+    assert.equal(f.dom.region.value, 'global');
+    assert.equal(f.profile['api-url'], 'global');
+});
+
+test('switching to a model that a region does not serve prompts after the model change', async t => {
+    const f = makeRegionUi(t, { model: 'gemini-2.5-pro', region: 'us-central1', answers: [1] });
+    await f.start();
+    assert.equal(f.prompts.length, 0);
+    f.context.chatCompletionSettings.vertexai_model = 'gemini-4-hydrogen';
+    f.handlers.get('CHATCOMPLETION_MODEL_CHANGED')();
+    await f.reconcile();
+    assert.equal(f.prompts.length, 1);
+    assert.equal(f.prompts[0].title, 'gemini-4-hydrogen is not available in “us-central1”');
+    assert.equal(f.dom.region.value, 'global');
+});

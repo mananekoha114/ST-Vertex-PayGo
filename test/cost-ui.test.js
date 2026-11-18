@@ -81,7 +81,7 @@ test('attaches a menu entry and a new chat can edit prices without reading usage
     await ui.open();
     assert.equal(reads, 0);
     assert.ok(text(document.getElementById('vertex-paygo-extension-settings-content')).includes('价格设置（美元 / 百万 token）'));
-    assert.ok(text(document.getElementById('vertex-paygo-extension-settings-content')).some(value => value.includes('Vertex 按 Global 基础价')));
+    assert.ok(text(document.getElementById('vertex-paygo-extension-settings-content')).some(value => value.includes('Vertex 按请求的地区使用 Global 或地区端点价格')));
     assert.ok(text(shown).includes('尚无已采集请求；价格可在扩展设置的 ST-Vertex-PayGo「价格」页配置。'));
     assert.equal(find(shown, node => node.tag === 'form'), null);
     ui.destroy();

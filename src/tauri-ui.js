@@ -178,7 +178,10 @@ export function createTauriUi({ getContext, connections, yaml, documentRef = glo
                 throw new Error(localize('vertex_paygo.tauri.settings_changed'));
             }
             const validation = validatePluginState({ source: item.source, model: item.model, region, state: requested });
-            if (!validation.ok) throw new Error(localizeValidation(localize, validation, requested));
+            // A region the model is not served in does not depend on the tier:
+            // save the tier, warn, and let the request be refused before sending.
+            const regionWarning = validation.code === 'MODEL_REGION_UNSUPPORTED';
+            if (!validation.ok && !regionWarning) throw new Error(localizeValidation(localize, validation, requested));
             if (item.id !== CURRENT) {
                 await connections.save(item.id, requested, { syncGlobal: region === 'global' });
             } else {
@@ -206,7 +209,8 @@ export function createTauriUi({ getContext, connections, yaml, documentRef = glo
                 const regionInput = documentRef.getElementById('vertexai_region');
                 if (regionInput && item.source === VERTEX_SOURCE) regionInput.value = region;
             }
-            if (validation.support?.level === 'unverified') {
+            if (regionWarning) notifyWarning(localizeValidation(localize, validation, requested));
+            else if (validation.support?.level === 'unverified') {
                 notifyWarning(localizeSupport(localize, validation.support, requested.tier));
             }
         } catch (error) { notifyError(error.message); }

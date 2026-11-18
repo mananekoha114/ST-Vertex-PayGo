@@ -2,7 +2,7 @@
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. https://mozilla.org/MPL/2.0/ */
 
-import { normalizePrice, priceKey } from './cost-model.js';
+import { lookupPrice, normalizePrice, priceKey, regionalPriceKey } from './cost-model.js';
 import { getActivePricing } from './model-policy.js';
 import { normalizeMessageCostPlacement, normalizeMessageCostRecentCount } from './message-cost-settings.js';
 
@@ -27,6 +27,16 @@ function identity(context) {
         : ['character', context.characters?.[context.characterId]?.avatar];
     if (!owner[1]) return null;
     return JSON.stringify([...owner, chat.replace(/\.jsonl$/i, '')]);
+}
+
+function parseKey(key) {
+    try {
+        const parsed = JSON.parse(key);
+        return Array.isArray(parsed) && parsed.length === 3
+            ? { source: parsed[0], model: parsed[1], tier: parsed[2] } : null;
+    } catch {
+        return null;
+    }
 }
 
 // Account settings survive browser reloads and server restarts. Chat names stay
@@ -86,11 +96,22 @@ export function createCostContext({ getContext, idFactory = createConversationId
         return { catalog, entries };
     }
 
+    // Catalog rates are keyed by source/model/tier, plus a regional key for
+    // Vertex non-global endpoints. Manual rates have no region: they replace
+    // both, so a user's own price applies to every endpoint.
     function getPrices() {
-        const prices = Object.fromEntries(catalogPrices().entries.map(entry => [priceKey(entry), normalizePrice(entry)]));
+        const prices = {};
+        for (const entry of catalogPrices().entries) {
+            prices[priceKey(entry)] = normalizePrice(entry);
+            const regional = normalizePrice(entry.regional);
+            if (regional) prices[regionalPriceKey(entry)] = regional;
+        }
         for (const [key, value] of Object.entries(settings().prices)) {
             const rate = normalizePrice(value);
-            if (rate) prices[key] = rate;
+            if (!rate) continue;
+            prices[key] = rate;
+            const parsed = parseKey(key);
+            if (parsed) delete prices[regionalPriceKey(parsed)];
         }
         return prices;
     }
@@ -99,8 +120,9 @@ export function createCostContext({ getContext, idFactory = createConversationId
         if (normalizePrice(settings().prices[priceKey(key)])) return { source: 'manual' };
         const { catalog, entries } = catalogPrices();
         const entry = entries.find(entry => priceKey(entry) === priceKey(key));
-        return entry ? { source: 'catalog', updatedAt: catalog.updatedAt,
-            validUntil: entry.validUntil, sourceUrl: entry.sourceUrl } : { source: 'missing', updatedAt: catalog.updatedAt };
+        const regional = normalizePrice(entry?.regional);
+        return entry ? { source: 'catalog', updatedAt: catalog.updatedAt, validUntil: entry.validUntil,
+            ...(regional ? { regional } : {}), sourceUrl: entry.sourceUrl } : { source: 'missing', updatedAt: catalog.updatedAt };
     }
     function setPrices(prices) {
         const validated = {};
@@ -124,10 +146,12 @@ export function createCostContext({ getContext, idFactory = createConversationId
         setPrices(prices);
     }
 
-    function getUsagePrice(data, state) {
-        return normalizePrice(getPrices()[priceKey({
-            source: data.chat_completion_source, model: data.model, tier: state.tier,
-        })]);
+    // The caller passes the region it validated, since background requests
+    // can omit vertexai_region and inherit the saved connection instead.
+    function getUsagePrice(data, state, { region = data.vertexai_region } = {}) {
+        return normalizePrice(lookupPrice(getPrices(), {
+            source: data.chat_completion_source, model: data.model, tier: state.tier, region,
+        }));
     }
 
     function renamed({ avatarId, groupId, oldFileName, newFileName } = {}) {

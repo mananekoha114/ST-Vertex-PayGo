@@ -31,7 +31,7 @@ export function createPriceSettingsUi({ documentRef = globalThis.document,
     feedback.setAttribute('aria-live', 'polite');
     pricing.append(element(documentRef, 'h4', 'vertex-paygo-group-title', '价格设置（美元 / 百万 token）'));
     pricing.append(element(documentRef, 'p', 'vertex-paygo-cost-pricing-note',
-        '自动价格为公开付费文本单价；Vertex 按 Global 基础价。地区差价、免费额度和账户折扣请手动调整。'));
+        '自动价格为公开付费文本单价；Vertex 按请求的地区使用 Global 或地区端点价格。手动价格对所有地区生效；免费额度和账户折扣请手动调整。'));
     const form = element(documentRef, 'form', 'vertex-paygo-cost-price-form');
     const priceMeta = element(documentRef, 'p', 'vertex-paygo-cost-price-meta');
     const keyFields = { source: '来源', model: '模型', tier: '服务层级' };
@@ -128,6 +128,10 @@ export function createPriceSettingsUi({ documentRef = globalThis.document,
         const parts = [labels[info.source] ?? '暂无价格'];
         if (info.updatedAt) parts.push(`核验 ${info.updatedAt}`);
         if (info.validUntil) parts.push(`有效至 ${info.validUntil}`);
+        // Vertex non-global endpoints may cost more; the form edits the global rate.
+        if (info.regional) {
+            parts.push(`地区端点：输入 ${info.regional.input} / 缓存输入 ${info.regional.cachedInput} / 输出 ${info.regional.output}`);
+        }
         priceMeta.replaceChildren(element(documentRef, 'span', '', parts.join(' · ')));
         if (typeof info.sourceUrl === 'string' && info.sourceUrl.startsWith('https://')) {
             const link = element(documentRef, 'a', '', '官方来源');

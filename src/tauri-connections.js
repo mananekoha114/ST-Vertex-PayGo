@@ -173,7 +173,9 @@ export function createTauriConnections({
         if (needsGlobal) target['api-url'] = 'global';
 
         const validation = validatePluginState({ source, model: target.model, region: target['api-url'], state });
-        if (!validation.ok) throw new Error(validation.message);
+        // Saving a tier stays possible in a region the model is not served in;
+        // requests from that target are refused before sending.
+        if (!validation.ok && validation.code !== 'MODEL_REGION_UNSUPPORTED') throw new Error(validation.message);
 
         const data = applyTauriParameters(toParameterData(target, source), state, { yaml });
         updateAdapterHints(target, data);

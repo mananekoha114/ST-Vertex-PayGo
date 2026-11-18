@@ -16,6 +16,9 @@ export const CLIENT_LOG_MEDIA_TYPE = 'application/vnd.st-vertex-paygo.client-log
 export const VERTEX_SOURCE = 'vertexai';
 export const AI_STUDIO_SOURCE = 'makersuite';
 
+/** Vertex location IDs: global, multi-regions such as us/eu, or a single region. */
+export const VERTEX_REGION_PATTERN = /^(?:global|[a-z0-9][a-z0-9-]{0,62})$/u;
+
 export function isGoogleSource(source) {
     return source === VERTEX_SOURCE || source === AI_STUDIO_SOURCE;
 }

@@ -34,6 +34,7 @@ import {
     normalizeState,
     resolveModelChange,
     resolveRegionChange,
+    resolveRegionSupport,
     resolveTierSelection,
     validatePluginState,
 } from './state-machine.js';
@@ -260,6 +261,10 @@ export function createPayGoUi({
     };
     let appReady = false;
     let reconcileQueued = false;
+    // Model/region pairs the user chose to keep this session. Reconciliation
+    // does not ask again; requests are still refused before sending.
+    const keptRegionPairs = new Set();
+    const regionPairKey = support => `${support.model}\n${support.region}`;
     let reconcileTimer = null;
     let profileTransitionPending = false;
     let profileTransitionTimer = null;
@@ -718,6 +723,56 @@ export function createPayGoUi({
         return true;
     }
 
+    async function showRegionSupportConflict(decision) {
+        const { model, region, regions, suggestedRegion } = decision.regionSupport;
+        const parameters = { model, region, regions: regions.join(', '), suggested: suggestedRegion };
+        const body = [localize('vertex_paygo.popup.region_support.body', parameters)];
+        if (decision.decline.state.tier !== state.tier) {
+            body.push(localize('vertex_paygo.popup.region_support.tier_note', { tier: getTierLabel(localize, state.tier) }));
+        }
+        return await popup.show.confirm(
+            localize('vertex_paygo.popup.region_support.title', parameters),
+            body.join(' '),
+            {
+                okButton: localize('vertex_paygo.popup.region_support.accept', parameters),
+                cancelButton: localize('vertex_paygo.popup.region_support.decline', parameters),
+                defaultResult: popupResult.NEGATIVE,
+            },
+        );
+    }
+
+    function commitRegionSupportChoice(decision, result) {
+        // The prompt only applies to the model it named.
+        if (String(getModel() ?? '').trim().toLowerCase() !== decision.regionSupport.model) {
+            render();
+            return;
+        }
+        const accepted = result === popupResult.AFFIRMATIVE;
+        const selected = accepted ? decision.accept : decision.decline;
+        if (!accepted) keptRegionPairs.add(regionPairKey(decision.regionSupport));
+        if (selected.region !== getRegion()) {
+            setRegion(selected.region);
+        } else {
+            writeActiveProfileRegion(context, selected.region);
+        }
+        applyState(selected.state);
+    }
+
+    async function promptRegionSupport(decision) {
+        const token = reconcileGuard.begin();
+        transitionPending = true;
+        render();
+        try {
+            await reconcileGuard.settle(
+                token,
+                showRegionSupportConflict(decision),
+                result => commitRegionSupportChoice(decision, result),
+            );
+        } finally {
+            finishTransition();
+        }
+    }
+
     async function onTierChanged() {
         return selectTier(controls.tierSelect.value);
     }
@@ -780,9 +835,18 @@ export function createPayGoUi({
             render();
             return;
         }
-        const decision = resolveRegionChange({ state, requestedRegion: regionInput.value });
+        const decision = resolveRegionChange({
+            state,
+            requestedRegion: regionInput.value,
+            model: getModel(),
+            source: getSource(),
+        });
         if (decision.type === 'apply') {
             render();
+            return;
+        }
+        if (decision.code === 'REGION_MODEL_UNSUPPORTED') {
+            await promptRegionSupport(decision);
             return;
         }
 
@@ -953,6 +1017,8 @@ export function createPayGoUi({
                 },
             );
         } finally {
+            // Reconciliation then checks whether the chosen model serves the region.
+            reconcileQueued = true;
             finishTransition();
         }
     }
@@ -1076,6 +1142,15 @@ export function createPayGoUi({
         if (plan.type !== 'conflict') return;
 
         const validation = plan.validation;
+
+        if (validation.code === 'MODEL_REGION_UNSUPPORTED') {
+            // Resetting the tier cannot fix a region, so offer a region instead.
+            const decision = resolveRegionSupport({ state, model, region, source: getSource() });
+            if (decision.type === 'conflict' && !keptRegionPairs.has(regionPairKey(decision.regionSupport))) {
+                await promptRegionSupport(decision);
+            }
+            return;
+        }
 
         if (validation.code === 'TIER_REQUIRES_GLOBAL') {
             const decision = resolveTierSelection({ state, requestedTier: state.tier, region, model });

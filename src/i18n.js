@@ -265,6 +265,12 @@ export const MESSAGES = Object.freeze({
     'vertex_paygo.popup.region.body': '{tier} PayGo currently requires global. Keep the new region with Standard, or keep global with the current tier.',
     'vertex_paygo.popup.region.accept': 'Use new region and Standard',
     'vertex_paygo.popup.region.decline': 'Keep global and {tier}',
+    'vertex_paygo.validation.region_unsupported': '{model} is not available in the Vertex AI region “{region}”. Supported regions: {regions}.',
+    'vertex_paygo.popup.region_support.title': '{model} is not available in “{region}”',
+    'vertex_paygo.popup.region_support.body': 'Vertex AI Standard PayGo serves {model} only in: {regions}. Switch to {suggested}, or keep “{region}”; requests are then blocked before sending.',
+    'vertex_paygo.popup.region_support.tier_note': 'Keeping this region also switches {tier} to Standard, because {tier} requires global.',
+    'vertex_paygo.popup.region_support.accept': 'Switch to {suggested}',
+    'vertex_paygo.popup.region_support.decline': 'Keep {region}',
     'vertex_paygo.popup.model.reason_gemini': 'PayGo routing is restricted to Gemini models.',
     'vertex_paygo.popup.model.reason_unsupported': 'The selected model does not support this PayGo tier.',
     'vertex_paygo.popup.model.title': 'Model and PayGo tier conflict',
@@ -386,6 +392,12 @@ export function localizeValidation(localize, validation, state = undefined) {
         case 'TIER_REQUIRES_GLOBAL':
             return localize('vertex_paygo.validation.global_required', {
                 tier: getTierLabel(localize, state?.tier),
+            });
+        case 'MODEL_REGION_UNSUPPORTED':
+            return localize('vertex_paygo.validation.region_unsupported', {
+                model: validation.regionSupport?.model ?? '',
+                region: validation.regionSupport?.region ?? '',
+                regions: (validation.regionSupport?.regions ?? []).join(', '),
             });
         default:
             return String(validation?.message ?? '');

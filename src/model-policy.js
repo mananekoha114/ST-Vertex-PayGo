@@ -69,6 +69,23 @@ export const BUNDLED_MODEL_POLICY = Object.freeze({
         'gemini-2.5-flash',
         'gemini-2.5-flash-lite',
     ]),
+    // Vertex Standard PayGo locations from each model card. Models without a
+    // list are not checked; Google performs the final validation for them.
+    regions: Object.freeze({
+        updatedAt: '2026-11-18',
+        sourceUrl: 'https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/locations',
+        standard: Object.freeze({
+            'gemini-4-hydrogen': Object.freeze(['global', 'us', 'eu']),
+            'gemini-4-carbon': Object.freeze(['global', 'us', 'eu']),
+            'gemini-4-argon': Object.freeze(['global', 'us', 'eu']),
+            'gemini-4-argon-cyber-permissive': Object.freeze(['global', 'us', 'eu']),
+            'gemini-3.8-flash': Object.freeze(['global', 'us', 'eu']),
+            'gemini-3.7-flash': Object.freeze(['global', 'us', 'eu']),
+            'gemini-3.6-flash': Object.freeze(['global', 'us', 'eu']),
+            'gemini-3.5-flash': Object.freeze(['global', 'us', 'eu']),
+            'gemini-3.5-flash-lite': Object.freeze(['global', 'us', 'eu']),
+        }),
+    }),
     aiStudio: Object.freeze({
         updatedAt: '2026-11-13',
         tiers: Object.freeze({
@@ -121,6 +138,7 @@ const KNOWN_TIER_MODELS = new Set(BUNDLED_MODEL_POLICY.knownModels);
 
 let aiStudioSnapshot = BUNDLED_MODEL_POLICY.aiStudio.updatedAt;
 let pricingSnapshot = BUNDLED_PRICING;
+let regionsSnapshot = BUNDLED_MODEL_POLICY.regions;
 const AI_STUDIO_FLEX_MODELS = new Set(BUNDLED_MODEL_POLICY.aiStudio.tiers.flex);
 const AI_STUDIO_KNOWN_MODELS = new Set(BUNDLED_MODEL_POLICY.aiStudio.knownModels);
 
@@ -135,6 +153,8 @@ function replaceSet(target, values) {
  */
 export function installModelPolicy(policy) {
     const nextPricing = policy.pricing ? structuredClone(policy.pricing) : pricingSnapshot;
+    // Documents from before region lists keep the current list.
+    const nextRegions = policy.regions ? structuredClone(policy.regions) : regionsSnapshot;
     const flexModels = [...policy.tiers.flex];
     const priorityModels = [...policy.tiers.priority];
     const allModels = new Set(policy.knownModels);
@@ -146,6 +166,7 @@ export function installModelPolicy(policy) {
     replaceSet(KNOWN_TIER_MODELS, allModels);
     MODEL_POLICY_SNAPSHOT = policy.updatedAt;
     pricingSnapshot = nextPricing;
+    regionsSnapshot = nextRegions;
     // Older schema-v1 documents lack aiStudio. Preserve its current policy
     // instead of replacing a fetched roster with the bundled fallback.
     if (policy.aiStudio) {
@@ -169,6 +190,7 @@ export function getActiveModelPolicy() {
             priority: [...KNOWN_PRIORITY_MODELS],
         },
         knownModels: getKnownModelIds(),
+        regions: getActiveRegions(),
         aiStudio: {
             updatedAt: aiStudioSnapshot,
             tiers: { flex: [...AI_STUDIO_FLEX_MODELS] },
@@ -179,6 +201,33 @@ export function getActiveModelPolicy() {
 
 export function getActivePricing() {
     return structuredClone(pricingSnapshot);
+}
+
+export function getActiveRegions() {
+    return structuredClone(regionsSnapshot);
+}
+
+/**
+ * Whether a Vertex region serves the model on Standard PayGo. Flex and
+ * Priority already require global, which every listed model supports.
+ */
+export function getRegionSupport(model, region, source = VERTEX_SOURCE) {
+    const modelId = normalizeModelId(model);
+    const regionId = String(region ?? '').trim().toLowerCase() || 'us-central1';
+    if (source !== VERTEX_SOURCE) return { allowed: true, level: 'not_applicable', model: modelId, region: regionId };
+    const regions = Object.hasOwn(regionsSnapshot.standard, modelId) ? regionsSnapshot.standard[modelId] : null;
+    if (!regions) return { allowed: true, level: 'unverified', model: modelId, region: regionId };
+    const allowed = regions.includes(regionId);
+    return {
+        allowed,
+        level: allowed ? 'known' : 'unsupported',
+        model: modelId,
+        region: regionId,
+        regions: [...regions],
+        // ST reaches global through the same URL scheme it always uses.
+        suggestedRegion: regions.includes('global') ? 'global' : regions[0],
+        snapshot: regionsSnapshot.updatedAt,
+    };
 }
 
 export function normalizeModelId(model) {

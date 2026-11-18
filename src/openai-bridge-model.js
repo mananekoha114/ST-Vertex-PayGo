@@ -1,10 +1,9 @@
 /* Copyright (c) 2026 Mana Nekoha
  * This Source Code Form is subject to the Mozilla Public License, v. 2.0. */
 
-import { AI_STUDIO_SOURCE, VERTEX_SOURCE } from './constants.js';
+import { AI_STUDIO_SOURCE, VERTEX_REGION_PATTERN as REGION_PATTERN, VERTEX_SOURCE } from './constants.js';
 
 const MODEL_PATTERN = /^(?:google\/)?gemini-[a-z0-9][a-z0-9._-]*$/u;
-const REGION_PATTERN = /^(?:global|[a-z0-9][a-z0-9-]{0,62})$/u;
 const SECRET_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/u;
 
 export function isValidBridgeConnection(value) {

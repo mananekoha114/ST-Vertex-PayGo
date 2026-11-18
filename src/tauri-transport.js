@@ -13,6 +13,7 @@ import {
     isGoogleSource,
 } from './constants.js';
 import { requiresPlugin, validatePluginState, normalizeState } from './state-machine.js';
+import { resolveVertexRegion } from './request-hook.js';
 import {
     applyTauriParameters,
     hasExplicitTauriState,
@@ -46,6 +47,14 @@ function safeCall(fn, ...args) {
     } catch {
         return undefined;
     }
+}
+
+// Vertex requests are priced in the region validation checked: the request's
+// own region, else the host default.
+function usagePriceFor(getUsagePrice, data, state) {
+    return sourceOf(data) === VERTEX_SOURCE
+        ? safeCall(getUsagePrice, data, state, { region: resolveVertexRegion(data) })
+        : safeCall(getUsagePrice, data, state);
 }
 
 function makeRequestId(target = globalThis) {
@@ -258,7 +267,7 @@ function metadataFor({ data, state, target, captureUsageContext, getUsagePrice, 
         ? suppliedPrice
         : Object.hasOwn(prior ?? {}, 'price')
             ? prior.price
-            : safeCall(getUsagePrice, data, state);
+            : usagePriceFor(getUsagePrice, data, state);
     return {
         ...(prior ?? {}),
         id: makeRequestId(target),
@@ -603,7 +612,7 @@ export function installTauriTransport({
             // final payload actually changed the pricing identity.
             const finalPrice = samePricingIdentity
                 ? requestMetadata.price
-                : safeCall(getUsagePrice, prepared, validationState);
+                : usagePriceFor(getUsagePrice, prepared, validationState);
             usageMetadata = metadataFor({
                 data: prepared,
                 state: validationState,

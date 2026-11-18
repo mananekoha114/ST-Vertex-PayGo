@@ -2,8 +2,8 @@
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. https://mozilla.org/MPL/2.0/ */
 
-import { DEFAULT_STATE, EXTENSION_ID, isGoogleSource } from './constants.js';
-import { createRequestHook, installFailureSink } from './request-hook.js';
+import { DEFAULT_STATE, EXTENSION_ID, isGoogleSource, VERTEX_SOURCE } from './constants.js';
+import { createRequestHook, installFailureSink, resolveVertexRegion } from './request-hook.js';
 import { normalizeState, requiresPlugin } from './state-machine.js';
 import { enrichGemini4ModelList, getGemini4RequestTarget, isNativeGemini4Request, localizeGemini4Response } from './gemini4-request.js';
 import { serverSupportsNativeGemini4 } from './gemini4-models.js';
@@ -109,7 +109,9 @@ export function installRequestTransport({ context, stateProvider, target = globa
             ? metadata.usageChatId : fallbackChatId;
         requestUsage.set(data, {
             ...(usageChatId ? { usageChatId } : {}),
-            usagePrice: getUsagePrice(data, state),
+            // Price the endpoint the prepare payload will target.
+            usagePrice: getUsagePrice(data, state, data.chat_completion_source === VERTEX_SOURCE
+                ? { region: resolveVertexRegion(data, getHostContext()?.chatCompletionSettings) } : {}),
         });
         const costToken = metadata?.messageCostToken;
         const signatureToken = isNativeGemini4Request(data) ? signatures.capture(data, metadata?.background) : null;

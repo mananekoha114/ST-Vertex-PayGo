@@ -7,7 +7,7 @@
  */
 
 import { AI_STUDIO_SOURCE, CONFIG_VERSION, DEFAULT_STATE, TIER, VERTEX_SOURCE } from './constants.js';
-import { getTierSupport, isGeminiModel } from './model-policy.js';
+import { getRegionSupport, getTierSupport, isGeminiModel } from './model-policy.js';
 
 const VALID_TIERS = new Set(Object.values(TIER));
 
@@ -66,9 +66,36 @@ export function resolveTierSelection({ state, requestedTier, region, model, sour
     return { type: 'apply', support, state: nextState, region: currentRegion };
 }
 
-export function resolveRegionChange({ state, requestedRegion }) {
+/**
+ * Offers a supported region when the model is not served in the current one.
+ * Declining keeps the region, which Flex and Priority cannot use, and the
+ * request is still refused before sending.
+ */
+export function resolveRegionSupport({ state, model, region, source = VERTEX_SOURCE }) {
+    const current = normalizeState(state);
+    const currentRegion = normalizeRegion(region);
+    if (source !== VERTEX_SOURCE || !isGeminiModel(model)) return { type: 'apply', state: current, region: currentRegion };
+    const regionSupport = getRegionSupport(model, currentRegion, source);
+    if (regionSupport.allowed) return { type: 'apply', state: current, region: currentRegion, regionSupport };
+    const suggested = regionSupport.suggestedRegion;
+    const standard = { ...current, tier: TIER.STANDARD };
+    return {
+        type: 'conflict',
+        code: 'MODEL_REGION_UNSUPPORTED',
+        regionSupport,
+        accept: { state: suggested === 'global' ? current : standard, region: suggested },
+        decline: { state: current.tier === TIER.STANDARD ? current : standard, region: currentRegion },
+    };
+}
+
+export function resolveRegionChange({ state, requestedRegion, model, source = VERTEX_SOURCE }) {
     const current = normalizeState(state);
     const region = normalizeRegion(requestedRegion);
+
+    // A region that does not serve the model at all is the more useful prompt;
+    // it already covers the Standard fallback a non-global region needs.
+    const support = resolveRegionSupport({ state: current, model, region, source });
+    if (support.type === 'conflict') return { ...support, code: 'REGION_MODEL_UNSUPPORTED' };
 
     if (current.tier === TIER.STANDARD || region === 'global') {
         return { type: 'apply', state: current, region };
@@ -146,7 +173,23 @@ export function validatePluginState({ state, region, model, source = VERTEX_SOUR
                 message: `${current.tier} PayGo requires the global Vertex AI endpoint.`,
             };
         }
+    }
 
+    if (source === VERTEX_SOURCE) {
+        const regionSupport = getRegionSupport(model, normalizeRegion(region), source);
+        if (!regionSupport.allowed) {
+            return {
+                ok: false,
+                code: 'MODEL_REGION_UNSUPPORTED',
+                message: `${regionSupport.model} is not served in the ${regionSupport.region} Vertex AI region; `
+                    + `use ${regionSupport.regions.join(', ')}.`,
+                regionSupport,
+            };
+        }
+    }
+
+    if (current.tier !== TIER.STANDARD) {
+        const support = getTierSupport(model, current.tier, source);
         if (support.level === 'unverified') {
             return { ok: true, state: current, warning: support.reason, support };
         }

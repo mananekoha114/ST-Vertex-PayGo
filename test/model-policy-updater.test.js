@@ -68,6 +68,7 @@ function currentBasedPolicy({
         knownModels: [...BUNDLED_MODEL_POLICY.knownModels, ...knownAdditions],
         aiStudio: BUNDLED_MODEL_POLICY.aiStudio,
         pricing: BUNDLED_MODEL_POLICY.pricing,
+        regions: BUNDLED_MODEL_POLICY.regions,
     };
 }
 

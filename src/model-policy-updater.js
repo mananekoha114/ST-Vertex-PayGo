@@ -14,6 +14,7 @@ import {
     normalizeModelId,
 } from './model-policy.js';
 import { normalizePrice, priceKey } from './cost-model.js';
+import { VERTEX_REGION_PATTERN } from './constants.js';
 
 export const MODEL_POLICY_SCHEMA_VERSION = 1;
 export const MODEL_POLICY_GITHUB_URL =
@@ -25,6 +26,8 @@ export const MODEL_POLICY_MAX_FUTURE_SKEW_MS = 7 * 24 * 60 * 60 * 1_000;
 
 const MAX_POLICY_BYTES = 64 * 1024;
 const MAX_MODELS_PER_TIER = 256;
+const MAX_REGIONS_PER_MODEL = 64;
+const RATE_FIELDS = ['input', 'cachedInput', 'output', 'longContextThreshold', 'longInput', 'longCachedInput', 'longOutput'];
 const MODEL_ID_PATTERN = /^gemini-[a-z0-9][a-z0-9._-]{0,127}$/u;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/u;
 
@@ -122,7 +125,46 @@ export function parseModelPolicyDocument(document) {
             aiStudio: parseProviderPolicy(document.aiStudio, ['flex'], { allowEmptyTiers: true }),
         } : {}),
         ...(Object.hasOwn(document, 'pricing') ? { pricing: parsePricing(document.pricing) } : {}),
+        ...(Object.hasOwn(document, 'regions') ? { regions: parseRegions(document.regions) } : {}),
     });
+}
+
+function isTrustedSourceUrl(value) {
+    let url;
+    try { url = new URL(value); } catch { return false; }
+    return url.protocol === 'https:' && !url.username && !url.password && !url.port
+        && ['ai.google.dev', 'cloud.google.com', 'docs.cloud.google.com'].includes(url.hostname);
+}
+
+// Vertex Standard PayGo locations per model. Models without a list are not
+// checked, so Google stays the final judge for anything undocumented.
+function parseRegions(regions) {
+    const invalid = () => { throw new ModelPolicyUpdateError('INVALID_REGIONS', 'Invalid Vertex region support list.'); };
+    if (!isPlainObject(regions) || !isCalendarDate(regions.updatedAt) || !isTrustedSourceUrl(regions.sourceUrl)
+        || !isPlainObject(regions.standard) || Object.keys(regions.standard).length > MAX_MODELS_PER_TIER) invalid();
+    const standard = {};
+    for (const [model, locations] of Object.entries(regions.standard)) {
+        if (!MODEL_ID_PATTERN.test(model) || normalizeModelId(model) !== model) invalid();
+        if (!Array.isArray(locations) || locations.length < 1 || locations.length > MAX_REGIONS_PER_MODEL) invalid();
+        if (locations.some(location => typeof location !== 'string' || !VERTEX_REGION_PATTERN.test(location))) invalid();
+        if (new Set(locations).size !== locations.length) invalid();
+        standard[model] = Object.freeze([...locations]);
+    }
+    return Object.freeze({ updatedAt: regions.updatedAt, sourceUrl: regions.sourceUrl, standard: Object.freeze(standard) });
+}
+
+// Non-global Vertex Standard rates nest inside the global entry. Clients from
+// before regional pricing drop the unknown field and keep the global rate,
+// whereas a separate entry would duplicate the key they reject.
+function parseRegionalRate(entry, invalid) {
+    if (!Object.hasOwn(entry, 'regional')) return null;
+    const regional = entry.regional;
+    if (entry.source !== 'vertexai' || entry.tier !== 'standard' || !isPlainObject(regional)
+        || Object.keys(regional).some(field => !RATE_FIELDS.includes(field))
+        || Object.values(regional).some(value => typeof value !== 'number')) invalid();
+    const rate = normalizePrice(regional);
+    if (!rate) invalid();
+    return Object.freeze(rate);
 }
 
 function parsePricing(pricing) {
@@ -131,7 +173,7 @@ function parsePricing(pricing) {
         || pricing.currency !== 'USD' || pricing.unit !== 'per_million_tokens'
         || !Array.isArray(pricing.entries) || pricing.entries.length > 256) invalid();
     const keys = new Set();
-    const rateFields = ['input', 'cachedInput', 'output', 'longContextThreshold', 'longInput', 'longCachedInput', 'longOutput'];
+    const rateFields = RATE_FIELDS;
     const entries = pricing.entries.map(entry => {
         if (!isPlainObject(entry) || !['vertexai', 'makersuite'].includes(entry.source)
             || !['standard', 'flex', 'priority'].includes(entry.tier)
@@ -139,16 +181,15 @@ function parsePricing(pricing) {
             || rateFields.some(field => Object.hasOwn(entry, field) && typeof entry[field] !== 'number')) invalid();
         const rate = normalizePrice(entry);
         if (!rate) invalid();
+        const regional = parseRegionalRate(entry, invalid);
         if (Object.hasOwn(entry, 'validUntil') && (!isCalendarDate(entry.validUntil) || entry.validUntil < pricing.updatedAt)) invalid();
-        let url;
-        try { url = new URL(entry.sourceUrl); } catch { invalid(); }
-        if (url.protocol !== 'https:' || url.username || url.password || url.port
-            || !['ai.google.dev', 'cloud.google.com', 'docs.cloud.google.com'].includes(url.hostname)) invalid();
+        if (!isTrustedSourceUrl(entry.sourceUrl)) invalid();
         const key = priceKey(entry);
         if (keys.has(key)) invalid();
         keys.add(key);
         return Object.freeze({ source: entry.source, model: entry.model, tier: entry.tier,
-            ...rate, ...(entry.validUntil ? { validUntil: entry.validUntil } : {}), sourceUrl: entry.sourceUrl });
+            ...rate, ...(regional ? { regional } : {}), ...(entry.validUntil ? { validUntil: entry.validUntil } : {}),
+            sourceUrl: entry.sourceUrl });
     });
     return Object.freeze({ updatedAt: pricing.updatedAt, currency: 'USD', unit: 'per_million_tokens', entries: Object.freeze(entries) });
 }
@@ -205,6 +246,14 @@ function requireCurrentOrNewerPolicy(policy, now) {
         }
         if (policy.pricing.updatedAt < active.pricing.updatedAt) {
             throw new ModelPolicyUpdateError('STALE_PRICING', 'Pricing catalog is older than the active snapshot.');
+        }
+    }
+    if (policy.regions) {
+        if (Date.parse(`${policy.regions.updatedAt}T00:00:00.000Z`) > now + MODEL_POLICY_MAX_FUTURE_SKEW_MS) {
+            throw new ModelPolicyUpdateError('FUTURE_REGIONS', 'Region support list is too far in the future.');
+        }
+        if (policy.regions.updatedAt < active.regions.updatedAt) {
+            throw new ModelPolicyUpdateError('STALE_REGIONS', 'Region support list is older than the active snapshot.');
         }
     }
     return policy;
@@ -284,7 +333,8 @@ function installModelPolicyIfChanged(policy) {
     const active = getActiveModelPolicy();
     const changed = hasProviderPolicyChanged(policy, active)
         || Boolean(policy.aiStudio && hasProviderPolicyChanged(policy.aiStudio, active.aiStudio))
-        || Boolean(policy.pricing && JSON.stringify(policy.pricing) !== JSON.stringify(active.pricing));
+        || Boolean(policy.pricing && JSON.stringify(policy.pricing) !== JSON.stringify(active.pricing))
+        || Boolean(policy.regions && JSON.stringify(policy.regions) !== JSON.stringify(active.regions));
     if (changed) installModelPolicy(policy);
     return changed;
 }
@@ -355,8 +405,8 @@ export async function refreshModelPolicyFromGitHub({
         }
         const policy = requireCurrentOrNewerPolicy(parseModelPolicyText(await readPolicyResponse(response)), now);
         const changed = installModelPolicyIfChanged(policy);
-        // Cache the effective document, retaining AI Studio and prices when
-        // an older publisher omits either optional section.
+        // Cache the effective document, retaining AI Studio, prices and
+        // regions when an older publisher omits an optional section.
         cachePolicy(getActiveModelPolicy(), storage, logger);
         return { applied: true, changed, source: 'github', snapshot: policy.updatedAt, pricingSnapshot: getActiveModelPolicy().pricing.updatedAt };
     } catch (error) {

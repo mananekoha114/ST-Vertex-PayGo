@@ -4,7 +4,7 @@
 | --- | --- |
 | 适用宿主 | SillyTavern / Luker 的 **Google AI Studio** 与 **Vertex AI** 原生来源 |
 | 识别模型 | `gemini-4-neon`、`gemini-4-hydrogen`、`gemini-4-carbon`、`gemini-4-argon`、`gemini-4-argon-cyber-permissive` |
-| 所需版本 | Argon：前端扩展与 [ST-Vertex-PayGo-Server](https://github.com/mananekoha114/ST-Vertex-PayGo-Server) 均为 **0.6.0** 及以上；Carbon、Hydrogen 与 Neon：两者都需要 **0.6.1-pre1 之后**的版本，Hydrogen 需要比 Carbon 支持更新的版本，Neon 又需要比 Hydrogen 支持更新的版本 |
+| 所需版本 | Argon：前端扩展与 [ST-Vertex-PayGo-Server](https://github.com/mananekoha114/ST-Vertex-PayGo-Server) 均为 **0.6.0** 及以上；Carbon、Hydrogen 与 Neon：两者均为 **0.6.1** 及以上 |
 
 安装或更新两个组件后，重启 SillyTavern 并刷新浏览器。前端会检查服务端能力，并核对服务端声明的 Gemini 4 模型名单；旧服务端不会静默回退到缺少思考配置的请求。服务端没有声明支持当前模型时（例如只支持 Argon 的服务端遇到 Carbon，或只支持到 Hydrogen 的服务端遇到 Neon），会在发送前提示更新服务端插件。普通模型和其他 API 来源继续使用原来的发送路径。
 

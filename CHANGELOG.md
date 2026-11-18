@@ -2,6 +2,63 @@
 
 版本号同时适用于前端扩展与配套的 [ST-Vertex-PayGo-Server](https://github.com/mananekoha114/ST-Vertex-PayGo-Server)；SillyTavern / Luker 须将两者更新到同一版本。
 
+## 0.6.1 · 2026-11-18 · Carbon / Hydrogen / Neon、地区计价、Vertex 反向代理与认证诊断
+
+包含下方 0.6.1-pre1 的全部修复。SillyTavern / Luker 须将前端扩展与服务端插件同时更新到 `v0.6.1`，然后重启宿主并刷新页面；TauriTavern 仅需更新前端扩展。
+
+### Gemini 4 Carbon、Hydrogen 与 Neon
+
+- 原生兼容新增 `gemini-4-carbon` 与 `gemini-4-hydrogen`，与 Argon 共用思考档位、媒体预算、工具调用签名与长输出续传。仍不向模型下拉菜单添加选项，只为已有记录补齐容量信息。
+- Hydrogen 的最高推理档位映射为 `XHIGH`，自动档使用模型默认的 `HIGH`。Vertex 请求设置 `prefixMismatchBehavior: DROP`：世界书、宏或消息编辑使旧签名对不上时，Google 会丢弃这些签名，不再返回 HTTP 400。AI Studio 非流式单段上限为 65,536。
+- 提前接入尚未上线的 `gemini-4-neon`：最高推理档位保持 `HIGH`，Vertex 请求同样设置 `prefixMismatchBehavior: DROP`；上下文暂按 1,048,576 处理。需同时更新服务端插件，旧服务端会在发送前提示更新。
+- 服务端会声明自己支持的 Gemini 4 模型。服务端不支持当前模型时，前端在发送前提示更新服务端插件，不会把请求发到会拒绝它的接口。完整说明见 [GEMINI4.md](GEMINI4.md)。
+
+### 模型名单与价格
+
+- Carbon：AI Studio 支持 Standard / Flex，Vertex 支持 Standard / Priority，价格与 Argon 相同。
+- Hydrogen：AI Studio 支持 Standard / Flex，Google 提供有速率限制的免费层；Vertex 支持 Standard / Priority。Standard 价格为输入 $1.50、缓存输入 $0.075、输出 $7.50 / 1M tokens。Vertex Flex 曾短暂开放，随后 Google 将 Hydrogen 移出 Flex PayGo 名单，扩展会在发送前拦截 Hydrogen 的 Vertex Flex 请求。
+- Argon：退出 Vertex Flex，加入 Vertex Priority，并补充 AI Studio Priority 价格。目前没有 Gemini 4 模型支持 Vertex Flex。`gemini-4-argon-cyber-permissive` 加入 Vertex 名单，支持 Standard / Priority。
+- Carbon 与 Argon 的现行价格标注有效期至 2026-11-30。到期后价格表尚未更新时，相关费用会显示为未定价，可在「价格」标签页手动填写单价。
+- 预先加入 Gemini 4 Neon 的 Vertex 价格：Standard 输入 $3、缓存输入 $0.15、输出 $15 / 1M tokens，Priority 为 1.8 倍。Neon 上线后的首批请求即可估算费用；Google 公布支持名单前不限制其服务层级，由 Google 最终校验。
+- AI Studio 的 `gemini-3.5-flash` 实际由 3.6 Flash 提供服务，改按 3.6 Flash 价格估算；`gemini-3.7-flash` 继续按 3.8 Flash 估算。
+- 名单与价格已同步到在线数据，已安装的扩展会在 6 小时内自动获取。
+
+### Vertex 地区计价与地区检查
+
+- 按请求实际使用的区域估算费用。Google 自 2026-07-01 起，对 GA 的 Gemini 3 及之后的模型在非 `global` 端点（单一区域与 `us` / `eu` 多地区）按 Global 价的 1.1 倍计费，Preview 模型与 Gemini 2.5 系列各区域同价。在线价格的 Vertex Standard 条目新增嵌套的 `regional` 地区价，已覆盖 Gemini 4 Neon / Hydrogen / Carbon / Argon / Argon Cyber Permissive、Gemini 3.5–3.8 Flash、3.5 Flash-Lite 与 3.1 Flash-Lite。「价格」标签页同时显示 Global 价与地区端点价；手动单价对所有区域生效。
+- 在线数据新增 Vertex Standard PayGo 的可用区域名单（来自官方模型卡片）：Gemini 4 Hydrogen / Carbon / Argon / Argon Cyber Permissive 与 Gemini 3.5–3.8 Flash、3.5 Flash-Lite 只在 `global`、`us`、`eu` 提供。名单之外的模型（包括 Neon 和 Gemini 2.5 系列）不做检查。
+- 修改区域、切换模型或检查已保存的设置时，所选区域不提供当前模型会弹窗列出支持的区域，并建议切换到 `global`。选择保留后，本次会话不再为同一模型与区域重复提示，但生成请求会在发送前拦截；Flex / Priority 下保留区域会同时改回 Standard。TauriTavern 只在发送前拦截。
+- 已知限制：酒馆把非 `global` 区域拼成 `{区域}-aiplatform.googleapis.com`，而 Google 的 `us` / `eu` 多地区端点是 `aiplatform.{us|eu}.rep.googleapis.com`，在酒馆中填写 `us` / `eu` 可能无法连接，建议使用 `global`。
+- 兼容性：地区价嵌套在原有条目中，区域名单是新增的顶层字段，旧版扩展会忽略两者，继续按 Global 价估算，不会拒收在线数据。
+
+### Vertex AI 反向代理
+
+- 宿主 API 设置中填写了反向代理时，Vertex AI 请求不再以 `CUSTOM_REVERSE_PROXY_CONFLICT` 中止，此前连 Standard 也无法使用。AI Studio 与 Vertex 都经服务端插件转发到反代，路径、凭证与请求头和宿主原生请求一致，只额外加入所选层级的参数。需同时更新服务端插件。
+- 转发的请求体带 `Content-Length`，不再分块上传。修复 ais2api 等反代在流式生成期间对新请求返回 429 `memory_budget` 的问题。
+- 走反代时，以 `gemini-` 开头（不分大小写）的模型名都会交给反代，例如 `Gemini-2.5-Pro`、`gemini-2.5-pro-假流式`。
+- 已知限制：Vertex Flex / Priority 仍要求 `global` 区域，反代须转发到 global 端点并透传 `X-Vertex-AI-*` 请求头；Vertex 上的 Gemini 4 使用 `v1beta1` 路径；AI Studio Flex 要求反代接受 `service_tier`；插件不跟随反代的 3xx 重定向。详见 README 的「反向代理」一节。
+
+### Vertex 认证错误与后台请求
+
+- 服务账号无效、OAuth 令牌交换超时、网络失败、被 Google 拒绝或限流，以及缺少 Google / Vertex 密钥时，界面会显示具体原因，提供英文、简体中文与繁体中文翻译。需同时更新服务端插件。
+- 服务端在内存中缓存 Vertex OAuth 访问令牌，不必每次请求都重新交换；Vertex 返回 401 时自动作废缓存。
+- 后台调用（如 `ChatCompletionService`、`ConnectionManagerRequestService`）未携带 Vertex 认证模式、区域或 Express 项目 ID 时，沿用已保存的连接设置。后台请求准备失败时不再弹出全局提示，错误仍返回给调用方并记录到日志。
+
+### 计价模式悬浮球
+
+- 新增可选的悬浮球：在 **扩展设置 → ST-Vertex-PayGo → 常规** 中开启「显示 PayGo 计价模式悬浮球」（默认关闭），即可在聊天界面切换当前连接的 Standard / Flex / Priority，沿用原有模型校验与区域确认。
+- 以颜色区分模式（灰 Standard / 绿 Flex / 琥珀 Priority），切换进行中显示旋转弧线。每个选项附简短说明，不可用时直接写出原因，触屏同样可见；菜单显示当前模型，支持方向键 / Home / End。
+- 可拖动，松手后贴靠最近的左右边缘，位置在窗口尺寸变化后保留；遵循系统的减少动态效果设置。SillyTavern / Luker 与 TauriTavern 均可使用。
+
+### 服务端控制台日志
+
+- 更新服务端插件后，Gemini 4 原生调用会在 ST 服务端控制台输出与宿主 Google 接口类似的请求与完成信息，包括耗时、结束原因与用量。请求与非流式响应正文使用 debug 日志等级，包含提示词与模型输出；凭据、签名与续传令牌不会打印。
+
+### 升级说明
+
+- 协议升级为 **v3**。SillyTavern / Luker 须将前端扩展与服务端插件同时更新到本版本，然后重启宿主并刷新页面；两者协议不一致时握手失败并提示更新。更新器的协议守卫会让两个组件一起升级。
+- TauriTavern 仅需更新前端扩展。
+
 ## 0.6.1-pre1 · 2026-10-23 · 预发布：Argon 不出字修复
 
 预发布版本，供遇到 Gemini 4 Argon 不出字的用户测试。前端扩展与服务端插件都需更新到 `v0.6.1-pre1`，然后重启宿主并刷新页面。

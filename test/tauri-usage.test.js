@@ -202,3 +202,34 @@ test('serializes concurrent writes by chat and exposes storage failures after wa
     assert.match(warnings[0][0], /could not be added/);
     assert.equal(warnings[0][1], 'disk full');
 });
+
+test('readUsage with ids reads deduplicated keys directly without listKeys and omits missing keys without truncation', async () => {
+    const baseStore = memoryStore();
+    let listKeysCalls = 0;
+    const requestedKeys = [];
+    const store = {
+        ...baseStore,
+        async listKeys(options) { listKeysCalls += 1; return baseStore.listKeys(options); },
+        async tryGetJson(options) { requestedKeys.push(options.key); return baseStore.tryGetJson(options); },
+    };
+    const client = createTauriUsageClient({ store });
+    client.recordFailure(metadata('r2', { startedAt: '2026-09-22T00:02:00Z' }), new Error('second'));
+    client.recordFailure(metadata('r1', { startedAt: '2026-09-22T00:01:00Z' }), new Error('first'));
+    client.recordFailure(metadata('r3', { startedAt: '2026-09-22T00:03:00Z' }), new Error('third'));
+    await client.flush();
+
+    // Empty ids returns immediately without listKeys or tryGetJson.
+    assert.deepEqual(await client.readUsage('chat-1', { ids: [] }), { ok: true, records: [], truncated: false });
+    assert.equal(listKeysCalls, 0);
+    assert.equal(requestedKeys.length, 0);
+
+    // Invalid ID throws TypeError.
+    await assert.rejects(client.readUsage('chat-1', { ids: ['../evil'] }), TypeError);
+
+    // Direct lookup deduplicates, omits missing keys without setting truncated, and sorts by createdAt.
+    const result = await client.readUsage('chat-1', { ids: ['r2', 'missing-key', 'r1', 'r2'] });
+    assert.equal(listKeysCalls, 0);
+    assert.deepEqual(requestedKeys, ['r2', 'missing-key', 'r1']);
+    assert.equal(result.truncated, false);
+    assert.deepEqual(result.records.map(record => record.id), ['r1', 'r2']);
+});

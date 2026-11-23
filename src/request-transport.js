@@ -9,7 +9,8 @@ import { enrichGemini4ModelList, getGemini4RequestTarget, isNativeGemini4Request
 import { serverSupportsNativeGemini4 } from './gemini4-models.js';
 import { createGemini4SignatureTracker } from './gemini4-signatures.js';
 
-const REQUEST_STATE = '__vertexPayGoRequestState';
+export const REQUEST_STATE_KEY = '__vertexPayGoRequestState';
+const REQUEST_STATE = REQUEST_STATE_KEY;
 const GENERATE_PATH = '/api/backends/chat-completions/generate';
 
 // Carry state on each request, rather than in shared mutable state: background
@@ -19,6 +20,7 @@ function markRequest(data, state, origin, protect = true) {
     if (protect && isGoogleSource(data.chat_completion_source) && requiresPlugin(state, data.chat_completion_source, data.model)) {
         marked[REQUEST_STATE].originalReverseProxy = data.reverse_proxy;
         marked[REQUEST_STATE].originalProxyPassword = data.proxy_password;
+        marked[REQUEST_STATE].originalBaseUrl = data.base_url;
         installFailureSink(marked, origin);
         marked[REQUEST_STATE].sink = marked.reverse_proxy;
     }
@@ -34,7 +36,7 @@ function presetState(context, name) {
 }
 
 export function installRequestTransport({ context, stateProvider, target = globalThis, captureUsageContext = () => null,
-    getUsagePrice = () => null, messageCosts, ...hookOptions }) {
+    getUsagePrice = () => null, messageCosts, onPrepared, ...hookOptions }) {
     const origin = hookOptions.origin ?? target.location?.origin;
     const originalFetch = target.fetch;
     if (typeof originalFetch !== 'function') throw new TypeError('fetch is required.');
@@ -98,13 +100,17 @@ export function installRequestTransport({ context, stateProvider, target = globa
             return originalFetch.call(this, input, init);
         }
         delete data[REQUEST_STATE];
-        const state = metadata?.state ?? stateProvider();
+        const isExtensionInternal = data.type === 'extension_internal';
+        const state = metadata?.state ?? (data.extensions?.[EXTENSION_ID]
+            ? normalizeState(data.extensions[EXTENSION_ID])
+            : isExtensionInternal ? DEFAULT_STATE : stateProvider());
+        const background = Boolean(metadata?.background || isExtensionInternal);
         if (metadata?.sink && data.reverse_proxy === metadata.sink) {
             data.reverse_proxy = metadata.originalReverseProxy ?? '';
             data.proxy_password = metadata.originalProxyPassword ?? '';
         }
         requestStates.set(data, state);
-        requestOptions.set(data, { background: Boolean(metadata?.background) });
+        requestOptions.set(data, { background, ...(signal ? { signal } : {}) });
         const usageChatId = metadata && Object.hasOwn(metadata, 'usageChatId')
             ? metadata.usageChatId : fallbackChatId;
         requestUsage.set(data, {
@@ -114,7 +120,7 @@ export function installRequestTransport({ context, stateProvider, target = globa
                 ? { region: resolveVertexRegion(data, getHostContext()?.chatCompletionSettings) } : {}),
         });
         const costToken = metadata?.messageCostToken;
-        const signatureToken = isNativeGemini4Request(data) ? signatures.capture(data, metadata?.background) : null;
+        const signatureToken = isNativeGemini4Request(data) ? signatures.capture(data, background) : null;
         let requestTarget = input;
         let nativeGemini4 = false;
         try {
@@ -128,6 +134,24 @@ export function installRequestTransport({ context, stateProvider, target = globa
                 data.native_gemini_api_version = prepared.nativeGeminiApiVersion;
                 requestTarget = getGemini4RequestTarget(input, origin);
                 nativeGemini4 = true;
+            }
+            if (prepared) {
+                try {
+                    onPrepared?.(Object.freeze({
+                        usageId: prepared.usageId ?? null,
+                        usageChatId: usageChatId ?? null,
+                        source: data.chat_completion_source,
+                        model: data.model,
+                        tier: state.tier,
+                        paygoOnly: Boolean(state.paygoOnly),
+                        stream: Boolean(data.stream),
+                        nativeGemini4,
+                        nativeGeminiApiVersion: nativeGemini4 ? prepared.nativeGeminiApiVersion : null,
+                        background,
+                    }));
+                } catch (err) {
+                    console.warn('[Vertex PayGo] Prepare observer failed.', err);
+                }
             }
             if (costToken) observe('prepared', costToken, prepared?.usageId, {
                 chatId: usageChatId, model: data.model, source: data.chat_completion_source,

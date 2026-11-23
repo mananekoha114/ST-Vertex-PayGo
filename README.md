@@ -345,6 +345,18 @@ npm ci
 node --test
 ```
 
+### 第三方扩展协作接口（`window.STVertexPayGo` v1）
+
+扩展初始化完成后会在全局暴露只读冻结对象 `window.STVertexPayGo`（同时派发 `st-vertex-paygo:ready` 自定义事件，支持 SillyTavern / Luker `server` 模式与 TauriTavern `tauri` 模式）：
+
+- `getStatus()`：查询就绪状态、运行模式、客户端与协议版本（`protocolVersion: 3`）及当前层级状态；
+- `inspectRoute(generateData)`：只读分析请求路由与原始 `reverse_proxy` / `base_url`（安全解包失败沉洞，绝不暴露任何密钥或凭据）；
+- `onPrepare(listener)`：订阅脱敏后的准备完成事件（仅广播 `usageId`、模型、层级与路由标记，绝不泄露 `proxySecret` / `proxyUrl` / `ticket`）；
+- `prepareTicket(generateData, { signal, state, chatId, background })`：Server 模式专用的受控单次票据申请入口，支持 `AbortSignal` 取消透传；
+- `attachMessageUsage({ chatId, messageIndex, swipeId, requests })` 与 `readUsage(chatId, { ids, signal })`：供多轮工具接力将多个 `usageId` 归集到同一助手回复费用徽章并按 ID 精确对账。
+
+完整的服务端协议契约（`protocolVersion: 3`）、运行时目录环境变量（`ST_VERTEX_PAYGO_DATA_DIR` / `ST_VERTEX_PAYGO_LOG_DIR` / `dataRoot/vertex-paygo`）、Native Gemini 4 签名信封（`st-vertex-paygo-tool:v1:`、`st-vertex-paygo-text:v1:`）与流式错误边界说明，请参阅配套后端仓库的 [`docs/protocol-and-extensions.md`](https://github.com/mananekoha114/ST-Vertex-PayGo-Server/blob/main/docs/protocol-and-extensions.md)。
+
 安装器的开发与测试说明见 [INSTALL.md](INSTALL.md#维护者说明)。
 
 ---

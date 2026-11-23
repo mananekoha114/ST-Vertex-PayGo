@@ -121,12 +121,49 @@ async function readHttpError(response) {
     });
 }
 
+function createAbortError(reason) {
+    if (reason?.name === 'AbortError') return reason;
+    return new DOMException('The operation was aborted.', 'AbortError');
+}
+
+function combineSignals(timeoutSignal, outerSignal) {
+    if (!outerSignal) return { signal: timeoutSignal, cleanup() {} };
+    if (typeof AbortSignal.any === 'function') {
+        return { signal: AbortSignal.any([timeoutSignal, outerSignal]), cleanup() {} };
+    }
+    const merged = new AbortController();
+    const onTimeout = () => merged.abort(timeoutSignal.reason);
+    const onOuter = () => merged.abort(outerSignal.reason);
+    if (timeoutSignal.aborted) merged.abort(timeoutSignal.reason);
+    else if (outerSignal.aborted) merged.abort(outerSignal.reason);
+    else {
+        timeoutSignal.addEventListener('abort', onTimeout, { once: true });
+        outerSignal.addEventListener('abort', onOuter, { once: true });
+    }
+    return {
+        signal: merged.signal,
+        cleanup() {
+            timeoutSignal.removeEventListener('abort', onTimeout);
+            outerSignal.removeEventListener('abort', onOuter);
+        },
+    };
+}
+
 async function fetchJson(fetchImpl, url, options, timeoutMs) {
+    const { signal: outerSignal, ...fetchOptions } = options ?? {};
+    if (outerSignal?.aborted) {
+        throw createAbortError(outerSignal.reason);
+    }
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+    }, timeoutMs);
+    const { signal, cleanup } = combineSignals(controller.signal, outerSignal);
 
     try {
-        const response = await fetchImpl(url, { ...options, signal: controller.signal });
+        const response = await fetchImpl(url, { ...fetchOptions, signal });
         if (!response.ok) throw await readHttpError(response);
         let data;
         try {
@@ -145,12 +182,16 @@ async function fetchJson(fetchImpl, url, options, timeoutMs) {
         if (error instanceof ServerPluginError) {
             throw error;
         }
-        if (error?.name === 'AbortError') {
+        if (outerSignal?.aborted && !timedOut) {
+            throw createAbortError(outerSignal.reason);
+        }
+        if (timedOut || error?.name === 'AbortError') {
             throw new ServerPluginError('Server Plugin request timed out.', { code: 'TIMEOUT', cause: error });
         }
         throw new ServerPluginError('Server Plugin is unavailable.', { code: 'UNAVAILABLE', cause: error });
     } finally {
         clearTimeout(timeout);
+        cleanup();
     }
 }
 
@@ -366,12 +407,13 @@ export function createServerClient({ fetchImpl = globalThis.fetch, getRequestHea
             return validateHandshake(data);
         },
 
-        async prepare(payload) {
+        async prepare(payload, { signal } = {}) {
             const data = await fetchJson(fetchImpl, SERVER_ROUTES.PREPARE, {
                 method: 'POST',
                 headers: { ...getRequestHeaders(), Accept: 'application/json' },
                 body: JSON.stringify(payload),
                 cache: 'no-store',
+                ...(signal ? { signal } : {}),
             }, PREPARE_TIMEOUT_MS);
 
             validateHandshake(data);
@@ -473,24 +515,88 @@ export function createServerClient({ fetchImpl = globalThis.fetch, getRequestHea
             }, LOG_TIMEOUT_MS);
         },
 
-        async readUsage(chatId) {
-            if (typeof chatId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(chatId)) {
+        async readUsage(chatId, { ids, signal } = {}) {
+            if (typeof chatId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(chatId)) {
                 throw new TypeError('A valid conversation usage ID is required.');
             }
+            const fetchUsagePage = async suffix => {
+                const data = await fetchJson(fetchImpl, `${SERVER_ROUTES.USAGE}?chatId=${encodeURIComponent(chatId)}${suffix}`, {
+                    method: 'GET',
+                    headers: { ...getRequestHeaders(), Accept: 'application/json' },
+                    cache: 'no-store',
+                    ...(signal ? { signal } : {}),
+                }, LOG_TIMEOUT_MS);
+                if (data?.ok !== true || !Array.isArray(data.records)) {
+                    throw new ServerPluginError('Invalid usage ledger response.', { code: 'INVALID_USAGE_RESPONSE' });
+                }
+                return data;
+            };
+
+            if (Array.isArray(ids)) {
+                const uniqueIds = [];
+                const idSet = new Set();
+                for (const id of ids) {
+                    if (typeof id !== 'string' || !/^[A-Za-z0-9._:-]{1,128}$/u.test(id)) {
+                        throw new TypeError('Usage record IDs must be valid identifiers.');
+                    }
+                    if (!idSet.has(id)) {
+                        idSet.add(id);
+                        uniqueIds.push(id);
+                    }
+                }
+                if (uniqueIds.length === 0) {
+                    return { ok: true, records: [], truncated: false };
+                }
+
+                const records = [];
+                const seenRecordIds = new Set();
+                let truncated = false;
+                const addMatching = list => {
+                    for (const record of list) {
+                        if (record && idSet.has(record.id) && !seenRecordIds.has(record.id)) {
+                            seenRecordIds.add(record.id);
+                            records.push(record);
+                        }
+                    }
+                };
+
+                for (let index = 0; index < uniqueIds.length; index += 50) {
+                    const chunk = uniqueIds.slice(index, index + 50);
+                    const chunkSet = new Set(chunk);
+                    const data = await fetchUsagePage(`&ids=${chunk.map(encodeURIComponent).join(',')}`);
+                    const serverIgnoredIds = Boolean(data.nextCursor)
+                        || data.records.some(record => !chunkSet.has(record?.id));
+                    addMatching(data.records);
+                    truncated ||= data.truncated === true && (data.nextCursor ?? undefined) === undefined;
+                    if (serverIgnoredIds) {
+                        let cursor = data.nextCursor ?? undefined;
+                        const cursors = new Set();
+                        while (cursor !== undefined) {
+                            if (typeof cursor !== 'string' || cursor.length > 256 || !cursor || cursors.has(cursor)) {
+                                throw new ServerPluginError('Invalid usage ledger cursor.', { code: 'INVALID_USAGE_RESPONSE' });
+                            }
+                            cursors.add(cursor);
+                            const page = await fetchUsagePage(`&cursor=${encodeURIComponent(cursor)}`);
+                            addMatching(page.records);
+                            cursor = page.nextCursor ?? undefined;
+                            truncated ||= page.truncated === true && cursor === undefined;
+                        }
+                        break;
+                    }
+                }
+                return { ok: true, records, truncated };
+            }
+            if (ids !== undefined && ids !== null) {
+                throw new TypeError('Usage record IDs must be an array.');
+            }
+
             const records = [];
             const cursors = new Set();
             let cursor;
             let truncated = false;
             do {
                 const suffix = cursor === undefined ? '' : `&cursor=${encodeURIComponent(cursor)}`;
-                const data = await fetchJson(fetchImpl, `${SERVER_ROUTES.USAGE}?chatId=${encodeURIComponent(chatId)}${suffix}`, {
-                    method: 'GET',
-                    headers: { ...getRequestHeaders(), Accept: 'application/json' },
-                    cache: 'no-store',
-                }, LOG_TIMEOUT_MS);
-                if (data?.ok !== true || !Array.isArray(data.records)) {
-                    throw new ServerPluginError('Invalid usage ledger response.', { code: 'INVALID_USAGE_RESPONSE' });
-                }
+                const data = await fetchUsagePage(suffix);
                 records.push(...data.records);
                 cursor = data.nextCursor ?? undefined;
                 // All fetched pages together form the complete ledger.

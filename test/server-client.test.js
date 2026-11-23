@@ -384,3 +384,136 @@ test('an interrupted HTTP error body still reports timeout', async () => {
     }), { status: 403 }) });
     await assert.rejects(client.prepare({}), error => error.code === 'TIMEOUT');
 });
+
+test('prepare forwards external signal and rethrows AbortError without wrapping as TIMEOUT', async () => {
+    let observedSignal;
+    let fetchCalls = 0;
+    const client = createServerClient({
+        fetchImpl: async (_url, options) => {
+            fetchCalls += 1;
+            observedSignal = options.signal;
+            return await new Promise((_resolve, reject) => {
+                options.signal.addEventListener('abort', () => {
+                    reject(options.signal.reason ?? new DOMException('Aborted', 'AbortError'));
+                }, { once: true });
+            });
+        },
+    });
+
+    const controller = new AbortController();
+    const pending = client.prepare({ model: 'gemini-2.5-pro' }, { signal: controller.signal });
+    await Promise.resolve();
+    controller.abort();
+    await assert.rejects(pending, error => error?.name === 'AbortError' && !(error instanceof ServerPluginError));
+    assert.equal(observedSignal.aborted, true);
+    assert.equal(fetchCalls, 1);
+
+    // Pre-aborted signal with non-AbortError reason rejects immediately without calling fetch.
+    const preAborted = new AbortController();
+    preAborted.abort('user-stop');
+    await assert.rejects(
+        client.prepare({ model: 'gemini-2.5-pro' }, { signal: preAborted.signal }),
+        error => error?.name === 'AbortError' && !(error instanceof ServerPluginError),
+    );
+    assert.equal(fetchCalls, 1);
+
+    // Fallback path when AbortSignal.any is unavailable also forwards abort and cleans up.
+    const originalAny = AbortSignal.any;
+    try {
+        AbortSignal.any = undefined;
+        const fallbackController = new AbortController();
+        const pendingFallback = client.prepare({ model: 'gemini-2.5-pro' }, { signal: fallbackController.signal });
+        await Promise.resolve();
+        fallbackController.abort();
+        await assert.rejects(pendingFallback, error => error?.name === 'AbortError' && !(error instanceof ServerPluginError));
+    } finally {
+        AbortSignal.any = originalAny;
+    }
+
+    // Internal timeout still throws ServerPluginError('TIMEOUT') even when an unaborted outer signal is supplied.
+    const originalSetTimeout = globalThis.setTimeout;
+    const unaborted = new AbortController();
+    const timeoutClient = createServerClient({
+        fetchImpl: async (_url, options) => {
+            if (options.signal.aborted) throw new DOMException('Timed out', 'AbortError');
+            return await new Promise((_resolve, reject) => {
+                options.signal.addEventListener('abort', () => reject(new DOMException('Timed out', 'AbortError')), { once: true });
+            });
+        },
+    });
+    try {
+        globalThis.setTimeout = fn => originalSetTimeout(fn, 5);
+        await assert.rejects(
+            timeoutClient.prepare({ model: 'gemini-2.5-pro' }, { signal: unaborted.signal }),
+            error => error instanceof ServerPluginError && error.code === 'TIMEOUT',
+        );
+    } finally {
+        globalThis.setTimeout = originalSetTimeout;
+    }
+});
+
+test('readUsage supports server-aligned chatId, batched ids lookup, signal abort, and older server fallback', async () => {
+    const requests = [];
+    const client = createServerClient({
+        fetchImpl: async (url, options) => {
+            requests.push({ url, options });
+            const parsed = new URL(url, 'http://localhost');
+            const idsParam = parsed.searchParams.get('ids');
+            const ids = idsParam ? idsParam.split(',') : [];
+            return jsonResponse({
+                ok: true,
+                records: ids.filter(id => id !== 'missing-id').map(id => ({ id, chatId: parsed.searchParams.get('chatId') })),
+                nextCursor: null,
+                truncated: false,
+            });
+        },
+    });
+
+    // Empty ids returns immediately without calling fetch.
+    assert.deepEqual(await client.readUsage('chat.1:part_a-1', { ids: [] }), { ok: true, records: [], truncated: false });
+    assert.equal(requests.length, 0);
+
+    // Invalid IDs and invalid chatId are rejected.
+    await assert.rejects(client.readUsage('.leading-dot', { ids: ['a'] }), TypeError);
+    await assert.rejects(client.readUsage('chat.1', { ids: ['ok', '../bad'] }), TypeError);
+
+    // 55 unique IDs (plus duplicates) batch into chunks of 50 + 5.
+    const manyIds = Array.from({ length: 55 }, (_, index) => `req-${index}`);
+    const batchResult = await client.readUsage('chat.1:part_a-1', { ids: [...manyIds, 'req-0', 'req-10'] });
+    assert.equal(requests.length, 2);
+    assert.equal(new URL(requests[0].url, 'http://localhost').searchParams.get('ids').split(',').length, 50);
+    assert.equal(new URL(requests[1].url, 'http://localhost').searchParams.get('ids').split(',').length, 5);
+    assert.equal(batchResult.records.length, 55);
+    assert.equal(batchResult.truncated, false);
+
+    // Older server ignoring ids and paginating falls back cleanly and filters exact matches.
+    const legacyUrls = [];
+    const legacyClient = createServerClient({
+        fetchImpl: async url => {
+            legacyUrls.push(url);
+            if (url.includes('cursor=page-2')) {
+                return jsonResponse({
+                    ok: true,
+                    records: [{ id: 'target-2', chatId: 'chat-legacy' }, { id: 'unrelated-2', chatId: 'chat-legacy' }],
+                    nextCursor: null,
+                });
+            }
+            return jsonResponse({
+                ok: true,
+                records: [{ id: 'unrelated-1', chatId: 'chat-legacy' }, { id: 'target-1', chatId: 'chat-legacy' }],
+                nextCursor: 'page-2',
+            });
+        },
+    });
+    const legacyResult = await legacyClient.readUsage('chat-legacy', { ids: ['target-1', 'target-2', 'missing'] });
+    assert.deepEqual(legacyResult.records.map(r => r.id), ['target-1', 'target-2']);
+    assert.equal(legacyUrls.length, 2);
+
+    // Aborted signal cancels readUsage with AbortError.
+    const controller = new AbortController();
+    controller.abort();
+    await assert.rejects(
+        client.readUsage('chat.1', { ids: ['req-0'], signal: controller.signal }),
+        error => error?.name === 'AbortError' && !(error instanceof ServerPluginError),
+    );
+});

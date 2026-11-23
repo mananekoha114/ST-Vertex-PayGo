@@ -6,6 +6,7 @@ import { createConversationId } from './cost-context.js';
 import { observeGenerationResponse } from './message-cost-timing.js';
 
 export const MESSAGE_COST_KEY = 'vertex_paygo_cost';
+const USAGE_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/u;
 const allowedTypes = new Set([undefined, null, '', 'normal', 'regenerate', 'swipe', 'continue', 'append', 'appendFinal']);
 const clone = value => structuredClone(value);
 
@@ -229,13 +230,16 @@ export function createMessageCosts({
         if (destroyed) return;
         if (retry) attempts = 0;
         const chatId = liveChat();
-        if (!chatId || !snapshots().some(snapshot => snapshot.requests.some(needsRefresh))) return;
+        const pendingIds = chatId ? [...new Set(
+            snapshots().flatMap(snapshot => snapshot.requests.filter(needsRefresh).map(request => request.id)),
+        )] : [];
+        if (!chatId || pendingIds.length === 0) return;
         if (inFlight?.chatId === chatId && inFlight.epoch === epoch) return inFlight.promise;
         const task = { chatId, epoch };
         task.promise = (async () => {
             let updated = false;
             try {
-                const result = await serverClient.readUsage(chatId);
+                const result = await serverClient.readUsage(chatId, { ids: pendingIds });
                 if (destroyed || epoch !== task.epoch || liveChat() !== chatId) return;
                 if (!result?.ok) throw new Error('Usage is unavailable');
                 const records = new Map((result.records ?? []).filter(record => record.chatId === chatId).map(record => [record.id, record]));
@@ -264,6 +268,84 @@ export function createMessageCosts({
         })();
         inFlight = task;
         return task.promise;
+    }
+
+    function attachUsage({ chatId, messageIndex, swipeId, requests } = {}) {
+        if (destroyed || !chatId || chatId !== liveChat()
+            || !Number.isInteger(messageIndex) || messageIndex < 0
+            || !Array.isArray(requests) || requests.length === 0) {
+            return false;
+        }
+        const message = getContext().chat?.[messageIndex];
+        if (!message || message.is_user || message.is_system) return false;
+        const targetSwipe = swipeId ?? (message.swipe_id ?? 0);
+        if (!Number.isInteger(targetSwipe) || targetSwipe < 0) return false;
+        const isActiveSwipe = (message.swipe_id ?? 0) === targetSwipe;
+        if (!isActiveSwipe && !message.swipe_info?.[targetSwipe]) return false;
+
+        const existingSnapshot = isActiveSwipe
+            ? getMessageCost(message)
+            : message.swipe_info?.[targetSwipe]?.extra?.[MESSAGE_COST_KEY];
+        const baseRequests = existingSnapshot?.version === 1 && Array.isArray(existingSnapshot.requests)
+            ? clone(existingSnapshot.requests)
+            : [];
+        const byId = new Map(baseRequests.map(request => [request.id, request]));
+        let validCount = 0;
+
+        for (const item of requests) {
+            if (typeof item?.id !== 'string' || !USAGE_ID_PATTERN.test(item.id) || item.id.startsWith('pending-')) {
+                continue;
+            }
+            validCount += 1;
+            const existing = byId.get(item.id);
+            const rawTiming = item.timing && typeof item.timing === 'object' ? item.timing : item;
+            const hasTiming = rawTiming.durationMs !== undefined || rawTiming.firstTokenMs !== undefined || rawTiming.interrupted !== undefined;
+            const timing = hasTiming ? {
+                stream: Boolean(rawTiming.stream ?? item.stream),
+                durationMs: Number.isFinite(rawTiming.durationMs) && rawTiming.durationMs >= 0 ? rawTiming.durationMs : null,
+                firstTokenMs: Number.isFinite(rawTiming.firstTokenMs) && rawTiming.firstTokenMs >= 0 ? rawTiming.firstTokenMs : null,
+                interrupted: Boolean(rawTiming.interrupted),
+            } : undefined;
+
+            if (existing?.record && existing.record.status !== 'pending') {
+                if (timing && !existing.timing) existing.timing = timing;
+                continue;
+            }
+
+            const previousRecord = existing?.record ?? {};
+            const record = {
+                id: item.id,
+                chatId,
+                ...(item.model !== undefined ? { model: String(item.model) }
+                    : previousRecord.model !== undefined ? { model: previousRecord.model } : {}),
+                ...(item.source !== undefined ? { source: String(item.source) }
+                    : previousRecord.source !== undefined ? { source: previousRecord.source } : {}),
+                ...(item.tier !== undefined ? { tier: String(item.tier) }
+                    : previousRecord.tier !== undefined ? { tier: previousRecord.tier } : {}),
+                stream: item.stream !== undefined ? Boolean(item.stream) : Boolean(previousRecord.stream),
+                price: item.price !== undefined ? clone(item.price) : (previousRecord.price ?? null),
+                status: 'pending',
+                usage: null,
+                createdAt: previousRecord.createdAt ?? new Date().toISOString(),
+            };
+            byId.set(item.id, {
+                ...(existing ?? {}),
+                id: item.id,
+                chatId,
+                status: 'pending',
+                record,
+                ...(timing ? { timing } : existing?.timing ? { timing: existing.timing } : {}),
+            });
+        }
+
+        if (validCount === 0) return false;
+
+        writeVariant(message, targetSwipe, { version: 1, requests: [...byId.values()] });
+        attempts = 0;
+        changed();
+        saveSoon(chatId);
+        scheduleRefresh(0);
+        return true;
     }
 
     function listen(name, callback) {
@@ -315,7 +397,7 @@ export function createMessageCosts({
     recoverUnprepared();
     scheduleRefresh(0);
 
-    return { capture, prepared, started, response, failed, refresh, reconcile, getMessageCost,
+    return { capture, prepared, started, response, failed, refresh, reconcile, attachUsage, getMessageCost,
         destroy() {
             destroyed = true;
             epoch += 1;

@@ -24,6 +24,7 @@ import { createMessageCosts, getMessageCost } from './src/message-costs.js';
 import { createMessageCostUi } from './src/message-cost-ui.js';
 import { isTauriTavern, showTauriTavernNotice } from './src/tauritavern.js';
 import { installGemini4HostCompatibility } from './src/gemini4-host.js';
+import { createPublicApi, installPublicApi } from './src/public-api.js';
 
 let initialized = false;
 let controller = null;
@@ -35,6 +36,8 @@ let messageCosts = null;
 let messageCostUi = null;
 let openAiBridgeUi = null;
 let gemini4Host = null;
+let publicApi = null;
+let uninstallPublicApi = null;
 
 globalThis.vertexPayGoGemini4GenerateInterceptor = chat => gemini4Host?.captureMessages(chat);
 
@@ -176,6 +179,18 @@ export async function init() {
             },
         });
 
+        publicApi = createPublicApi({
+            mode: 'server',
+            getState: controller.getState,
+            serverClient,
+            usageReader: serverClient,
+            messageCosts,
+            getVertexDefaults: () => globalThis.SillyTavern?.getContext?.()?.chatCompletionSettings ?? context.chatCompletionSettings,
+            captureUsageContext: costContext.captureUsageContext,
+            getUsagePrice: costContext.getUsagePrice,
+            localize,
+        });
+
         const requestHook = installRequestTransport({
             context,
             stateProvider: controller.getState,
@@ -188,6 +203,7 @@ export async function init() {
             captureUsageContext: costContext.captureUsageContext,
             getUsagePrice: costContext.getUsagePrice,
             messageCosts,
+            onPrepared: publicApi.emitPrepared,
         });
 
         const eventName = context.eventTypes.CHAT_COMPLETION_SETTINGS_READY;
@@ -196,6 +212,8 @@ export async function init() {
         } else {
             context.eventSource.on(eventName, requestHook);
         }
+
+        uninstallPublicApi = installPublicApi(globalThis, publicApi.api);
 
         const refreshModelPolicy = async () => {
             clientLogger?.event('info', 'policy.refresh_started', { phase: 'started' });
@@ -222,6 +240,10 @@ export async function init() {
         modelPolicyRefreshTimer ??= setInterval(refreshModelPolicy, MODEL_POLICY_REFRESH_INTERVAL_MS);
         clientLogger.event('info', 'extension.init_ready', { phase: 'ready' });
     } catch (error) {
+        uninstallPublicApi?.();
+        uninstallPublicApi = null;
+        publicApi?.destroy();
+        publicApi = null;
         gemini4Host?.cleanup();
         gemini4Host = null;
         messageCosts?.destroy();

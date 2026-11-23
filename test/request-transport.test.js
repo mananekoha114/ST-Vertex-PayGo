@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { installRequestTransport } from '../src/request-transport.js';
+import { installRequestTransport, REQUEST_STATE_KEY } from '../src/request-transport.js';
 
 const origin = 'http://localhost:8000';
 const endpoint = '/api/backends/chat-completions/generate';
@@ -317,4 +317,133 @@ test('background Vertex requests inherit saved chatCompletionSettings and suppre
     );
     assert.equal(errors.length, 1);
     assert.match(errors[0], /HTTP 500 \/ VERTEX_OAUTH_UPSTREAM_ERROR/u);
+});
+
+test('transport preserves originalBaseUrl, propagates abort signal during prepare without toast, isolates extension_internal, and notifies onPrepared safely', async () => {
+    assert.equal(REQUEST_STATE_KEY, '__vertexPayGoRequestState');
+    const errors = [];
+    const preparedCalls = [];
+    const observedPrepared = [];
+    const sent = [];
+    const target = {
+        location: { origin },
+        fetch: async (input, init) => {
+            sent.push({ input, body: init?.body ? JSON.parse(init.body) : undefined });
+            return { ok: true };
+        },
+    };
+    const context = {
+        chatCompletionSettings: { vertexai_auth_mode: 'full', vertexai_region: 'global', vertexai_express_project_id: '' },
+    };
+
+    let prepareImpl = async (payload, options) => {
+        preparedCalls.push({ payload, options });
+        return {
+            usageId: `usage-${preparedCalls.length}`,
+            proxyUrl: 'http://127.0.0.1:12345/proxy/ticket-1234567890',
+            proxySecret: 'super-secret-proxy-token',
+        };
+    };
+
+    let throwInObserver = false;
+    const hook = installRequestTransport({
+        context,
+        target,
+        stateProvider: () => flex,
+        captureUsageContext: () => 'chat-transport',
+        notifyError: message => errors.push(message),
+        logger: { error() {} },
+        onPrepared: summary => {
+            observedPrepared.push(summary);
+            if (throwInObserver) throw new Error('observer boom');
+        },
+        serverClient: {
+            prepare: (payload, options) => prepareImpl(payload, options),
+        },
+    });
+
+    // 1. markRequest preserves originalBaseUrl and makersuite base_url reaches prepare.
+    const studioReq = {
+        chat_completion_source: 'makersuite',
+        model: 'gemini-2.5-pro',
+        stream: true,
+        base_url: 'https://studio-custom.example/v1',
+    };
+    hook(studioReq);
+    assert.equal(studioReq[REQUEST_STATE_KEY].originalBaseUrl, 'https://studio-custom.example/v1');
+    await target.fetch(endpoint, { method: 'POST', body: JSON.stringify(studioReq) });
+    assert.equal(preparedCalls[0].payload.base_url, 'https://studio-custom.example/v1');
+    assert.equal(sent.length, 1);
+
+    // onPrepared receives frozen sanitized summary without proxySecret or proxyUrl.
+    assert.equal(observedPrepared.length, 1);
+    assert.equal(Object.isFrozen(observedPrepared[0]), true);
+    assert.deepEqual(observedPrepared[0], {
+        usageId: 'usage-1',
+        usageChatId: 'chat-transport',
+        source: 'makersuite',
+        model: 'gemini-2.5-pro',
+        tier: 'flex',
+        paygoOnly: false,
+        stream: true,
+        nativeGemini4: false,
+        nativeGeminiApiVersion: null,
+        background: false,
+    });
+    assert.equal('proxySecret' in observedPrepared[0], false);
+    assert.equal('proxyUrl' in observedPrepared[0], false);
+
+    // 2. Unmarked extension_internal request isolates to DEFAULT_STATE (Standard) + background: true instead of UI Flex.
+    throwInObserver = true; // Also confirm observer exception never breaks generation.
+    const internalPayload = {
+        chat_completion_source: 'vertexai',
+        model: 'gemini-3.1-pro-preview',
+        stream: false,
+        type: 'extension_internal',
+    };
+    await target.fetch(endpoint, { method: 'POST', body: JSON.stringify(internalPayload) });
+    assert.equal(preparedCalls[1].payload.tier, 'standard');
+    assert.equal(preparedCalls[1].payload.paygoOnly, false);
+    assert.equal(observedPrepared[1].tier, 'standard');
+    assert.equal(observedPrepared[1].background, true);
+    assert.equal(sent.length, 2);
+
+    // Explicit extension override on unmarked extension_internal request is honored while staying background.
+    throwInObserver = false;
+    const explicitInternal = {
+        chat_completion_source: 'vertexai',
+        model: 'gemini-3.1-pro-preview',
+        stream: false,
+        type: 'extension_internal',
+        extensions: { 'vertex-paygo': { tier: 'priority', paygoOnly: true } },
+    };
+    await target.fetch(endpoint, { method: 'POST', body: JSON.stringify(explicitInternal) });
+    assert.equal(preparedCalls[2].payload.tier, 'priority');
+    assert.equal(preparedCalls[2].payload.paygoOnly, true);
+    assert.equal(observedPrepared[2].background, true);
+
+    // 3. Aborting host signal while waiting on /prepare aborts immediately without toast or generation fetch.
+    const controller = new AbortController();
+    let seenSignal;
+    prepareImpl = async (_payload, options) => {
+        seenSignal = options?.signal;
+        return await new Promise((_resolve, reject) => {
+            options.signal.addEventListener('abort', () => {
+                reject(new DOMException('The operation was aborted.', 'AbortError'));
+            }, { once: true });
+        });
+    };
+    const abortReq = { chat_completion_source: 'vertexai', model: 'gemini-3.1-pro-preview', stream: true };
+    hook(abortReq);
+    const pendingFetch = target.fetch(endpoint, {
+        method: 'POST',
+        body: JSON.stringify(abortReq),
+        signal: controller.signal,
+    });
+    await Promise.resolve();
+    controller.abort();
+    await assert.rejects(pendingFetch, error => error?.name === 'AbortError');
+    assert.equal(seenSignal, controller.signal);
+    assert.equal(sent.length, 3);
+    assert.deepEqual(errors, []);
 });

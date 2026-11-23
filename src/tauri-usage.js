@@ -176,11 +176,32 @@ export function createTauriUsageClient({ store, notifyWarning = () => {}, idFact
         return preserveMetadata(new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers }), response);
     }
     async function flush() { await writes; if (writeError) { const error = writeError; writeError = null; throw error; } }
-    async function readUsage(chatId) {
-        await flush();
+    async function readUsage(chatId, { ids } = {}) {
         const tableName = table(chatId);
-        const keys = await listKeys({ namespace: NS, table: tableName });
-        if (!Array.isArray(keys)) throw new TypeError('Invalid TauriTavern usage key list.');
+        const byIds = Array.isArray(ids);
+        let keys;
+        if (byIds) {
+            const seen = new Set();
+            keys = [];
+            for (const id of ids) {
+                if (typeof id !== 'string' || !/^[A-Za-z0-9._:-]{1,128}$/u.test(id)) {
+                    throw new TypeError('Usage record IDs must be valid identifiers.');
+                }
+                if (!seen.has(id)) {
+                    seen.add(id);
+                    keys.push(id);
+                }
+            }
+            if (keys.length === 0) return { ok: true, records: [], truncated: false };
+            await flush();
+        } else {
+            if (ids !== undefined && ids !== null) {
+                throw new TypeError('Usage record IDs must be an array.');
+            }
+            await flush();
+            keys = await listKeys({ namespace: NS, table: tableName });
+            if (!Array.isArray(keys)) throw new TypeError('Invalid TauriTavern usage key list.');
+        }
         const records = [];
         let truncated = false;
         let cursor = 0;
@@ -191,7 +212,7 @@ export function createTauriUsageClient({ store, notifyWarning = () => {}, idFact
                 const value = result && typeof result === 'object' && typeof result.found === 'boolean'
                     ? (result.found ? result.value : null) : result;
                 if (value && typeof value === 'object' && value.id === key && value.chatId === chatId) records.push(value);
-                else truncated = true;
+                else if (!byIds) truncated = true;
             }
         }
         await Promise.all(Array.from({ length: Math.min(8, keys.length) }, worker));

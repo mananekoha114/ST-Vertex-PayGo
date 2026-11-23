@@ -11,6 +11,7 @@ import { createTauriConnections } from './tauri-connections.js';
 import { installTauriTransport } from './tauri-transport.js';
 import { createTauriUi } from './tauri-ui.js';
 import { createTauriUsageClient } from './tauri-usage.js';
+import { createPublicApi, installPublicApi } from './public-api.js';
 
 export function assertTauriCapabilities(context, platform) {
     const store = platform?.api?.extension?.store;
@@ -67,11 +68,17 @@ export async function initTauriTavern({ target = globalThis, documentRef = targe
     let messageCostUi;
     let usage;
     let transport;
+    let publicApi;
+    let uninstallPublicApi;
     let timer;
     let destroyed = false;
     const eventName = context.eventTypes.CHAT_COMPLETION_SETTINGS_READY;
     const destroy = () => {
         destroyed = true;
+        uninstallPublicApi?.();
+        uninstallPublicApi = null;
+        publicApi?.destroy?.();
+        publicApi = null;
         if (timer !== undefined) target.clearInterval(timer);
         if (transport) context.eventSource.removeListener?.(eventName, transport);
         transport?.destroy?.();
@@ -129,9 +136,19 @@ export async function initTauriTavern({ target = globalThis, documentRef = targe
         });
         if (typeof context.eventSource.makeLast === 'function') context.eventSource.makeLast(eventName, transport);
         else context.eventSource.on(eventName, transport);
+        publicApi = createPublicApi({
+            mode: 'tauri',
+            getState: controller.getState,
+            usageReader: usage,
+            messageCosts,
+            captureUsageContext: costs.captureUsageContext,
+            getUsagePrice: costs.getUsagePrice,
+            localize,
+        });
+        uninstallPublicApi = installPublicApi(target, publicApi.api);
         void refreshCatalog().catch(error => console.warn('[Vertex PayGo] Model policy refresh failed.', error));
         timer = target.setInterval(() => void refreshCatalog().catch(error =>
             console.warn('[Vertex PayGo] Model policy refresh failed.', error)), MODEL_POLICY_REFRESH_INTERVAL_MS);
-        return { ...controller, destroy, usageClient: usage, mode: 'tauri' };
+        return { ...controller, destroy, usageClient: usage, publicApi: publicApi.api, mode: 'tauri' };
     } catch (error) { destroy(); throw error; }
 }

@@ -328,3 +328,144 @@ test('ledger refresh updates all variant copies and a late timing write does not
     assert.equal(message.swipe_info[0].extra[MESSAGE_COST_KEY].requests[0].record.status, 'complete');
     assert.equal(getMessageCost(message).requests[0].timing.durationMs, 75);
 });
+
+test('refresh queries readUsage with only deduplicated pending ids', async t => {
+    const readCalls = [];
+    const first = assistant('done');
+    first.extra[MESSAGE_COST_KEY] = {
+        version: 1,
+        requests: [
+            { id: 'already-done', chatId: 'chat-a', record: { id: 'already-done', chatId: 'chat-a', status: 'complete', usage: { promptTokenCount: 2 } } },
+            { id: 'usage-waiting-a', chatId: 'chat-a', status: 'pending', record: { id: 'usage-waiting-a', chatId: 'chat-a', status: 'pending', usage: null } },
+        ],
+    };
+    // Duplicate across active message and swipe_info should be deduplicated.
+    first.swipe_info[0].extra[MESSAGE_COST_KEY] = structuredClone(first.extra[MESSAGE_COST_KEY]);
+    const second = assistant('waiting');
+    second.extra[MESSAGE_COST_KEY] = {
+        version: 1,
+        requests: [
+            { id: 'usage-waiting-b', chatId: 'chat-a', status: 'pending' },
+            { id: 'pending-unprepared', chatId: 'chat-a', status: 'unavailable' },
+        ],
+    };
+
+    const f = fixture({
+        chat: [first, second],
+        readUsage: async (chatId, options) => {
+            readCalls.push({ chatId, options });
+            return {
+                ok: true,
+                records: [
+                    { id: 'usage-waiting-a', chatId: 'chat-a', status: 'complete', usage: { promptTokenCount: 10 } },
+                    { id: 'usage-waiting-b', chatId: 'chat-a', status: 'complete', usage: { promptTokenCount: 20 } },
+                ],
+            };
+        },
+    });
+    t.after(() => f.destroy());
+    await f.tracker.refresh();
+
+    assert.equal(readCalls.length, 1);
+    assert.equal(readCalls[0].chatId, 'chat-a');
+    assert.deepEqual(readCalls[0].options, { ids: ['usage-waiting-a', 'usage-waiting-b'] });
+    assert.equal(getMessageCost(first).requests[1].record.status, 'complete');
+    assert.equal(getMessageCost(second).requests[0].record.status, 'complete');
+});
+
+test('attachUsage validates inputs, merges multi-turn usageIds idempotently, preserves resolved records, and refreshes via ids', async t => {
+    const readCalls = [];
+    let saved = 0;
+    const userMsg = { is_user: true, is_system: false, mes: 'hi', extra: {} };
+    const sysMsg = { is_user: false, is_system: true, mes: 'sys', extra: {} };
+    const reply = assistant('tool answer');
+    reply.swipes = ['tool answer', 'alt swipe'];
+    reply.swipe_info = [{ extra: {} }, { extra: {} }];
+
+    const f = fixture({
+        chat: [userMsg, sysMsg, reply],
+        readUsage: async (chatId, options) => {
+            readCalls.push({ chatId, options });
+            return {
+                ok: true,
+                records: (options?.ids ?? []).map(id => ({
+                    id,
+                    chatId,
+                    model: 'gemini-3.1-pro-preview',
+                    source: 'vertexai',
+                    tier: 'standard',
+                    status: 'complete',
+                    usage: { promptTokenCount: 100, candidatesTokenCount: 50 },
+                })),
+            };
+        },
+    });
+    f.context().saveChat = async () => { saved += 1; };
+    t.after(() => f.destroy());
+
+    // Guard validations.
+    assert.equal(f.tracker.attachUsage({ chatId: 'wrong-chat', messageIndex: 2, requests: [{ id: 'u1' }] }), false);
+    assert.equal(f.tracker.attachUsage({ chatId: 'chat-a', messageIndex: -1, requests: [{ id: 'u1' }] }), false);
+    assert.equal(f.tracker.attachUsage({ chatId: 'chat-a', messageIndex: 0, requests: [{ id: 'u1' }] }), false); // user
+    assert.equal(f.tracker.attachUsage({ chatId: 'chat-a', messageIndex: 1, requests: [{ id: 'u1' }] }), false); // system
+    assert.equal(f.tracker.attachUsage({ chatId: 'chat-a', messageIndex: 2, requests: [] }), false);
+    assert.equal(f.tracker.attachUsage({ chatId: 'chat-a', messageIndex: 2, requests: [{ id: 'pending-1' }, { id: '../bad' }] }), false);
+    assert.equal(f.tracker.attachUsage({ chatId: 'chat-a', messageIndex: 2, swipeId: 9, requests: [{ id: 'u1' }] }), false);
+
+    // Attach 2 valid multi-turn requests (ignoring an invalid one in the same call).
+    const beforeChanges = f.changes();
+    assert.equal(f.tracker.attachUsage({
+        chatId: 'chat-a',
+        messageIndex: 2,
+        requests: [
+            { id: 'turn-1', model: 'gemini-3.1-pro-preview', source: 'vertexai', tier: 'standard', stream: true, durationMs: 420, firstTokenMs: 110, interrupted: false },
+            { id: 'pending-ignored' },
+            { id: 'turn-2', model: 'gemini-3.1-pro-preview', source: 'vertexai', tier: 'standard', stream: false, durationMs: 300 },
+        ],
+    }), true);
+    assert.ok(f.changes() > beforeChanges);
+
+    const attached = getMessageCost(reply);
+    assert.deepEqual(attached.requests.map(r => r.id), ['turn-1', 'turn-2']);
+    assert.deepEqual(attached.requests[0].timing, { stream: true, durationMs: 420, firstTokenMs: 110, interrupted: false });
+
+    // Wait for scheduled refresh(0) to resolve both turns via batched ids.
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(readCalls.length, 1);
+    assert.deepEqual(readCalls[0], { chatId: 'chat-a', options: { ids: ['turn-1', 'turn-2'] } });
+    assert.equal(getMessageCost(reply).requests[0].record.status, 'complete');
+    assert.equal(getMessageCost(reply).requests[1].record.status, 'complete');
+
+    // Re-attaching turn-1 (already resolved) + new turn-3 preserves turn-1's resolved record and only fetches turn-3.
+    assert.equal(f.tracker.attachUsage({
+        chatId: 'chat-a',
+        messageIndex: 2,
+        requests: [{ id: 'turn-1' }, { id: 'turn-3', model: 'gemini-3.1-pro-preview', source: 'vertexai', tier: 'standard' }],
+    }), true);
+    assert.deepEqual(getMessageCost(reply).requests.map(r => r.id), ['turn-1', 'turn-2', 'turn-3']);
+    assert.equal(getMessageCost(reply).requests[0].record.status, 'complete');
+    assert.equal(getMessageCost(reply).requests[2].record.status, 'pending');
+
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(readCalls.length, 2);
+    assert.deepEqual(readCalls[1], { chatId: 'chat-a', options: { ids: ['turn-3'] } });
+    assert.equal(getMessageCost(reply).requests[2].record.status, 'complete');
+
+    // Attaching to a specific inactive swipe updates swipe_info[1] without touching active swipe 0.
+    assert.equal(f.tracker.attachUsage({
+        chatId: 'chat-a',
+        messageIndex: 2,
+        swipeId: 1,
+        requests: [{ id: 'swipe-1-turn' }],
+    }), true);
+    assert.deepEqual(reply.swipe_info[1].extra[MESSAGE_COST_KEY].requests.map(r => r.id), ['swipe-1-turn']);
+    assert.deepEqual(getMessageCost(reply).requests.map(r => r.id), ['turn-1', 'turn-2', 'turn-3']);
+
+    // Wait for debounced saveSoon.
+    await new Promise(resolve => setTimeout(resolve, 180));
+    assert.ok(saved >= 1);
+
+    // Destroyed tracker rejects attachUsage.
+    f.destroy();
+    assert.equal(f.tracker.attachUsage({ chatId: 'chat-a', messageIndex: 2, requests: [{ id: 'turn-4' }] }), false);
+});

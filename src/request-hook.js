@@ -71,14 +71,18 @@ export function buildPreparePayload(generateData, state, upstreamProxy = generat
     const expressProjectId = generateData.vertexai_express_project_id !== undefined
         ? String(generateData.vertexai_express_project_id ?? '').trim()
         : String(vertexDefaults?.vertexai_express_project_id ?? '').trim();
+    const reverseProxy = String(upstreamProxy?.reverse_proxy ?? '').trim();
+    const baseUrl = String(upstreamProxy?.base_url ?? '').trim();
     return {
         protocolVersion: PROTOCOL_VERSION,
         chat_completion_source: source,
         model: String(generateData.model ?? '').trim(),
         stream: Boolean(generateData.stream),
-        ...(upstreamProxy.reverse_proxy ? {
-            reverse_proxy: String(upstreamProxy.reverse_proxy).trim(),
+        ...(reverseProxy ? {
+            reverse_proxy: reverseProxy,
             proxy_password: String(upstreamProxy.proxy_password ?? ''),
+        } : baseUrl && source === AI_STUDIO_SOURCE ? {
+            base_url: baseUrl,
         } : {}),
         ...(generateData.secret_id ? { secret_id: generateData.secret_id } : {}),
         ...(source === VERTEX_SOURCE ? {
@@ -148,13 +152,20 @@ export function createRequestHook({
             return;
         }
 
-        const background = requestOptionsProvider(generateData)?.background === true;
+        const opts = requestOptionsProvider(generateData);
+        const background = opts?.background === true;
+        const signal = opts?.signal;
         const vertexDefaults = source === VERTEX_SOURCE ? vertexDefaultsProvider(generateData) : undefined;
         const effectiveRegion = source === VERTEX_SOURCE
             ? pickNonEmptyString(generateData.vertexai_region, vertexDefaults?.vertexai_region)
             : undefined;
         const existingReverseProxy = String(generateData.reverse_proxy ?? '').trim();
-        const upstreamProxy = { reverse_proxy: existingReverseProxy, proxy_password: generateData.proxy_password };
+        const existingBaseUrl = String(generateData.base_url ?? '').trim();
+        const upstreamProxy = {
+            reverse_proxy: existingReverseProxy,
+            proxy_password: generateData.proxy_password,
+            base_url: existingBaseUrl,
+        };
         const requestId = logger?.createRequestId?.();
         const startedAt = Date.now();
         const logContext = buildSafeRequestLogContext(generateData, state, requestId, effectiveRegion);
@@ -194,10 +205,14 @@ export function createRequestHook({
             }
 
             const usage = usageProvider(generateData, validation.state);
-            const prepared = await serverClient.prepare({
+            const payload = {
                 ...buildPreparePayload(generateData, validation.state, upstreamProxy, vertexDefaults),
                 ...usage,
-            });
+            };
+            signal?.throwIfAborted?.();
+            const prepared = signal
+                ? await serverClient.prepare(payload, { signal })
+                : await serverClient.prepare(payload);
             applyPreparedProxy(generateData, prepared);
             if (!background && usage.usageChatId && !prepared.usageId) {
                 notifyWarning(localize('vertex_paygo.costs.recording_unavailable'));
@@ -209,6 +224,18 @@ export function createRequestHook({
             });
             return prepared;
         } catch (error) {
+            const aborted = Boolean(signal?.aborted) || error?.name === 'AbortError';
+            if (aborted) {
+                const failure = error?.name === 'AbortError'
+                    ? error
+                    : new DOMException('The operation was aborted.', 'AbortError');
+                recordClientEvent(logger, 'info', 'request.prepare_aborted', {
+                    ...logContext,
+                    phase: 'aborted',
+                    durationMs: Date.now() - startedAt,
+                });
+                throw failure;
+            }
             const failure = error instanceof Error ? error : new PayGoRequestError(String(error), undefined, { cause: error });
             const blocked = failure instanceof PayGoRequestError;
             // UI and diagnostics must not replace the original failure.

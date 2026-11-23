@@ -409,3 +409,107 @@ test('missing Vertex auth mode and region inherit from vertexDefaultsProvider an
     assert.equal(errors.length, 1);
     assert.match(errors[0], /HTTP 500.*VERTEX_OAUTH_UPSTREAM_ERROR/u);
 });
+
+test('buildPreparePayload and request hook forward base_url for AI Studio only when reverse_proxy is absent', async () => {
+    const studioBaseUrl = buildPreparePayload(
+        { chat_completion_source: 'makersuite', model: 'gemini-2.5-pro', stream: false, base_url: ' https://studio-proxy.example/v1 ' },
+        { tier: TIER.STANDARD, paygoOnly: false },
+    );
+    assert.equal(studioBaseUrl.base_url, 'https://studio-proxy.example/v1');
+    assert.equal('reverse_proxy' in studioBaseUrl, false);
+
+    // reverse_proxy takes precedence over base_url.
+    const studioBoth = buildPreparePayload(
+        { chat_completion_source: 'makersuite', model: 'gemini-2.5-pro', stream: false, reverse_proxy: 'https://rp.example', base_url: 'https://studio-proxy.example/v1' },
+        { tier: TIER.STANDARD, paygoOnly: false },
+    );
+    assert.equal(studioBoth.reverse_proxy, 'https://rp.example');
+    assert.equal('base_url' in studioBoth, false);
+
+    // Vertex ignores base_url.
+    const vertexWithBaseUrl = buildPreparePayload(
+        vertexData({ base_url: 'https://ignored.example' }),
+        { tier: TIER.STANDARD, paygoOnly: false },
+    );
+    assert.equal('base_url' in vertexWithBaseUrl, false);
+
+    // Hook captures generateData.base_url into upstreamProxy for makersuite.
+    const prepareArgs = [];
+    const hook = createRequestHook({
+        stateProvider: () => ({ tier: TIER.STANDARD, paygoOnly: false }),
+        serverClient: {
+            prepare: async (...args) => {
+                prepareArgs.push(args);
+                return { proxyUrl: 'http://127.0.0.1:32145/proxy/ticket', proxySecret: 'secret-token' };
+            },
+        },
+        origin: ORIGIN,
+    });
+    const req = { chat_completion_source: 'makersuite', model: 'gemini-2.5-pro', stream: true, base_url: ' https://custom.studio.example ' };
+    await hook(req);
+    assert.equal(prepareArgs.length, 1);
+    assert.equal(prepareArgs[0].length, 1); // no 2nd arg when signal is undefined
+    assert.equal(prepareArgs[0][0].base_url, 'https://custom.studio.example');
+});
+
+test('request hook forwards signal and handles abort during prepare without error toast', async () => {
+    const errors = [];
+    const loggerErrors = [];
+    const events = [];
+    let observedOptions;
+    const controller = new AbortController();
+
+    const hook = createRequestHook({
+        stateProvider: () => ({ tier: TIER.FLEX, paygoOnly: true }),
+        requestOptionsProvider: () => ({ background: false, signal: controller.signal }),
+        serverClient: {
+            prepare: async (_payload, options) => {
+                observedOptions = options;
+                return await new Promise((_resolve, reject) => {
+                    options.signal.addEventListener('abort', () => {
+                        reject(new DOMException('The operation was aborted.', 'AbortError'));
+                    }, { once: true });
+                });
+            },
+        },
+        origin: ORIGIN,
+        notifyError: message => errors.push(message),
+        logger: {
+            createRequestId: () => 'req-abort',
+            event: (level, event, context) => events.push({ level, event, context }),
+            error: (...args) => loggerErrors.push(args),
+        },
+    });
+
+    const data = vertexData();
+    const pending = hook(data);
+    await Promise.resolve();
+    controller.abort();
+
+    await assert.rejects(pending, error => error?.name === 'AbortError');
+    assert.equal(observedOptions.signal, controller.signal);
+    assert.match(data.reverse_proxy, /^vertex-paygo-blocked:/u);
+    assert.deepEqual(errors, []);
+    assert.deepEqual(loggerErrors, []);
+    const abortedEvent = events.at(-1);
+    assert.equal(abortedEvent.level, 'info');
+    assert.equal(abortedEvent.event, 'request.prepare_aborted');
+    assert.equal(abortedEvent.context.phase, 'aborted');
+
+    // Pre-aborted signal never invokes serverClient.prepare and stays toast-silent.
+    let called = false;
+    const preAborted = new AbortController();
+    preAborted.abort();
+    const hook2 = createRequestHook({
+        stateProvider: () => ({ tier: TIER.FLEX, paygoOnly: true }),
+        requestOptionsProvider: () => ({ background: false, signal: preAborted.signal }),
+        serverClient: { prepare: async () => { called = true; } },
+        origin: ORIGIN,
+        notifyError: message => errors.push(message),
+        logger: { event: (level, event, context) => events.push({ level, event, context }), error: (...args) => loggerErrors.push(args) },
+    });
+    await assert.rejects(hook2(vertexData()), error => error?.name === 'AbortError');
+    assert.equal(called, false);
+    assert.deepEqual(errors, []);
+    assert.deepEqual(loggerErrors, []);
+});

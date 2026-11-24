@@ -593,3 +593,52 @@ test('switching to a model that a region does not serve prompts after the model 
     assert.equal(f.prompts[0].title, 'gemini-4-hydrogen is not available in “us-central1”');
     assert.equal(f.dom.region.value, 'global');
 });
+
+test('UI injects us/eu into #vertexai_region_suggestions with cleanup and reflects Express multi-region block in status', async t => {
+    const dom = createHostDom();
+    const authMode = dom.document.createElement('select');
+    authMode.id = 'vertexai_auth_mode';
+    authMode.value = 'express';
+    dom.vertex.append(authMode);
+    const datalist = dom.document.createElement('datalist');
+    datalist.id = 'vertexai_region_suggestions';
+    const optGlobal = dom.document.createElement('option');
+    optGlobal.value = 'global';
+    const optCentral = dom.document.createElement('option');
+    optCentral.value = 'us-central1';
+    datalist.append(optGlobal, optCentral);
+    dom.vertex.append(datalist);
+
+    for (const [key, value] of Object.entries({ document: dom.document, Element: dom.Element, HTMLInputElement: dom.Input, HTMLSelectElement: dom.Select })) {
+        const descriptor = Object.getOwnPropertyDescriptor(globalThis, key);
+        Object.defineProperty(globalThis, key, { value, configurable: true });
+        t.after(() => descriptor ? Object.defineProperty(globalThis, key, descriptor) : delete globalThis[key]);
+    }
+
+    const context = {
+        chatCompletionSettings: {
+            chat_completion_source: 'vertexai',
+            vertexai_model: 'gemini-4-hydrogen',
+            vertexai_region: 'us',
+            vertexai_auth_mode: 'express',
+        },
+        extensionSettings: {},
+        eventTypes: new Proxy({}, { get: (_target, key) => key }),
+        eventSource: { on() {}, once() {} },
+        Popup: { show: { confirm: async () => 1 } },
+        POPUP_RESULT: { AFFIRMATIVE: 1, NEGATIVE: 0 },
+        saveSettingsDebounced() {},
+    };
+    const ui = createPayGoUi({ context, serverClient: { checkHealth: async () => ({ capabilities: {} }) } });
+    assert.deepEqual(datalist.children.map(option => option.value), ['global', 'us', 'eu', 'us-central1']);
+    const status = dom.elements.find(el => String(el.textContent ?? '').includes('requires Service Account (Full)'));
+    assert.ok(status, 'Expected Express multi-region status warning');
+
+    context.chatCompletionSettings.vertexai_auth_mode = 'full';
+    authMode.value = 'full';
+    await authMode.fire('change');
+    assert.doesNotMatch(String(status.textContent ?? ''), /requires Service Account \(Full\)/u);
+
+    ui.destroy();
+    assert.deepEqual(datalist.children.map(option => option.value), ['global', 'us-central1']);
+});

@@ -513,3 +513,41 @@ test('request hook forwards signal and handles abort during prepare without erro
     assert.deepEqual(errors, []);
     assert.deepEqual(loggerErrors, []);
 });
+
+test('request hook enforces Full auth on us/eu unless secret_id or proxy is set, and rejects outdated server plugins without vertexMultiRegions', async () => {
+    const errors = [];
+    let prepareCount = 0;
+    const hook = createRequestHook({
+        stateProvider: () => ({ tier: TIER.STANDARD, paygoOnly: false }),
+        serverClient: {
+            prepare: async payload => {
+                prepareCount += 1;
+                return {
+                    proxyUrl: 'http://127.0.0.1:32145/proxy/ticket',
+                    proxySecret: 'secret-token',
+                    ...(payload.vertexai_region === 'us' ? { vertexMultiRegions: ['us', 'eu'] } : {}),
+                };
+            },
+        },
+        origin: ORIGIN,
+        notifyError: message => errors.push(message),
+    });
+
+    // Express without secret_id or proxy is blocked locally before prepare.
+    const expressReq = vertexData({ model: 'gemini-4-hydrogen', vertexai_region: 'us', vertexai_auth_mode: 'express' });
+    await assert.rejects(hook(expressReq), { code: 'MULTI_REGION_REQUIRES_FULL_AUTH' });
+    assert.equal(prepareCount, 0);
+    assert.match(expressReq.reverse_proxy, /^vertex-paygo-blocked:/u);
+
+    // Explicit secret_id defers mode resolution to the server plugin.
+    const secretReq = vertexData({ model: 'gemini-4-hydrogen', vertexai_region: 'us', vertexai_auth_mode: 'express', secret_id: 'sa-uuid' });
+    await hook(secretReq);
+    assert.equal(prepareCount, 1);
+    assert.equal(secretReq.reverse_proxy, 'http://127.0.0.1:32145/proxy/ticket');
+
+    // Outdated server omitting vertexMultiRegions fails closed before applying proxyUrl.
+    const outdatedReq = vertexData({ model: 'gemini-4-hydrogen', vertexai_region: 'eu', vertexai_auth_mode: 'full' });
+    await assert.rejects(hook(outdatedReq), { code: 'MULTI_REGION_SERVER_UPGRADE_REQUIRED' });
+    assert.equal(prepareCount, 2);
+    assert.match(outdatedReq.reverse_proxy, /^vertex-paygo-blocked:/u);
+});

@@ -6,7 +6,15 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-import { AI_STUDIO_SOURCE, DEFAULT_STATE, isGoogleSource, TIER, UPDATE_POLL_INTERVAL_MS, VERTEX_SOURCE } from './constants.js';
+import {
+    AI_STUDIO_SOURCE,
+    DEFAULT_STATE,
+    isGoogleSource,
+    TIER,
+    UPDATE_POLL_INTERVAL_MS,
+    VERTEX_MULTI_REGIONS,
+    VERTEX_SOURCE,
+} from './constants.js';
 import { getSafeErrorContext } from './client-logger.js';
 import {
     createLocalizer,
@@ -229,11 +237,35 @@ export function createPayGoUi({
 }) {
     localize ??= createLocalizer((fallback, key) => context?.translate?.(fallback, key));
     const regionInput = document.getElementById('vertexai_region');
+    const authModeSelect = document.getElementById('vertexai_auth_mode');
     const modelSelect = document.getElementById('model_vertexai_select');
     const googleModelSelect = document.getElementById('model_google_select');
     const googleContainer = document.getElementById('makersuite_form');
     if (!(regionInput instanceof HTMLInputElement) || !(modelSelect instanceof HTMLSelectElement)) {
         throw new Error(localize('vertex_paygo.error.controls_missing'));
+    }
+    const hasAuthModeSelect = authModeSelect instanceof HTMLSelectElement;
+
+    const injectedRegionOptions = [];
+    const regionDatalist = document.getElementById('vertexai_region_suggestions');
+    const datalistTag = String(regionDatalist?.tagName ?? regionDatalist?.tag ?? '').toUpperCase();
+    if (regionDatalist && datalistTag === 'DATALIST' && typeof document.createElement === 'function') {
+        const existingChildren = Array.from(regionDatalist.children ?? []);
+        const existingValues = new Set(existingChildren.map(option => String(option?.value ?? '').trim().toLowerCase()));
+        let anchor = existingChildren.find(option => String(option?.value ?? '').trim().toLowerCase() === 'global') ?? null;
+        for (const multiRegion of VERTEX_MULTI_REGIONS) {
+            if (existingValues.has(multiRegion)) continue;
+            const option = document.createElement('option');
+            option.value = multiRegion;
+            option.textContent = multiRegion;
+            if (anchor && typeof anchor.after === 'function') {
+                anchor.after(option);
+                anchor = option;
+            } else {
+                regionDatalist.append(option);
+            }
+            injectedRegionOptions.push(option);
+        }
     }
 
     const controls = buildControls(localize);
@@ -320,6 +352,17 @@ export function createPayGoUi({
 
     function isVertexSelected() {
         return context.chatCompletionSettings.chat_completion_source === VERTEX_SOURCE;
+    }
+
+    function getAuthModeForValidation() {
+        if (!isVertexSelected()) return undefined;
+        const settings = context.chatCompletionSettings ?? {};
+        const profile = getActiveProfile(context);
+        const reverseProxy = String(settings.reverse_proxy || profile?.reverse_proxy || profile?.reverseProxy || '').trim();
+        if (reverseProxy || profile?.['secret-id']) return undefined;
+        const raw = settings.vertexai_auth_mode
+            ?? (hasAuthModeSelect ? authModeSelect.value : undefined);
+        return raw !== undefined && String(raw).trim() !== '' ? String(raw).trim().toLowerCase() : undefined;
     }
 
     function syncPersistedState() {
@@ -442,7 +485,13 @@ export function createPayGoUi({
             return;
         }
 
-        const validation = validatePluginState({ state, model: policy.model, region: getRegion(), source: getSource() });
+        const validation = validatePluginState({
+            state,
+            model: policy.model,
+            region: getRegion(),
+            source: getSource(),
+            authMode: getAuthModeForValidation(),
+        });
         if (!validation.ok) {
             controls.policyStatus.textContent = localize('vertex_paygo.status.blocked', {
                 message: localizeValidation(localize, validation, state),
@@ -1206,6 +1255,9 @@ export function createPayGoUi({
     controls.tierSelect.addEventListener('change', onTierChanged);
     controls.paygoOnly.addEventListener('change', onPaygoOnlyChanged);
     regionInput.addEventListener('change', onRegionChanged);
+    if (hasAuthModeSelect) {
+        authModeSelect.addEventListener('change', render);
+    }
     const onVertexModelInput = event => {
         const target = event.target;
         if (!(target instanceof HTMLInputElement) || target.id !== 'vertexai_model_id') return;
@@ -1322,6 +1374,12 @@ export function createPayGoUi({
             floatingTier.destroy();
             dataBackupControl.destroy();
             unmountSettings();
+            if (hasAuthModeSelect) {
+                authModeSelect.removeEventListener('change', render);
+            }
+            for (const option of injectedRegionOptions.splice(0)) {
+                option.remove?.();
+            }
             controls.root.remove();
         },
         getState: () => ({ ...state }),

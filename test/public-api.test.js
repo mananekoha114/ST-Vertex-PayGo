@@ -494,3 +494,47 @@ test('initTauriTavern installs STVertexPayGo in tauri mode and removes it on des
     assert.equal('STVertexPayGo' in target, false);
     assert.equal(apiRef.getStatus().ready, false);
 });
+
+test('prepareTicket enforces Full auth and server vertexMultiRegions capability on us/eu', async () => {
+    let serverRegions = undefined;
+    const { api } = createPublicApi({
+        mode: 'server',
+        serverClient: {
+            prepare: async () => ({
+                ticket: 't-multi',
+                proxyUrl: 'http://127.0.0.1:43210/proxy/t-multi',
+                proxySecret: 'secret-token-value',
+                ...(serverRegions ? { vertexMultiRegions: serverRegions } : {}),
+            }),
+        },
+    });
+
+    await assert.rejects(
+        api.prepareTicket({
+            chat_completion_source: VERTEX_SOURCE,
+            model: 'gemini-3.8-flash',
+            vertexai_region: 'us',
+            vertexai_auth_mode: 'express',
+        }),
+        { code: 'MULTI_REGION_REQUIRES_FULL_AUTH' },
+    );
+
+    await assert.rejects(
+        api.prepareTicket({
+            chat_completion_source: VERTEX_SOURCE,
+            model: 'gemini-3.8-flash',
+            vertexai_region: 'eu',
+            vertexai_auth_mode: 'full',
+        }),
+        { code: 'MULTI_REGION_SERVER_UPGRADE_REQUIRED' },
+    );
+
+    serverRegions = ['us', 'eu'];
+    const prepared = await api.prepareTicket({
+        chat_completion_source: VERTEX_SOURCE,
+        model: 'gemini-3.8-flash',
+        vertexai_region: 'eu',
+        vertexai_auth_mode: 'full',
+    });
+    assert.equal(prepared.ticket, 't-multi');
+});

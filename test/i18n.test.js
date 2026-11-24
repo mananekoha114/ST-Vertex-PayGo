@@ -165,4 +165,17 @@ test('granular Vertex OAuth and missing-secret server codes localize across Engl
         details: { authMode: 'full' },
     });
     assert.match(localizeError(localizeZh, missingFull), /服务账号 JSON.*\(HTTP 400 \/ VERTEX_SECRET_MISSING\)/u);
+
+    const multiRegionExpress = Object.assign(new Error('raw server message'), {
+        code: 'HTTP_ERROR',
+        status: 400,
+        serverCode: 'VERTEX_MULTI_REGION_REQUIRES_FULL_AUTH',
+        details: { authMode: 'express', region: 'eu' },
+    });
+    assert.match(localizeError(localizeEn, multiRegionExpress), /“eu” requires Service Account \(Full\).*\(HTTP 400 \/ VERTEX_MULTI_REGION_REQUIRES_FULL_AUTH\)/u);
+    assert.match(localizeError(localizeZh, multiRegionExpress), /“eu”仅支持服务账号（Full）.*\(HTTP 400 \/ VERTEX_MULTI_REGION_REQUIRES_FULL_AUTH\)/u);
+    assert.match(
+        localizeValidation(localizeZh, { code: 'MULTI_REGION_REQUIRES_FULL_AUTH', region: 'us' }),
+        /“us”仅支持服务账号（Full）/u,
+    );
 });

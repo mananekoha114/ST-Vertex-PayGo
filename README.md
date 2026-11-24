@@ -114,7 +114,7 @@
 - 选择“保留”后，本次会话不再为同一模型和区域重复提示，但生成请求会在发送前被拦截，并提示支持的区域。如果当前是 Flex / Priority，保留区域会同时改回 Standard，因为这两个层级只能使用 `global`。
 - 名单中没有的模型（如尚未发布模型卡片的 Gemini 4 Neon、Gemini 2.5 系列）不做检查，交由 Google 判断。AI Studio 不涉及区域。
 - TauriTavern 的区域由宿主界面设置，扩展监听不到修改，因此没有切换弹窗，只在发送前拦截。
-- ⚠️ **关于 `us` / `eu` 多地区**：Google 文档中这两个多地区的端点是 `aiplatform.us.rep.googleapis.com` / `aiplatform.eu.rep.googleapis.com`，而酒馆会把非 `global` 区域拼成 `{区域}-aiplatform.googleapis.com`，所以在酒馆中填写 `us` / `eu` 可能无法连接。扩展的检查允许这两个区域，但弹窗只会建议 `global`，建议直接使用 `global`。
+- 📌 **关于 `us` / `eu` 多地区**：Google 的 `us` / `eu` 多地区数据驻留端点使用专用域名 `aiplatform.us.rep.googleapis.com` / `aiplatform.eu.rep.googleapis.com`。SillyTavern / Luker 配合新版配套服务端插件并在 **Full（服务账号 JSON）** 认证模式下填写 `us` 或 `eu` 时，插件会自动路由到该 REP 端点（涵盖主聊天、Gemini 4 原生兼容、`window.STVertexPayGo.prepareTicket` 与 OpenAI 桥接），并向宿主 Region 候选列表自动补充 `us` / `eu`（支持输入框补全及 `/proxy us` 斜杠命令，卸载时自动清理）。官方直连下 Express（API Key）模式不支持 `us` / `eu`（携带 Connection Manager `secret_id` 的连接会由服务端按密钥真实类型识别）；若服务端版本过旧未声明多地区能力，发送前会明确提示更新服务端插件。由于非 `global` 端点对 GA 模型按 1.1 倍计费且不支持 Flex / Priority，区域冲突弹窗仍默认建议 `global`。TauriTavern 及酒馆非聊天原生功能（向量、TTS 等）由宿主自身拼接端点，仍受宿主实现限制。
 
 ### 3. 反向代理（SillyTavern / Luker）
 
@@ -199,7 +199,7 @@ AI 回复默认在角色头像下方显示这一版回复的估算花费（例�
 
 ### 使用方式
 
-1. 在宿主中配置好 Google AI Studio，或使用服务账号的 Vertex AI Full 模式。Vertex Express / API key 模式暂不支持此桥接。
+1. 在宿主中配置好 Google AI Studio，或使用服务账号的 Vertex AI Full 模式（支持 `global`、`us` / `eu` 多地区及各单一区域，大小写自动归一化）。Vertex Express / API key 模式暂不支持此桥接。
 2. 在 **扩展程序 → ST-Vertex-PayGo →「桥接」** 中启用。桥接固定启用时的提供商、模型、区域和凭据选择；后续切换主聊天连接不会改变它。需要变更时，点击“更新为当前连接”。
 3. 展开“调用配置（URL、密钥、模型）”，将 **Base URL** 和 **桥接 API key** 填入其他插件的独立 API 配置，协议选择 OpenAI Chat Completions。桥接 key 不是 Google key。
 4. 模型可填写 `st-current`，代表桥接绑定的模型（不是实时跟随主界面的模型）；也可让调用端通过 `GET /models` 拉取 Google 模型目录，选择其中的具体模型。AI Studio 返回 `gemini-*`，Vertex 返回 `google/gemini-*`；调用时也接受不带 `google/` 的名称，不受绑定模型或 PayGo 名单限制。
@@ -322,7 +322,7 @@ console.log(models);
 
 ### Q: 为什么提示“该模型在此区域不可用”，或者生成被拦截？
 
-**A**：所选 Vertex 区域不提供当前模型的 Standard PayGo。请按弹窗把区域切换到 `global`，或者在 API 面板中手动改为模型支持的区域，详见[选择服务层级](#2-选择服务层级)末尾的“Vertex 地区检查”。之前选择过“保留”的，改回支持的区域后即可正常发送。
+**A**：所选 Vertex 区域不提供当前模型的 Standard PayGo。请按弹窗把区域切换到 `global`，或者在 API 面板中手动改为模型支持的区域，详见[选择服务层级](#2-选择服务层级)末尾的“Vertex 地区检查”。之前选择过“保留”的，改回支持的区域后即可正常发送。此外，如果区域填写了 `us` 或 `eu` 多地区，请确认认证模式已切换为 **Full（服务账号 JSON）**，且配套服务端插件已更新至支持多地区 REP 端点的版本。
 
 ### Q: 为什么非流式模式下的回复显示“部分估算”？
 
@@ -355,7 +355,7 @@ node --test
 - `prepareTicket(generateData, { signal, state, chatId, background })`：Server 模式专用的受控单次票据申请入口，支持 `AbortSignal` 取消透传；
 - `attachMessageUsage({ chatId, messageIndex, swipeId, requests })` 与 `readUsage(chatId, { ids, signal })`：供多轮工具接力将多个 `usageId` 归集到同一助手回复费用徽章并按 ID 精确对账。
 
-完整的服务端协议契约（`protocolVersion: 3`）、运行时目录环境变量（`ST_VERTEX_PAYGO_DATA_DIR` / `ST_VERTEX_PAYGO_LOG_DIR` / `dataRoot/vertex-paygo`）、Native Gemini 4 签名信封（`st-vertex-paygo-tool:v1:`、`st-vertex-paygo-text:v1:`）与流式错误边界说明，请参阅配套后端仓库的 [`docs/protocol-and-extensions.md`](https://github.com/mananekoha114/ST-Vertex-PayGo-Server/blob/main/docs/protocol-and-extensions.md)。
+完整的服务端协议契约（`protocolVersion: 3`、Vertex `us`/`eu` 多地区 REP 路由与 `vertexMultiRegions` 能力声明）、运行时目录环境变量（`ST_VERTEX_PAYGO_DATA_DIR` / `ST_VERTEX_PAYGO_LOG_DIR` / `dataRoot/vertex-paygo`）、Native Gemini 4 签名信封（`st-vertex-paygo-tool:v1:`、`st-vertex-paygo-text:v1:`）与流式错误边界说明，请参阅配套后端仓库的 [`docs/protocol-and-extensions.md`](https://github.com/mananekoha114/ST-Vertex-PayGo-Server/blob/main/docs/protocol-and-extensions.md)。
 
 安装器的开发与测试说明见 [INSTALL.md](INSTALL.md#维护者说明)。
 

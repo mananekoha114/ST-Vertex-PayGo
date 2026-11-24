@@ -18,6 +18,16 @@ export const AI_STUDIO_SOURCE = 'makersuite';
 
 /** Vertex location IDs: global, multi-regions such as us/eu, or a single region. */
 export const VERTEX_REGION_PATTERN = /^(?:global|[a-z0-9][a-z0-9-]{0,62})$/u;
+export const VERTEX_MULTI_REGIONS = Object.freeze(['us', 'eu']);
+
+export function isVertexMultiRegion(region) {
+    return VERTEX_MULTI_REGIONS.includes(String(region ?? '').trim().toLowerCase());
+}
+
+export function serverSupportsVertexMultiRegion(prepared, region) {
+    const normalized = String(region ?? '').trim().toLowerCase();
+    return Array.isArray(prepared?.vertexMultiRegions) && prepared.vertexMultiRegions.includes(normalized);
+}
 
 export function isGoogleSource(source) {
     return source === VERTEX_SOURCE || source === AI_STUDIO_SOURCE;

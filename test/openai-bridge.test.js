@@ -48,6 +48,13 @@ test('connection snapshot accepts native Google only and matches selected profil
     context.chatCompletionSettings.chat_completion_source = 'vertexai';
     context.chatCompletionSettings.vertexai_region = 'bad/region';
     assert.equal(currentBridgeConnection(context).code, 'region');
+    context.chatCompletionSettings.vertexai_region = 'US';
+    assert.equal(currentBridgeConnection(context).connection.region, 'us');
+    context.chatCompletionSettings.vertexai_region = '';
+    context.extensionSettings.connectionManager.profiles[0]['api-url'] = 'EU';
+    assert.equal(currentBridgeConnection(context).connection.region, 'eu');
+    context.extensionSettings.connectionManager.profiles[0].exclude = ['api-url'];
+    assert.equal(currentBridgeConnection(context).connection.region, 'us-central1');
 });
 
 test('bridge response accepts only authenticated loopback endpoint', () => {

@@ -6,7 +6,14 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-import { AI_STUDIO_SOURCE, isGoogleSource, PROTOCOL_VERSION, VERTEX_SOURCE } from './constants.js';
+import {
+    AI_STUDIO_SOURCE,
+    isGoogleSource,
+    isVertexMultiRegion,
+    PROTOCOL_VERSION,
+    serverSupportsVertexMultiRegion,
+    VERTEX_SOURCE,
+} from './constants.js';
 import { getSafeErrorContext } from './client-logger.js';
 import { createLocalizer, localizeError, localizeSupport, localizeValidation } from './i18n.js';
 import { requiresPlugin, validatePluginState } from './state-machine.js';
@@ -161,6 +168,9 @@ export function createRequestHook({
             : undefined;
         const existingReverseProxy = String(generateData.reverse_proxy ?? '').trim();
         const existingBaseUrl = String(generateData.base_url ?? '').trim();
+        const effectiveAuthMode = source === VERTEX_SOURCE && !existingReverseProxy && !generateData.secret_id
+            ? pickNonEmptyString(generateData.vertexai_auth_mode, vertexDefaults?.vertexai_auth_mode, 'express').toLowerCase()
+            : undefined;
         const upstreamProxy = {
             reverse_proxy: existingReverseProxy,
             proxy_password: generateData.proxy_password,
@@ -185,6 +195,7 @@ export function createRequestHook({
                 source,
                 model: generateData.model,
                 region: effectiveRegion,
+                authMode: effectiveAuthMode,
             });
             if (!validation.ok) {
                 throw new PayGoRequestError(localizeValidation(localize, validation, state), validation.code);
@@ -213,6 +224,14 @@ export function createRequestHook({
             const prepared = signal
                 ? await serverClient.prepare(payload, { signal })
                 : await serverClient.prepare(payload);
+            if (payload.chat_completion_source === VERTEX_SOURCE && !payload.reverse_proxy
+                && isVertexMultiRegion(payload.vertexai_region)
+                && !serverSupportsVertexMultiRegion(prepared, payload.vertexai_region)) {
+                throw new PayGoRequestError(
+                    localize('vertex_paygo.multi_region.server_upgrade', { region: payload.vertexai_region }),
+                    'MULTI_REGION_SERVER_UPGRADE_REQUIRED',
+                );
+            }
             applyPreparedProxy(generateData, prepared);
             if (!background && usage.usageChatId && !prepared.usageId) {
                 notifyWarning(localize('vertex_paygo.costs.recording_unavailable'));

@@ -44,7 +44,12 @@ export function currentBridgeConnection(context, documentRef = globalThis.docume
         const authMode = String(settings.vertexai_auth_mode ?? documentRef?.getElementById?.('vertexai_auth_mode')?.value ?? 'express').trim().toLowerCase();
         if (authMode !== 'full') return { ok: false, code: 'express' };
         connection.authMode = 'full';
-        connection.region = String(settings.vertexai_region ?? documentRef?.getElementById?.('vertexai_region')?.value ?? 'us-central1').trim();
+        connection.region = String(
+            settings.vertexai_region
+            || (profile && !profile.exclude?.includes('api-url') ? profile['api-url'] : '')
+            || documentRef?.getElementById?.('vertexai_region')?.value
+            || 'us-central1',
+        ).trim().toLowerCase();
         if (!REGION_PATTERN.test(connection.region)) return { ok: false, code: 'region' };
     }
     return { ok: true, connection };

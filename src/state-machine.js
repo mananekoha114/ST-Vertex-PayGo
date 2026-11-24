@@ -6,7 +6,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-import { AI_STUDIO_SOURCE, CONFIG_VERSION, DEFAULT_STATE, TIER, VERTEX_SOURCE } from './constants.js';
+import { AI_STUDIO_SOURCE, CONFIG_VERSION, DEFAULT_STATE, TIER, VERTEX_SOURCE, isVertexMultiRegion } from './constants.js';
 import { getRegionSupport, getTierSupport, isGeminiModel } from './model-policy.js';
 
 const VALID_TIERS = new Set(Object.values(TIER));
@@ -140,7 +140,7 @@ export function resolveModelChange({ state, model, source = VERTEX_SOURCE }) {
     return { type: 'apply', state: current };
 }
 
-export function validatePluginState({ state, region, model, source = VERTEX_SOURCE }) {
+export function validatePluginState({ state, region, model, source = VERTEX_SOURCE, authMode = undefined }) {
     const current = normalizeState(state);
     if (source === AI_STUDIO_SOURCE) current.paygoOnly = false;
     if (!requiresPlugin(current, source, model)) {
@@ -176,7 +176,8 @@ export function validatePluginState({ state, region, model, source = VERTEX_SOUR
     }
 
     if (source === VERTEX_SOURCE) {
-        const regionSupport = getRegionSupport(model, normalizeRegion(region), source);
+        const normalizedRegion = normalizeRegion(region);
+        const regionSupport = getRegionSupport(model, normalizedRegion, source);
         if (!regionSupport.allowed) {
             return {
                 ok: false,
@@ -184,6 +185,14 @@ export function validatePluginState({ state, region, model, source = VERTEX_SOUR
                 message: `${regionSupport.model} is not served in the ${regionSupport.region} Vertex AI region; `
                     + `use ${regionSupport.regions.join(', ')}.`,
                 regionSupport,
+            };
+        }
+        if (authMode !== undefined && isVertexMultiRegion(normalizedRegion) && String(authMode ?? '').trim().toLowerCase() !== 'full') {
+            return {
+                ok: false,
+                code: 'MULTI_REGION_REQUIRES_FULL_AUTH',
+                region: normalizedRegion,
+                message: `Vertex AI multi-region "${normalizedRegion}" requires Full service-account authentication.`,
             };
         }
     }

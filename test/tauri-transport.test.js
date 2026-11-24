@@ -256,3 +256,84 @@ test('final metadata updates stream and model while preserving a null chat snaps
     assert.equal(observed, 0);
     assert.equal(failure, 0);
 });
+
+test('tauri background requests inherit saved multi-region settings, price profile api-url, and block explicit Express on us/eu', async () => {
+    const pricedRegions = [];
+    let observed = null;
+    const target = {
+        location: { origin },
+        fetch: async (_input, init) => new Response(init.body, { headers: { 'content-type': 'application/json' } }),
+    };
+    const profile = { id: 'p-eu', mode: 'cc', api: VERTEX_SOURCE, model: 'gemini-4-hydrogen', 'api-url': 'eu' };
+    const context = {
+        chatCompletionSettings: {
+            chat_completion_source: VERTEX_SOURCE,
+            vertexai_model: 'gemini-4-hydrogen',
+            vertexai_region: 'us',
+        },
+        ChatCompletionService: {
+            async sendRequest(data) {
+                return target.fetch(endpoint, { method: 'POST', body: JSON.stringify(data) });
+            },
+        },
+        ConnectionManagerRequestService: {
+            getProfile: id => (id === 'p-eu' ? profile : null),
+            async sendRequest(_profileId, _prompt, _maxTokens, _custom, overridePayload) {
+                return target.fetch(endpoint, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        chat_completion_source: VERTEX_SOURCE,
+                        model: profile.model,
+                        vertexai_region: profile['api-url'],
+                        ...overridePayload,
+                    }),
+                });
+            },
+        },
+    };
+    const usageClient = {
+        observeResponse(response, metadata) { observed = metadata; return response; },
+        recordFailure() {},
+    };
+    const transport = installTauriTransport({
+        context,
+        target,
+        yaml,
+        usageClient,
+        captureUsageContext: () => 'chat-1',
+        stateProvider: () => ({ tier: TIER.STANDARD, paygoOnly: false }),
+        getUsagePrice: (_data, _state, opts) => {
+            pricedRegions.push(opts?.region);
+            return { input: opts?.region === 'global' ? 1.5 : 1.65, output: 7.5 };
+        },
+    });
+
+    // Background sendRequest omitting vertexai_region inherits saved 'us' instead of failing as 'us-central1'.
+    await context.ChatCompletionService.sendRequest({
+        chat_completion_source: VERTEX_SOURCE,
+        model: 'gemini-4-hydrogen',
+        messages: [{ role: 'user', content: 'hi' }],
+    });
+    assert.equal(observed.region, 'us');
+    assert.equal(pricedRegions.at(-1), 'us');
+
+    // ConnectionManager profile maps api-url ('eu') at metadata snapshot time.
+    pricedRegions.length = 0;
+    await context.ConnectionManagerRequestService.sendRequest('p-eu', 'hi', 32);
+    assert.equal(observed.region, 'eu');
+    assert.deepEqual(pricedRegions, ['eu']);
+
+    // Explicit Express mode on us/eu is blocked cleanly.
+    await assert.rejects(
+        context.ChatCompletionService.sendRequest({
+            chat_completion_source: VERTEX_SOURCE,
+            model: 'gemini-4-hydrogen',
+            vertexai_region: 'us',
+            vertexai_auth_mode: 'express',
+            messages: [{ role: 'user', content: 'hi' }],
+        }),
+        { code: 'MULTI_REGION_REQUIRES_FULL_AUTH' },
+    );
+
+    transport.destroy();
+});

@@ -61,6 +61,11 @@ test('generation validation refuses a region the model is not served in, after t
         'TIER_REQUIRES_GLOBAL');
     assert.equal(validatePluginState({ state: priority, region: 'global', model: 'gemini-4-hydrogen' }).ok, true);
     assert.equal(validatePluginState({ state: DEFAULT_STATE, region: 'eu', model: 'gemini-3.8-flash' }).ok, true);
+    assert.equal(validatePluginState({ state: DEFAULT_STATE, region: 'eu', model: 'gemini-3.8-flash', authMode: 'full' }).ok, true);
+    assert.equal(validatePluginState({ state: DEFAULT_STATE, region: 'us', model: 'gemini-4-hydrogen', authMode: 'express' }).code,
+        'MULTI_REGION_REQUIRES_FULL_AUTH');
+    assert.equal(validatePluginState({ state: priority, region: 'us', model: 'gemini-4-hydrogen', authMode: 'express' }).code,
+        'TIER_REQUIRES_GLOBAL');
     assert.equal(validatePluginState({ state: DEFAULT_STATE, region: 'europe-west4', model: 'gemini-2.5-pro' }).ok, true);
     assert.equal(validatePluginState({ state: DEFAULT_STATE, region: 'us-central1', model: 'gemini-4-hydrogen',
         source: 'makersuite' }).ok, true);

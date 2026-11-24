@@ -12,7 +12,9 @@ import {
     DEFAULT_STATE,
     EXTENSION_ID,
     isGoogleSource,
+    isVertexMultiRegion,
     PROTOCOL_VERSION,
+    serverSupportsVertexMultiRegion,
     VERTEX_SOURCE,
 } from './constants.js';
 import { createLocalizer, localizeValidation } from './i18n.js';
@@ -150,12 +152,18 @@ export function createPublicApi({
         const requestedState = normalizeState(stateOverride ?? { tier: inspect.tier, paygoOnly: inspect.paygoOnly });
         const vertexDefaults = source === VERTEX_SOURCE ? getVertexDefaults?.(data) : undefined;
         const region = source === VERTEX_SOURCE ? resolveVertexRegion(data, vertexDefaults) : undefined;
+        const reverseProxy = inspect.originalReverseProxy.trim();
+        const baseUrl = inspect.originalBaseUrl.trim();
+        const effectiveAuthMode = source === VERTEX_SOURCE && !reverseProxy && !data.secret_id
+            ? (String(data.vertexai_auth_mode ?? vertexDefaults?.vertexai_auth_mode ?? 'express').trim().toLowerCase() || 'express')
+            : undefined;
 
         const validation = validatePluginState({
             state: requestedState,
             source,
             model: data.model,
             region,
+            authMode: effectiveAuthMode,
         });
         if (!validation.ok) {
             throw new PayGoRequestError(localizeValidation(localize, validation, requestedState), validation.code);
@@ -173,8 +181,6 @@ export function createPublicApi({
         const proxyPassword = meta?.sink && data.reverse_proxy === meta.sink
             ? (meta.originalProxyPassword ?? '')
             : data.proxy_password;
-        const reverseProxy = inspect.originalReverseProxy.trim();
-        const baseUrl = inspect.originalBaseUrl.trim();
 
         const payload = {
             ...buildPreparePayload(
@@ -193,6 +199,14 @@ export function createPublicApi({
         };
 
         const prepared = await serverClient.prepare(payload, signal ? { signal } : undefined);
+        if (source === VERTEX_SOURCE && !reverseProxy
+            && isVertexMultiRegion(payload.vertexai_region)
+            && !serverSupportsVertexMultiRegion(prepared, payload.vertexai_region)) {
+            throw new PayGoRequestError(
+                localize('vertex_paygo.multi_region.server_upgrade', { region: payload.vertexai_region }),
+                'MULTI_REGION_SERVER_UPGRADE_REQUIRED',
+            );
+        }
 
         const nativeGemini4 = isNativeGemini4Request(data);
         if (nativeGemini4 && !serverSupportsNativeGemini4(prepared, data.model)) {

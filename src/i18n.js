@@ -18,6 +18,7 @@ export const MESSAGES = Object.freeze({
     'vertex_paygo.floating.hint.flex': 'Cheaper but slower; may fail when Google is busy',
     'vertex_paygo.floating.hint.priority': 'Costs more; handled first',
     'vertex_paygo.gemini4.server_upgrade': 'Gemini 4 compatibility requires the updated server plugin. Update the server plugin and restart SillyTavern.',
+    'vertex_paygo.multi_region.server_upgrade': 'Vertex AI multi-region “{region}” requires the updated server plugin. Update the server plugin and restart SillyTavern.',
     'vertex_paygo.gemini4.budget_exhausted': 'Gemini 4 used the whole output budget before writing any reply text. Thinking tokens count toward Max Response Length: raise it or lower the Reasoning Effort.',
     'vertex_paygo.gemini4.no_output': 'Gemini 4 returned no reply text (reason: {reason}).',
     'vertex_paygo.gemini4.upstream_error': 'Google rejected the Gemini 4 request (HTTP {status}): {message}',
@@ -206,6 +207,7 @@ export const MESSAGES = Object.freeze({
     'vertex_paygo.server_error.google_secret_missing': 'Google AI Studio API key is missing. Select or save an API key in API Connections.',
     'vertex_paygo.server_error.vertex_secret_missing_express': 'Vertex AI Express API key is missing. Select an Express API key or switch to Service Account (Full) mode.',
     'vertex_paygo.server_error.vertex_secret_missing_full': 'Vertex AI service account JSON is missing. Save or select a service account credential in API Connections.',
+    'vertex_paygo.validation.multi_region_full_required': 'Vertex AI multi-region “{region}” requires Service Account (Full) authentication. Switch Authentication Mode to Full or set Region to global.',
     'vertex_paygo.server_error.vertex_invalid_service_account': 'The saved Vertex AI service account JSON or private key is invalid. Re-import a valid service account key file.',
     'vertex_paygo.server_error.vertex_oauth_rejected': 'Google OAuth rejected the Vertex AI service account credential ({reason}). Check system clock sync and service account status.',
     'vertex_paygo.server_error.vertex_oauth_rejected_generic': 'Google OAuth rejected the Vertex AI service account credential. Check system clock sync and service account status.',
@@ -399,6 +401,10 @@ export function localizeValidation(localize, validation, state = undefined) {
                 region: validation.regionSupport?.region ?? '',
                 regions: (validation.regionSupport?.regions ?? []).join(', '),
             });
+        case 'MULTI_REGION_REQUIRES_FULL_AUTH':
+            return localize('vertex_paygo.validation.multi_region_full_required', {
+                region: validation.region ?? 'us / eu',
+            });
         default:
             return String(validation?.message ?? '');
     }
@@ -413,6 +419,10 @@ function localizeServerHttpErrorMessage(localize, error) {
             return localize(details.authMode === 'full'
                 ? 'vertex_paygo.server_error.vertex_secret_missing_full'
                 : 'vertex_paygo.server_error.vertex_secret_missing_express');
+        case 'VERTEX_MULTI_REGION_REQUIRES_FULL_AUTH':
+            return localize('vertex_paygo.validation.multi_region_full_required', {
+                region: typeof details.region === 'string' && details.region.trim() ? details.region.trim() : 'us / eu',
+            });
         case 'VERTEX_INVALID_SERVICE_ACCOUNT':
             return localize('vertex_paygo.server_error.vertex_invalid_service_account');
         case 'VERTEX_OAUTH_REJECTED': {

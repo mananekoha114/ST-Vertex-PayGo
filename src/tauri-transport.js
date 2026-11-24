@@ -51,9 +51,9 @@ function safeCall(fn, ...args) {
 
 // Vertex requests are priced in the region validation checked: the request's
 // own region, else the host default.
-function usagePriceFor(getUsagePrice, data, state) {
+function usagePriceFor(getUsagePrice, data, state, vertexDefaults = undefined) {
     return sourceOf(data) === VERTEX_SOURCE
-        ? safeCall(getUsagePrice, data, state, { region: resolveVertexRegion(data) })
+        ? safeCall(getUsagePrice, data, state, { region: resolveVertexRegion(data, vertexDefaults) })
         : safeCall(getUsagePrice, data, state);
 }
 
@@ -224,6 +224,13 @@ function profilePayload(profile) {
         else if (Object.hasOwn(hints, hint)) output[field] = hints[hint];
         else delete output[field];
     }
+    if (!Object.hasOwn(output, 'vertexai_region')
+        && output.chat_completion_source === VERTEX_SOURCE
+        && !profile.exclude?.includes('api-url')
+        && typeof profile['api-url'] === 'string'
+        && profile['api-url'].trim()) {
+        output.vertexai_region = profile['api-url'];
+    }
     return output;
 }
 
@@ -249,12 +256,13 @@ function stateFromData({ data, context, yaml, presetName, fallback = true, state
 }
 
 function metadataFor({ data, state, target, captureUsageContext, getUsagePrice, startedAt,
-    existing, chatId: suppliedChatId, price: suppliedPrice }) {
+    existing, chatId: suppliedChatId, price: suppliedPrice, vertexDefaults }) {
     const source = sourceOf(data);
     const model = modelOf(data);
     const shouldObserve = isGoogleSource(source) && requiresPlugin(state, source, model);
     if (!shouldObserve) return null;
     const prior = isRecord(existing) ? existing : null;
+    const region = source === VERTEX_SOURCE ? resolveVertexRegion(data, vertexDefaults) : undefined;
     // A request's conversation and price are snapshots.  In particular,
     // preserve an explicit null chat ID: filling it from the current chat at
     // the final fetch boundary would misattribute delayed background work.
@@ -267,7 +275,7 @@ function metadataFor({ data, state, target, captureUsageContext, getUsagePrice, 
         ? suppliedPrice
         : Object.hasOwn(prior ?? {}, 'price')
             ? prior.price
-            : usagePriceFor(getUsagePrice, data, state);
+            : usagePriceFor(getUsagePrice, data, state, vertexDefaults);
     return {
         ...(prior ?? {}),
         id: makeRequestId(target),
@@ -275,6 +283,7 @@ function metadataFor({ data, state, target, captureUsageContext, getUsagePrice, 
         chatId: chatId ?? null,
         source,
         model,
+        ...(region !== undefined ? { region } : {}),
         tier: state.tier,
         paygoOnly: source === VERTEX_SOURCE && state.paygoOnly,
         stream: Boolean(data?.stream),
@@ -339,6 +348,7 @@ function callObservation(usageClient, response, metadata, signal) {
             chatId: metadata.chatId,
             source: metadata.source,
             model: metadata.model,
+            ...(metadata.region !== undefined ? { region: metadata.region } : {}),
             tier: metadata.tier,
             paygoOnly: metadata.paygoOnly,
             stream: metadata.stream,
@@ -418,6 +428,7 @@ export function installTauriTransport({
                 target,
                 captureUsageContext,
                 getUsagePrice,
+                vertexDefaults: context?.chatCompletionSettings,
                 startedAt: Date.now(),
             });
             data[REQUEST_STATE] = marked[REQUEST_STATE];
@@ -432,6 +443,7 @@ export function installTauriTransport({
                 target,
                 captureUsageContext,
                 getUsagePrice,
+                vertexDefaults: context?.chatCompletionSettings,
                 startedAt: Date.now(),
             });
             data[REQUEST_STATE] = marked[REQUEST_STATE];
@@ -460,6 +472,7 @@ export function installTauriTransport({
                 target,
                 captureUsageContext,
                 getUsagePrice,
+                vertexDefaults: context?.chatCompletionSettings,
                 startedAt: Date.now(),
                 metadataData: preset ? { ...preset, ...data, chat_completion_source: source } : data,
             });
@@ -484,6 +497,7 @@ export function installTauriTransport({
                 target,
                 captureUsageContext,
                 getUsagePrice,
+                vertexDefaults: context?.chatCompletionSettings,
                 startedAt: Date.now(),
             });
             marked[REQUEST_STATE].background = true;
@@ -526,6 +540,7 @@ export function installTauriTransport({
                     target,
                     captureUsageContext,
                     getUsagePrice,
+                    vertexDefaults: context?.chatCompletionSettings,
                     startedAt: Date.now(),
                 }) ?? {}),
             };
@@ -583,12 +598,23 @@ export function installTauriTransport({
                 ? readTauriState(data, { yaml })
                 : (requestMetadata?.state ? normalizeState(requestMetadata.state) : { ...DEFAULT_STATE });
             validationState = state;
+            const vertexDefaults = context?.chatCompletionSettings;
             if (isGoogleSource(source)) {
+                const effectiveRegion = source === VERTEX_SOURCE
+                    ? resolveVertexRegion(data, vertexDefaults)
+                    : undefined;
+                const rawAuthMode = source === VERTEX_SOURCE && !data.reverse_proxy && !data.secret_id
+                    ? (data.vertexai_auth_mode ?? vertexDefaults?.vertexai_auth_mode)
+                    : undefined;
+                const authMode = rawAuthMode !== undefined && String(rawAuthMode).trim() !== ''
+                    ? String(rawAuthMode).trim().toLowerCase()
+                    : undefined;
                 const validation = validatePluginState({
                     state,
                     source,
                     model: modelOf(data),
-                    region: data.vertexai_region,
+                    region: effectiveRegion,
+                    authMode,
                 });
                 if (!validation.ok) throw validationError(validation);
                 validationState = validation.state;
@@ -602,23 +628,29 @@ export function installTauriTransport({
             }
             prepared = applyTauriParameters(data, validationState, { yaml });
             signalAbort(signal);
+            const preparedSource = sourceOf(prepared);
+            const preparedRegion = preparedSource === VERTEX_SOURCE
+                ? resolveVertexRegion(prepared, vertexDefaults)
+                : undefined;
             const samePricingIdentity = requestMetadata
-                && requestMetadata.source === sourceOf(prepared)
+                && requestMetadata.source === preparedSource
                 && requestMetadata.model === modelOf(prepared)
                 && requestMetadata.tier === validationState.tier
+                && requestMetadata.region === preparedRegion
                 && Object.hasOwn(requestMetadata, 'price');
             // The request-start price is a snapshot.  Keep it when host work
-            // leaves source/model/tier unchanged; recompute only when the
-            // final payload actually changed the pricing identity.
+            // leaves source/model/tier/region unchanged; recompute only when
+            // the final payload actually changed the pricing identity.
             const finalPrice = samePricingIdentity
                 ? requestMetadata.price
-                : usagePriceFor(getUsagePrice, prepared, validationState);
+                : usagePriceFor(getUsagePrice, prepared, validationState, vertexDefaults);
             usageMetadata = metadataFor({
                 data: prepared,
                 state: validationState,
                 target,
                 captureUsageContext,
                 getUsagePrice,
+                vertexDefaults,
                 existing: requestMetadata,
                 chatId: requestMetadata && Object.hasOwn(requestMetadata, 'chatId')
                     ? requestMetadata.chatId : (fallbackChatId ?? null),
